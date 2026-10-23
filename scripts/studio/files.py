@@ -15,12 +15,16 @@ class StudioError(Exception):
     pass
 
 
-FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1920), "poster-a3": (1240, 1754)}
-LAYOUTS = ("top", "bottom", "center")
+FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1920), "poster-a3": (1240, 1754),
+           "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
+LAYOUTS = ("side", "stack", "ground", "overlay-top", "overlay-bottom")
+LAYOUT_ALIASES = {"top": "overlay-top", "bottom": "overlay-bottom", "center": "ground"}
+LOGO_POSITIONS = ("bottom-right", "bottom-left", "top-right", "top-left")
 GROUNDS = ("background", "text", "accent")
 GENERIC_FONTS = ("serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif",
                  "georgia", "times new roman", "arial", "helvetica", "inherit")
-BRAND_KEYS = ("name", "background", "text", "accent", "extra colours", "headline font", "body font", "logo", "voice", "never", "notes")
+BRAND_KEYS = ("name", "background", "text", "accent", "extra colours", "headline font", "body font", "logo", "logo position",
+              "headline colour", "voice", "never", "never show", "notes")
 BRIEF_KEYS = ("objective", "audience", "message", "format", "fixed", "cta", "language")
 VARIANT_KEYS = ("mandate", "default", "headline", "image_prompt", "layout", "ground", "why")
 FONT = re.compile(r"[\w .'-]+")
@@ -73,16 +77,21 @@ def load_brand(d) -> dict:
     kv = _kv_file(d, "brand.md", "write about ten `key: value` lines, or run `brand --from-dossier <brandkit dir>`")
     _need(kv, "brand.md", ("name", "background", "text"))
     extras = [x.strip() for x in kv.get("extra colours", "").split(",") if x.strip()]
-    for k, v in [(k, kv.get(k)) for k in ("background", "text", "accent")] + [("extra colours", x) for x in extras]:
+    for k, v in [(k, kv.get(k)) for k in ("background", "text", "accent", "headline colour")] + [("extra colours", x) for x in extras]:
         if v and not HEX.fullmatch(v):
             raise StudioError(f"brand.md: {k} must be a hex colour like #1e2a24, got {v!r}")
     for k in ("headline font", "body font"):
         if kv.get(k) and not FONT.fullmatch(kv[k]):
             raise StudioError(f"brand.md: {k} must be a font name (letters, digits, spaces, . ' -), got {kv[k]!r}")
+    pos = kv.get("logo position", "bottom-right").lower()
+    if pos not in LOGO_POSITIONS:
+        raise StudioError(f"brand.md: logo position must be one of {', '.join(LOGO_POSITIONS)}, got {pos!r}")
+    holder = kv.get("logo", "").lower() == "placeholder"
     b = {"name": kv["name"], "background": hex6(kv["background"]), "text": hex6(kv["text"]),
          "accent": hex6(kv["accent"]) if kv.get("accent") else "", "extras": [hex6(x) for x in extras],
-         "hfont": kv.get("headline font", ""), "bfont": kv.get("body font", ""), "logo": kv.get("logo", ""),
-         "voice": kv.get("voice", ""), "never": [x.strip() for x in kv.get("never", "").replace(",", ";").split(";") if x.strip()],
+         "hfont": kv.get("headline font", ""), "bfont": kv.get("body font", ""), "logo": "" if holder else kv.get("logo", ""),
+         "logo_placeholder": holder, "logo_position": pos, "headline_colour": hex6(kv["headline colour"]) if kv.get("headline colour") else "",
+         "never_show": [x.strip() for x in kv.get("never show", "").split(";") if x.strip()], "voice": kv.get("voice", ""), "never": [x.strip() for x in kv.get("never", "").replace(",", ";").split(";") if x.strip()],
          "notes": kv.get("notes", ""), "other": {k: v for k, v in kv.items() if k not in BRAND_KEYS}}
     if b["logo"] and not (Path(d) / b["logo"]).exists():
         b["logo_missing"] = True
@@ -90,7 +99,31 @@ def load_brand(d) -> dict:
 
 
 def palette(b) -> list:
-    return [c for c in [b["background"], b["text"], b["accent"], *b["extras"]] if c]
+    return [c for c in [b["background"], b["text"], b["accent"], b["headline_colour"], *b["extras"]] if c]
+
+
+def never_checkable(entries) -> list:
+    return [w for w in entries if len(w.split()) <= 3]
+
+
+def never_hits(entries, text: str) -> list:
+    """The checkable never entries found in the text (guards only on the sides that are word characters)."""
+    def pat(w):
+        return (r"(?<!\w)" if w[0].isalnum() or w[0] == "_" else "") + re.escape(w) + (r"(?!\w)" if w[-1].isalnum() or w[-1] == "_" else "")
+    return [w for w in never_checkable(entries) if re.search(pat(w), text, re.I)]
+
+
+def norm_layout(x):
+    return LAYOUT_ALIASES.get(x, x)
+
+
+def parse_format(fmt: str):
+    if fmt in FORMATS:
+        return FORMATS[fmt]
+    m = re.fullmatch(r"(\d{2,4})x(\d{2,4})", fmt)
+    if m and all(200 <= int(x) <= 4000 for x in m.groups()):
+        return int(m.group(1)), int(m.group(2))
+    raise StudioError(f"brief.md: format must be one of {', '.join(FORMATS)}, or WxH like 1600x900 (each side 200 to 4000), got {fmt!r}")
 
 
 def font_css(name: str, generic: str) -> str:
@@ -100,10 +133,8 @@ def font_css(name: str, generic: str) -> str:
 def load_brief(d) -> dict:
     kv = _kv_file(d, "brief.md", "write it as `key: value` lines (objective, audience, message, ...)")
     _need(kv, "brief.md", ("objective", "audience", "message"))
-    fmt = kv.get("format", "post-4x5")
-    if fmt not in FORMATS:
-        raise StudioError(f"brief.md: format must be one of {', '.join(FORMATS)}, got {fmt!r}")
-    return {**{k: kv.get(k, "") for k in BRIEF_KEYS}, "format": fmt, "size": FORMATS[fmt],
+    fmt = kv.get("format", "post-4x5").strip().lower()
+    return {**{k: kv.get(k, "") for k in BRIEF_KEYS}, "format": fmt, "size": parse_format(fmt),
             "other": {k: v for k, v in kv.items() if k not in BRIEF_KEYS}}
 
 
@@ -120,6 +151,7 @@ def load_variants(d) -> list:
         for k in ("headline", "image"):
             if not isinstance(v["default"], dict) or not v["default"].get(k):
                 raise StudioError(f"{p.name}: key 'default' needs {k!r}")
+        v["layout"] = norm_layout(v["layout"])
         if v["layout"] not in LAYOUTS:
             raise StudioError(f"{p.name}: key 'layout' must be one of {', '.join(LAYOUTS)}")
         if v["ground"] not in GROUNDS:

@@ -51,19 +51,45 @@ def items(dossier, path, soft):
     return out
 
 
-def brand_md(dossier, piece_dir) -> tuple:
+def pick_look(dossier, look, soft):
+    """The look whose colours, fonts and logo are kept (None: the dossier has no looks)."""
+    ls = items(dossier, "looks", soft)
+    ids = [x["id"] for x in ls if x.get("id")]
+    if look:
+        if ids and look not in ids:
+            raise StudioError(f"unknown look {look!r}: the dossier has {', '.join(ids)}")
+        return look
+    masters = [x["id"] for x in ls if x.get("master") is True and x.get("id")]
+    if len(masters) == 1:
+        return masters[0]
+    if len(ids) == 1:
+        return ids[0]
+    if ids:
+        raise StudioError(f"the dossier names several looks and none is the master: {', '.join(ids)}. Rerun with --look <id>")
+    return None
+
+
+def of_look(rows, look):
+    return [r for r in rows if not look or not r.get("look") or r["look"] == look]
+
+
+def brand_md(dossier, piece_dir, look=None) -> tuple:
     """(text of brand.md, names of what is missing)."""
     soft, kv = [], {}
+    look = pick_look(dossier, look, soft)
     kv["name"] = scalar(dossier, "identity.name", soft)
-    for c in items(dossier, "colours", soft):
+    cols = of_look(items(dossier, "colours", soft), look)
+    for c in cols:
         if c.get("hex") and c.get("role") in ("background", "text", "accent"):
             kv.setdefault(c["role"], c["hex"])
-        elif c.get("hex"):
+    for c in cols:
+        used = [x.lower() for x in [kv.get(k, "") for k in ("background", "text", "accent")] + kv.get("extra colours", "").split(", ")]
+        if c.get("hex") and c["hex"].lower() not in used:
             kv["extra colours"] = ", ".join(filter(None, [kv.get("extra colours"), c["hex"]]))
-    for t in items(dossier, "typography", soft):
+    for t in of_look(items(dossier, "typography", soft), look):
         if t.get("family"):
             kv.setdefault("headline font" if t.get("role") in ("headings", "headline", "display") else "body font", t["family"])
-    for lg in items(dossier, "logo", soft):
+    for lg in of_look(items(dossier, "logo", soft), look):
         f = Path(dossier) / lg.get("file", "") if lg.get("file") else None
         if f and f.exists():
             kv.setdefault("logo", os.path.relpath(f, piece_dir))
@@ -72,9 +98,11 @@ def brand_md(dossier, piece_dir) -> tuple:
     voice = "; ".join(filter(None, [", ".join(traits) if traits else "", reg or ""]))
     if voice:
         kv["voice"] = voice
-    never = (scalar(dossier, "voice.banned_words", soft) or []) + (scalar(dossier, "imagery.dont", soft) or [])
+    never, dont = scalar(dossier, "voice.banned_words", soft), scalar(dossier, "imagery.dont", soft)
     if never:
         kv["never"] = "; ".join(never)
+    if dont:
+        kv["never show"] = "; ".join(dont)
     style = scalar(dossier, "imagery.style", soft)
     if style:
         kv["notes"] = f"imagery: {style}"

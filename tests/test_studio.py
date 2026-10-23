@@ -21,6 +21,7 @@ INPUTS = ("brand.md", "brief.md", "judge.md")
 
 def env():
     e = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "CHROME")}
+    e["STUDIO_OFFLINE"] = "1"
     e["PATH"] = os.pathsep.join(p for p in e.get("PATH", "").split(os.pathsep) if p and not (Path(p) / "codex").exists())
     return e
 
@@ -61,7 +62,7 @@ class Flow(unittest.TestCase):
             self.assertTrue((self.d / n).exists(), n)
         self.assertFalse((self.d / "image.png").exists())
         self.assertEqual(json.loads((self.d / "image.json").read_text())["engine"], "none")
-        self.assertIn('width:1080px', (self.d / "piece.html").read_text())
+        self.assertIn('width:1800px', (self.d / "piece.html").read_text())
 
     def test_divergence_page(self):
         h = (self.d / "3-divergence.html").read_text()
@@ -73,10 +74,10 @@ class Flow(unittest.TestCase):
         ck = json.loads((self.d / "check.json").read_text())
         st = {r["id"]: r["status"] for r in ck["results"]}
         self.assertEqual((st["palette"], st["fonts"], st["contrast"], st["never"]), ("pass",) * 4)
-        self.assertEqual((st["image"], st["logo"]), ("warn", "warn"))
-        self.assertEqual(len(ck["judge"]), 3)
-        self.assertEqual(ck["judge"][0]["level"], "major")
-        self.assertIn("check: 5 pass · 2 warn · 0 fail · 3 judge notes", self.out.stdout)
+        self.assertEqual((st["image"], st["logo"], st["headline colour"]), ("warn", "warn", "pass"))
+        self.assertEqual(len(ck["judge"]), 4)
+        self.assertEqual(ck["judge"][0]["level"], "minor")
+        self.assertIn("check: 6 pass · 2 warn · 0 fail · 0 major judge notes (4 notes)", self.out.stdout)
 
     def test_decide_keep_and_again(self):
         d = piece()
@@ -155,12 +156,12 @@ class Edges(unittest.TestCase):
         d = piece()
         build(d)
         h = (d / "piece.html").read_text()
-        h = re.sub(r"(\.hl\{[^}]*?)color:#1e2a24", r"\1color:#f4efe6", h)
+        h = re.sub(r"(\.hl\{[^}]*?)color:#c8553d", r"\1color:#f4efe6", h)
         (d / "piece.html").write_text(h)
         run("check", d)
         ck = json.loads((d / "check.json").read_text())
         self.assertEqual({r["id"]: r["status"] for r in ck["results"]}["contrast"], "fail")
-        self.assertEqual(ck["summary"]["fail"], 1)
+        self.assertEqual(ck["summary"]["fail"], 2)
 
     def test_never_word_fails(self):
         d = piece()
@@ -202,6 +203,7 @@ class Edges(unittest.TestCase):
         self.assertEqual(run("compose", d, ok=False).returncode, 2)
         self.assertEqual(run("image", d, "--engine", "none", ok=False).returncode, 2)
         run("compose", d, "--headline", "Drink it slow", "--subline", "Tea, aged.", "--layout", "bottom")
+        self.assertIn('data-layout="overlay-bottom"', (d / "piece.html").read_text())
         self.assertIn("Tea, aged.", (d / "piece.html").read_text())
         run("check", d)
         self.assertEqual(json.loads((d / "check.json").read_text())["headline"], "Drink it slow")
@@ -255,6 +257,211 @@ class Edges(unittest.TestCase):
         run("compose", d)
         self.assertIn("warning: the image was drawn for v1", run("compose", d).stdout)
         self.assertIn("rerun compose and check", r.stdout)
+
+
+def kv(d, name, **changes):
+    t = (d / name).read_text()
+    for k, v in changes.items():
+        k = k.replace("_", " ")
+        t = re.sub(rf"(?im)^(- )?{k}:.*\n?", "", t).rstrip("\n") + (f"\n- {k}: {v}\n" if v is not None else "\n")
+    (d / name).write_text(t)
+
+
+def prep(**brand):
+    d = piece()
+    kv(d, "brand.md", **brand)
+    for cmd in ("brand", "brief", "diverge"):
+        run(cmd, d)
+    run("pick", d, "v2")
+    return d
+
+
+def results(d):
+    return {r["id"]: r for r in json.loads((d / "check.json").read_text())["results"]}
+
+
+def sized(d, n):
+    (d / "image.png").write_bytes((EXAMPLE / "source" / "still-life.png").read_bytes())
+    return d
+
+
+class Formats(unittest.TestCase):
+    def fmt(self, f, ok=True):
+        d = piece()
+        kv(d, "brief.md", format=f)
+        return run("brief", d, ok=ok)
+
+    def test_named_and_free(self):
+        self.assertIn("poster-3x2 1800x1200", self.fmt("poster-3x2").stdout)
+        self.assertIn("linkedin 1200x627", self.fmt("linkedin").stdout)
+        self.assertIn("1600x900", self.fmt("1600x900").stdout)
+
+    def test_bad_free_size(self):
+        for f in ("1600x", "100x900", "5000x900", "wide"):
+            r = self.fmt(f, ok=False)
+            self.assertEqual(r.returncode, 2, f)
+            self.assertIn("poster-3x2", r.stderr)
+            self.assertIn("WxH", r.stderr)
+
+
+class Layouts(unittest.TestCase):
+    def test_each_layout_with_and_without_image(self):
+        for fmt in ("poster-3x2", "post-4x5"):
+            for lay in ("side", "stack", "ground", "overlay-top", "overlay-bottom"):
+                for img in (False, True):
+                    d = prep(logo_position="top-left")
+                    kv(d, "brief.md", format=fmt)
+                    run("brief", d)
+                    if img:
+                        sized(d, 0)
+                    run("compose", d, "--layout", lay)
+                    run("check", d)
+                    h = (d / "piece.html").read_text()
+                    want = "stack" if lay == "side" and fmt == "post-4x5" else lay
+                    self.assertIn(f'<body data-layout="{want}">', h)
+                    self.assertEqual(('class="bg"' in h), img)
+                    self.assertEqual(results(d)["palette"]["status"], "pass", (fmt, lay, img))
+                    for c in ("hl", "sub", "cta", "blk", "logo"):
+                        self.assertIn(c, h)
+                    if lay.startswith("overlay"):
+                        self.assertIn("linear-gradient", h)
+                        self.assertEqual(results(d)["contrast"]["status"], "warn")
+                        self.assertIn("the image under it decides", results(d)["contrast"]["say"])
+
+    def test_alias_and_diverge_warning(self):
+        d = prep()
+        run("compose", d, "--layout", "top")
+        self.assertIn('data-layout="overlay-top"', (d / "piece.html").read_text())
+        vs = [json.loads(p.read_text()) for p in sorted((d / "variants").glob("*.json"))]
+        self.assertEqual(vs[1]["layout"], "side")
+        self.assertNotIn("can diverge", run("diverge", d).stdout)
+        for p in (d / "variants").glob("*.json"):
+            v = json.loads(p.read_text())
+            v["layout"] = "center"
+            p.write_text(json.dumps(v))
+        self.assertIn("warning: all variants use ground: the layout can diverge too", run("diverge", d).stdout)
+        self.assertIn("ground", (d / "3-divergence.html").read_text())
+
+    def test_bad_layout(self):
+        d = piece()
+        p = d / "variants" / "v1.json"
+        p.write_text(json.dumps({**json.loads(p.read_text()), "layout": "middle"}))
+        self.assertIn("overlay-top", run("diverge", d, ok=False).stderr)
+
+
+class Logo(unittest.TestCase):
+    def test_placeholder_positions_and_check(self):
+        for pos in ("bottom-right", "bottom-left", "top-right", "top-left"):
+            d = prep(logo_position=pos)
+            run("compose", d)
+            run("check", d)
+            h = (d / "piece.html").read_text()
+            self.assertIn('class="logo ph">logo<', h)
+            self.assertIn(("left" if pos.endswith("left") else "right") + ":", re.search(r"\.logo\{[^}]*\}", h).group(0))
+            self.assertEqual(results(d)["logo"]["status"], "warn")
+            self.assertIn("logo placeholder", results(d)["logo"]["say"])
+
+    def test_file_logo_and_bad_position(self):
+        d = prep()
+        (d / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>")
+        kv(d, "brand.md", logo="logo.svg")
+        run("compose", d)
+        run("check", d)
+        self.assertEqual(results(d)["logo"]["status"], "pass")
+        kv(d, "brand.md", logo_position="middle")
+        r = run("brand", d, ok=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("logo position", r.stderr)
+
+    def test_no_logo_sets_the_name(self):
+        d = prep(logo=None)
+        run("compose", d)
+        self.assertIn('class="sig"', (d / "piece.html").read_text())
+
+
+class HeadlineColour(unittest.TestCase):
+    def hl(self, d):
+        return re.search(r"\.hl\{[^}]*?;color:(#\w+)", (d / "piece.html").read_text()).group(1)
+
+    def test_used_and_checked(self):
+        d = prep()
+        run("compose", d)
+        run("check", d)
+        self.assertEqual(self.hl(d), "#c8553d")
+        self.assertEqual(results(d)["headline colour"]["status"], "pass")
+
+    def test_fallback_when_unreadable(self):
+        d = prep()
+        kv(d, "brand.md", headline_colour="#F4EFE6")
+        run("compose", d)
+        self.assertEqual(self.hl(d), "#1e2a24")
+        run("check", d)
+        r = results(d)["headline colour"]
+        self.assertEqual(r["status"], "warn")
+        self.assertIn("#f4efe6", r["say"])
+        self.assertIn("unreadable on", r["say"])
+
+    def test_check_fails_on_wrong_colour(self):
+        d = prep()
+        run("compose", d)
+        (d / "piece.html").write_text((d / "piece.html").read_text().replace("color:#c8553d", "color:#1e2a24", 1))
+        run("check", d)
+        self.assertEqual(results(d)["headline colour"]["status"], "fail")
+
+    def test_bad_hex(self):
+        d = prep()
+        kv(d, "brand.md", headline_colour="red")
+        self.assertIn("headline colour", run("brand", d, ok=False).stderr)
+
+
+class Never(unittest.TestCase):
+    def test_glued_character_fails(self):
+        d = prep()
+        run("pick", d, "v2", "--headline", "Tea\u2014a little wild")
+        run("compose", d)
+        run("check", d)
+        self.assertEqual(results(d)["never"]["status"], "fail")
+        self.assertIn("\u2014", results(d)["never"]["say"])
+        self.assertIn("\u2014", (d / "3-divergence.html").read_text())
+
+    def test_exclamation_glued(self):
+        d = prep()
+        run("pick", d, "v2", "--headline", "Wild!")
+        run("compose", d)
+        run("check", d)
+        self.assertEqual(results(d)["never"]["status"], "fail")
+
+    def test_prose_is_not_verifiable(self):
+        d = prep(never="detox; a tone that sounds like a pharmacy leaflet")
+        run("compose", d)
+        run("check", d)
+        r = results(d)["never"]
+        self.assertEqual(r["status"], "warn")
+        self.assertIn("not verifiable: a tone that sounds like a pharmacy leaflet", r["say"])
+
+    def test_never_show_parsed(self):
+        d = prep(never_show="smiling people; a glass held to camera")
+        sys.path.insert(0, str(ST))
+        from files import load_brand
+        self.assertEqual(load_brand(d)["never_show"], ["smiling people", "a glass held to camera"])
+        self.assertIn("a glass held to camera", (d / "1-brand.html").read_text())
+
+
+class Summary(unittest.TestCase):
+    def test_counts_majors(self):
+        d = prep()
+        (d / "judge.md").write_text("- [major] a\n- [major] b\n- [minor] c\n- d\n")
+        run("compose", d)
+        out = run("check", d).stdout
+        self.assertIn("2 major judge notes (4 notes)", out)
+        ck = json.loads((d / "check.json").read_text())
+        self.assertEqual((ck["summary"]["major"], ck["summary"]["judge"]), (2, 4))
+        self.assertIn("2 major judge notes", (d / "5-check.html").read_text())
+        run("check", d, "--lang", "fr")
+        self.assertIn("2 notes majeures du juge", (d / "5-check.html").read_text())
+
+    def test_status_legend(self):
+        self.assertIn("x = present, - = not yet", run("status", piece()).stdout)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
   "headline": "Sour, then sweet, then gone.",
   "subline": "Small-batch kombucha. Pour one.",
   "image_prompt": "Macro close-up of kombucha being poured into a plain glass on raw wood, bubbles rising, soft daylight from the left, shallow depth of field",
-  "layout": "bottom",
+  "layout": "stack",
   "ground": "background",
   "why": "A sceptic does not need a reason, they need a taste. Three short beats make the mouthful imaginable, and the pour shows it is a drink, not a potion."
 }

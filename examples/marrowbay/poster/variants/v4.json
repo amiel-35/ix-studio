@@ -6,8 +6,8 @@
   },
   "headline": "For when water is too polite and soda is too much.",
   "subline": "",
-  "image_prompt": "One glass bottle alone on a bare kitchen counter at dusk, lit only by an open fridge, long shadow, quiet and a little funny",
-  "layout": "center",
-  "ground": "text",
+  "image_prompt": "One glass bottle alone on a bare kitchen counter at dusk, lit only by an open fridge, long shadow, quiet and a little funny, the top of the frame left calm and empty",
+  "layout": "overlay-top",
+  "ground": "background",
   "why": "Our audience gave up soda and misses the bite. Naming the gap between water and soda speaks to that moment directly, with a wink."
 }

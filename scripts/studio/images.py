@@ -1,12 +1,13 @@
 """images: the image prompt, and the engines that can draw it.
 
-An engine is one function `(prompt, size, out_path) -> (ok, message)`. None of them ever raises: a failure is a
+An engine is one function `(prompt, (w, h), out_path) -> (ok, message)`. None of them ever raises: a failure is a
 message, and the piece is composed on a flat brand ground meanwhile. The image never carries text; the headline is
 laid in HTML by compose.
 """
 
 import base64
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -16,13 +17,16 @@ from pathlib import Path
 
 from ui import cli
 
-SUFFIX = ("No text, no letters, no words, no logos, no watermark. Leave calm, uncluttered space where the headline sits "
-          "({layout} of the frame).")
+BASE = "No text, no letters, no words, no logos, no watermark."
+CALM = "Leave the {where} ~40% of the frame calm and uncluttered, the headline sits there."
+BESIDE = "The text sits beside the image, not on it: let the subject fill the frame, centred, it may be cropped to fit."
+OR_MODEL = "google/gemini-2.5-flash-image"
+RATIOS = ((1, 1), (2, 3), (3, 2), (3, 4), (4, 3), (4, 5), (5, 4), (9, 16), (16, 9), (21, 9))
 SIGNS = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
 
 
 def none_msg(d) -> str:
-    return (f"No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI "
+    return (f"No image generator available: set OPENAI_API_KEY or OPENROUTER_API_KEY (your key) or install and log in to the Codex CLI "
             f"(your ChatGPT plan), then run `{cli(d, 'image')}`, and rerun compose and check after. "
             f"The piece is composed on a flat brand ground meanwhile.")
 
@@ -34,21 +38,45 @@ def build_prompt(brand, brief, variant) -> str:
              f"Mood from the brand palette: background {brand['background']}, text {brand['text']}"
              + (f", accent {brand['accent']}" if brand["accent"] else "") + ".",
              f"Voice of the brand: {brand['voice']}." if brand["voice"] else "",
-             f"Do not show: {'; '.join(brand['never'])}." if brand["never"] else "",
-             SUFFIX.format(layout=variant["layout"])]
+             f"Do not show: {'; '.join(brand.get('never_show', []))}." if brand.get("never_show") else "",
+             BASE, calm(variant.get("layout"))]
     return " ".join(p for p in parts if p)
+
+
+def calm(layout) -> str:
+    where = {"overlay-top": "top", "top": "top", "overlay-bottom": "bottom", "bottom": "bottom"}.get(layout)
+    return CALM.format(where=where) if where else BESIDE
 
 
 def api_size(brief) -> str:
     w, h = brief["size"]
-    return "1024x1024" if w == h else "1024x1536"
+    return "1536x1024" if w > h else "1024x1024" if w == h else "1024x1536"
 
 
-def openai(prompt, size, out):
+def api_ratio(size) -> str:
+    w, h = size
+    a, b = min(RATIOS, key=lambda r: abs(math.log(r[0] / r[1] / (w / h))))
+    return f"{a}:{b}"
+
+
+def model_for(engine) -> str:
+    env = os.environ.get("STUDIO_IMAGE_MODEL")
+    return {"openai": env or "gpt-image-1", "openrouter": env or OR_MODEL, "codex": "codex (its own image tool)"}.get(engine, "")
+
+
+def api_error(err) -> str:
+    try:
+        return json.loads(err.read())["error"]["message"]
+    except Exception:
+        return str(err.reason)
+
+
+def openai(prompt, wh, out):
+    size = api_size({"size": wh})
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
         return False, "OPENAI_API_KEY is not set."
-    model = os.environ.get("STUDIO_IMAGE_MODEL", "gpt-image-1")
+    model = model_for("openai")
     req = urllib.request.Request("https://api.openai.com/v1/images/generations", method="POST",
                                  data=json.dumps({"model": model, "prompt": prompt, "size": size, "n": 1}).encode(),
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
@@ -61,17 +89,39 @@ def openai(prompt, size, out):
             with urllib.request.urlopen(item["url"], timeout=120) as r:
                 Path(out).write_bytes(r.read())
     except urllib.error.HTTPError as err:
-        try:
-            detail = json.loads(err.read())["error"]["message"]
-        except Exception:
-            detail = err.reason
-        return False, f"OpenAI refused the request (HTTP {err.code}): {detail}"
+        return False, f"OpenAI refused the request (HTTP {err.code}): {api_error(err)}"
     except Exception as err:
         return False, f"OpenAI request failed: {err}"
     return True, f"drawn by OpenAI ({model})"
 
 
-def codex(prompt, size, out):
+def openrouter(prompt, wh, out):
+    key = os.environ.get("OPENROUTER_API_KEY")
+    if not key:
+        return False, "OPENROUTER_API_KEY is not set."
+    model = model_for("openrouter")
+    body = {"model": model, "messages": [{"role": "user", "content": prompt}], "modalities": ["image", "text"],
+            "image_config": {"aspect_ratio": api_ratio(wh)}}
+    req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", method="POST", data=json.dumps(body).encode(),
+                                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            data = json.load(r)
+    except urllib.error.HTTPError as err:
+        return False, f"OpenRouter refused the request (HTTP {err.code}): {api_error(err)}"
+    except Exception as err:
+        return False, f"OpenRouter request failed: {err}"
+    try:
+        url = data["choices"][0]["message"]["images"][0]["image_url"]["url"]
+        raw = base64.b64decode(url.split(",", 1)[1])
+    except Exception:
+        return False, f"OpenRouter returned no image from {model} (not every model draws images; set STUDIO_IMAGE_MODEL)."
+    Path(out).write_bytes(raw)
+    return True, f"drawn by OpenRouter ({model})"
+
+
+def codex(prompt, wh, out):
+    size = api_size({"size": wh})
     exe = shutil.which("codex")
     if not exe:
         return False, "The codex CLI is not on PATH."
@@ -97,21 +147,22 @@ def codex(prompt, size, out):
     return False, f"codex ran (exit {r.returncode}) but saved no usable PNG or JPEG image" + (f": {last.strip()[:200]}" if last else ".")
 
 
-def none(prompt, size, out):
+def none(prompt, wh, out):
     return False, none_msg(Path(out).parent)
 
 
-ENGINES = {"openai": openai, "codex": codex, "none": none}
+ENGINES = {"openai": openai, "openrouter": openrouter, "codex": codex, "none": none}
 
 
 def auto_engine() -> str:
-    return "openai" if os.environ.get("OPENAI_API_KEY") else "codex" if shutil.which("codex") else "none"
+    env = os.environ.get
+    return "openai" if env("OPENAI_API_KEY") else "openrouter" if env("OPENROUTER_API_KEY") else "codex" if shutil.which("codex") else "none"
 
 
-def generate(engine, prompt, size, out):
+def generate(engine, prompt, wh, out):
     """Returns (engine used, ok, message). A failing engine falls back to none, keeping its message."""
     name = auto_engine() if engine == "auto" else engine
-    ok, msg = ENGINES[name](prompt, size, out)
+    ok, msg = ENGINES[name](prompt, tuple(wh), out)
     if ok:
         return name, True, msg
     return "none", False, msg if name == "none" else f"{name}: {msg} {none_msg(Path(out).parent)}"

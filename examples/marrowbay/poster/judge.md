@@ -1,3 +1,4 @@
-- [major] The headline asks the reader to do nothing; the call to action is the only verb on the page.
-- [minor] The accent colour is used only on the shape: the piece feels more oat than brick.
-- The image prompt answers the headline well: one jar, no people, daylight.
+- [minor] The cup on the right is cut by the edge of the text panel: shift the crop or move the cup left in the still life.
+- [minor] The headline fills only the top of the panel's middle band and the panel feels empty below the call to action; a larger headline would use the space.
+- [minor] The logo placeholder is a dashed square in the corner: fine as a stand-in, but the piece is not final until the real logo is dropped in.
+- The image answers the headline: one jar of amber tea, no people, daylight, and the panel does not cover any of it.

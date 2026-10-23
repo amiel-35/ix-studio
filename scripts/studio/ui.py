@@ -46,8 +46,8 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 code,pre{font:12px/1.5 ui-monospace,Menlo,monospace}pre{background:var(--soft);border-radius:6px;padding:var(--s1);overflow-x:auto;white-space:pre-wrap;margin:var(--s1) 0}
 table{border-collapse:collapse;width:100%}td,th{border-top:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}
 .mock{position:relative;container-type:inline-size;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:100%}
-.mock .hatch{position:absolute;inset:0}.mock .cap{position:absolute;left:5%;right:5%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
-.mock .mblk{position:absolute;left:5%;right:5%;padding:5cqw}.mock .mblk b{display:block;font-size:8cqw;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
+.mock .hatch{position:absolute}.mock .cap{position:absolute;padding:0 3%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
+.mock .mblk{position:absolute;padding:3cqw;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.mock .mblk b{display:block;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
 .picked{outline:3px solid var(--accent)}
 .view{position:relative;width:100%;max-width:340px;border:1px solid var(--line);overflow:hidden}.view img,.view iframe{display:block;width:100%;border:0}
 .view iframe{position:absolute;left:0;top:0;transform-origin:0 0}

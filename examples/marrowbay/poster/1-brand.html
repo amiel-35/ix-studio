@@ -27,8 +27,8 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 code,pre{font:12px/1.5 ui-monospace,Menlo,monospace}pre{background:var(--soft);border-radius:6px;padding:var(--s1);overflow-x:auto;white-space:pre-wrap;margin:var(--s1) 0}
 table{border-collapse:collapse;width:100%}td,th{border-top:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}
 .mock{position:relative;container-type:inline-size;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:100%}
-.mock .hatch{position:absolute;inset:0}.mock .cap{position:absolute;left:5%;right:5%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
-.mock .mblk{position:absolute;left:5%;right:5%;padding:5cqw}.mock .mblk b{display:block;font-size:8cqw;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
+.mock .hatch{position:absolute}.mock .cap{position:absolute;padding:0 3%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
+.mock .mblk{position:absolute;padding:3cqw;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.mock .mblk b{display:block;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
 .picked{outline:3px solid var(--accent)}
 .view{position:relative;width:100%;max-width:340px;border:1px solid var(--line);overflow:hidden}.view img,.view iframe{display:block;width:100%;border:0}
 .view iframe{position:absolute;left:0;top:0;transform-origin:0 0}
@@ -39,14 +39,15 @@ a{color:var(--accent)}
 <header class="top"><span>studio</span><span>·</span><span>step 1 of 5</span><span>·</span><b>brand</b><span class="mute">Marrowbay Ferments</span></header>
 <div class="todo"><b>What to look at, what to answer</b><ul><li>Are the colours and fonts right, in the sample sentences?</li><li>Is the voice a sentence you would sign, and the never-list complete?</li><li>Answer: fix <code>brand.md</code> and rerun, or go to the brief.</li></ul></div>
 <h1>Marrowbay Ferments</h1>
-<div class="card"><h3>Colours</h3><div class="sws"><div class="sw"><div class="chip" style="background:#f4efe6"></div><b>background</b><br><code>#f4efe6</code></div><div class="sw"><div class="chip" style="background:#1e2a24"></div><b>text</b><br><code>#1e2a24</code></div><div class="sw"><div class="chip" style="background:#c8553d"></div><b>accent</b><br><code>#c8553d</code></div></div></div>
+<div class="card"><h3>Colours</h3><div class="sws"><div class="sw"><div class="chip" style="background:#f4efe6"></div><b>background</b><br><code>#f4efe6</code></div><div class="sw"><div class="chip" style="background:#1e2a24"></div><b>text</b><br><code>#1e2a24</code></div><div class="sw"><div class="chip" style="background:#c8553d"></div><b>accent</b><br><code>#c8553d</code></div><div class="sw"><div class="chip" style="background:#c8553d"></div><b>headline</b><br><code>#c8553d</code></div></div></div>
 <div class="card"><h3>Fonts</h3>
 <p style="font-family:&#x27;Fraunces&#x27;,Georgia,serif;font-size:32px;margin:0;line-height:1.1">Marrowbay Ferments: a headline in Fraunces</p>
 <p style="font-family:&#x27;Inter&#x27;,system-ui,sans-serif;margin:8px 0 0">body: the quick brown fox, set in Inter.</p></div>
-<div class="cols"><div class="card"><h3>Logo</h3><span class="mute">no logo file: the name is set in type</span></div>
+<div class="cols"><div class="card"><h3>Logo</h3><span class="mute">logo placeholder: the logo file was not given</span></div>
 <div class="card"><h3>Voice</h3>warm, plain, a little playful; we brew, you drink; short sentences</div>
-<div class="card"><h3>Never</h3><span class="pill fail">gut health</span> <span class="pill fail">detox</span> <span class="pill fail">superfood</span> <span class="pill fail">miracle</span> </div></div>
-<div class="card"><h3>Notes</h3>small-batch kombucha from a harbour town; daylight still lifes on raw wood, never smiling people holding a glass</div>
+<div class="card"><h3>Never</h3><span class="pill fail">gut health</span> <span class="pill fail">detox</span> <span class="pill fail">superfood</span> <span class="pill fail">miracle</span> <span class="pill fail">!</span> <span class="pill fail">—</span> </div>
+<div class="card"><h3>Never show</h3><span class="pill fail">smiling people holding a glass</span> <span class="pill fail">stock-photo wellness scenes</span> <span class="pill fail">anyone drinking to camera</span> </div></div>
+<div class="card"><h3>Notes</h3>small-batch kombucha from a harbour town; daylight still lifes on raw wood</div>
 
 <nav class="pn"><span></span><a href="2-brief.html">next: 2 brief →</a></nav>
 <footer>Next command: <code>python3 ../../../scripts/studio brief .</code></footer>

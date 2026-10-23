@@ -6,5 +6,9 @@
 - headline font: Fraunces
 - body font: Inter
 - voice: warm, plain, a little playful; we brew, you drink; short sentences
-- never: gut health; detox; superfood; miracle
-- notes: small-batch kombucha from a harbour town; daylight still lifes on raw wood, never smiling people holding a glass
+- headline colour: #C8553D
+- logo: placeholder
+- logo position: bottom-right
+- never: gut health; detox; superfood; miracle; !; —
+- never show: smiling people holding a glass; stock-photo wellness scenes; anyone drinking to camera
+- notes: small-batch kombucha from a harbour town; daylight still lifes on raw wood

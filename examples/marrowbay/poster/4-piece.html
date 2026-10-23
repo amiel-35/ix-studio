@@ -27,8 +27,8 @@ h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 code,pre{font:12px/1.5 ui-monospace,Menlo,monospace}pre{background:var(--soft);border-radius:6px;padding:var(--s1);overflow-x:auto;white-space:pre-wrap;margin:var(--s1) 0}
 table{border-collapse:collapse;width:100%}td,th{border-top:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}
 .mock{position:relative;container-type:inline-size;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:100%}
-.mock .hatch{position:absolute;inset:0}.mock .cap{position:absolute;left:5%;right:5%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
-.mock .mblk{position:absolute;left:5%;right:5%;padding:5cqw}.mock .mblk b{display:block;font-size:8cqw;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
+.mock .hatch{position:absolute}.mock .cap{position:absolute;padding:0 3%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
+.mock .mblk{position:absolute;padding:3cqw;display:flex;flex-direction:column;justify-content:center;overflow:hidden}.mock .mblk b{display:block;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
 .picked{outline:3px solid var(--accent)}
 .view{position:relative;width:100%;max-width:340px;border:1px solid var(--line);overflow:hidden}.view img,.view iframe{display:block;width:100%;border:0}
 .view iframe{position:absolute;left:0;top:0;transform-origin:0 0}
@@ -38,11 +38,11 @@ a{color:var(--accent)}
 </style></head><body><main>
 <header class="top"><span>studio</span><span>·</span><span>step 4 of 5</span><span>·</span><b>piece</b><span class="mute">v2</span></header>
 <div class="todo"><b>What to look at, what to answer</b><ul><li>Read the headline first, then see if the image answers it.</li><li>Answer: go to the check, or change the pick and recompose.</li></ul></div>
-<div class="cols"><div class="small"><div class="view"><img src="piece.png" alt=""></div><p><a href="piece.html">piece.html</a> · 1080×1350</p></div><div>
+<div class="cols"><div class="small"><div class="view"><img src="piece.png" alt=""></div><p><a href="piece.html">piece.html</a> · 1800×1200</p></div><div>
 <h1>It&#x27;s tea that got a little wild.</h1><p class="mute">v2 · Say what it is: strip the mystery and describe kombucha in the plainest, friendliest words.</p>
-<h3>Image prompt</h3><pre>A single glass jar of amber tea on a raw wooden table beside a teacup and a loose tea bag tag, steam, window daylight, calm and uncluttered. Format 1080x1350 (post-4x5). Mood from the brand palette: background #f4efe6, text #1e2a24, accent #c8553d. Voice of the brand: warm, plain, a little playful; we brew, you drink; short sentences. Do not show: gut health; detox; superfood; miracle. No text, no letters, no words, no logos, no watermark. Leave calm, uncluttered space where the headline sits (top of the frame).</pre>
-<h3>Image engine</h3><p>none: No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI (your ChatGPT plan), then run `python3 ../../../scripts/studio image .`, and rerun compose and check after. The piece is composed on a flat brand ground meanwhile.</p>
-<h3>Placeholder</h3><ul><li>no generated image: flat brand ground</li><li>no logo file: the name is set in type</li></ul></div></div>
+<h3>Image prompt</h3><pre>A single glass jar of amber tea on a raw wooden table beside a teacup and a loose tea bag tag, steam, window daylight, calm and uncluttered</pre>
+<h3>Image engine</h3><p>user: image.png provided by you</p>
+<h3>Placeholder</h3><ul><li>logo placeholder: the logo file was not given</li></ul></div></div>
 <nav class="pn"><a href="3-divergence.html">← previous: 3 divergence</a><a href="5-check.html">next: 5 check →</a></nav>
 <footer>Next command: <code>python3 ../../../scripts/studio check .</code></footer>
 </main><script>document.querySelectorAll('.view[data-w]').forEach(function(v){var f=v.querySelector('iframe');if(!f)return;

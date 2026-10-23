@@ -16,9 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import checks  # noqa: E402
 import compose  # noqa: E402
 import dossier  # noqa: E402
+import gfonts  # noqa: E402
 import images  # noqa: E402
 import pages  # noqa: E402
-from files import (GROUNDS, LAYOUTS, StudioError, image_file, load_brand, load_brief, load_pick, load_variants, palette, picked,  # noqa: E402
+from files import (GROUNDS, LAYOUT_ALIASES, LAYOUTS, StudioError, image_file, load_brand, load_brief, load_pick, load_variants, norm_layout, palette, picked,  # noqa: E402
                    read_json, today, write_json)
 from ui import PAGES, cli  # noqa: E402
 
@@ -51,7 +52,7 @@ def cmd_brand(a):
         if target.exists() and not a.force:
             raise StudioError(f"{target} exists: use --force to overwrite it")
         d.mkdir(parents=True, exist_ok=True)
-        text, miss = dossier.brand_md(a.from_dossier, d)
+        text, miss = dossier.brand_md(a.from_dossier, d, a.look)
         target.write_text(text, encoding="utf-8")
         print(f"brand.md written from {a.from_dossier}" + (f" (missing: {', '.join(miss)})" if miss else ""))
         try:
@@ -61,6 +62,8 @@ def cmd_brand(a):
             return
     b = load_brand(d)
     print(f"brand ok: {b['name']} · {len(palette(b))} colours · fonts {b['hfont'] or '-'} / {b['bfont'] or '-'}")
+    for msg in gfonts.check([b["hfont"], b["bfont"]]):
+        print(f"warning: {msg}")
     page(a, 1)
 
 
@@ -75,6 +78,8 @@ def cmd_diverge(a):
     load_brand(a.dir), load_brief(a.dir)
     vs = load_variants(a.dir)
     print(f"{len(vs)} variants ok: {', '.join(v['id'] for v in vs)}")
+    if len({v["layout"] for v in vs}) == 1:
+        print(f"warning: all variants use {vs[0]['layout']}: the layout can diverge too")
     page(a, 3)
 
 
@@ -108,10 +113,10 @@ def cmd_image(a):
         return
     if not v and not a.prompt:
         raise StudioError('no pick yet: give the image prompt with --prompt "...", or put your own image.png in ' + str(d))
-    prompt = images.build_prompt(brand, brief, {"layout": "top", **(v or {}), "image_prompt": a.prompt or v["image_prompt"]})
+    prompt = images.build_prompt(brand, brief, {"layout": "overlay-top", **(v or {}), "image_prompt": a.prompt or v["image_prompt"]})
     tmp = d / "image.new.png"
     tmp.unlink(missing_ok=True)
-    engine, ok, msg = images.generate(a.engine, prompt, images.api_size(brief), tmp)
+    engine, ok, msg = images.generate(a.engine, prompt, brief["size"], tmp)
     if ok:
         os.replace(tmp, d / "image.png")
         (d / "image.jpg").unlink(missing_ok=True)
@@ -119,7 +124,7 @@ def cmd_image(a):
         tmp.unlink(missing_ok=True)
     if ok or not have:
         write_json(d / "image.json", {"engine": engine, "variant": v["id"] if v else "hand", "prompt": prompt,
-                                      "model": os.environ.get("STUDIO_IMAGE_MODEL", "gpt-image-1") if engine == "openai" else "", "message": msg})
+                                      "model": images.model_for(engine), "message": msg})
     else:
         msg += f" The existing {have} is kept."
     print(f"image: {engine}: {msg}")
@@ -134,11 +139,11 @@ def cmd_compose(a):
         if image_file(d) and meta.get("variant") and meta["variant"] != v["id"]:
             print(f"warning: the image was drawn for {meta['variant']}, the pick is {v['id']}: " + cli(d, "image"))
     elif a.headline:
-        v, headline = {"id": "hand", "layout": "top", "ground": "background", "subline": ""}, None
+        v, headline = {"id": "hand", "layout": "side", "ground": "background", "subline": ""}, None
     else:
         raise StudioError("no pick yet: " + cli(d, "pick", "<id>") + " or write the piece by hand: " + cli(d, "compose", "--headline", '"..."'))
     headline = a.headline or headline
-    v = {**v, **{k: x for k, x in (("subline", a.subline), ("layout", a.layout), ("ground", a.ground)) if x is not None}}
+    v = {**v, **{k: x for k, x in (("subline", a.subline), ("layout", norm_layout(a.layout)), ("ground", a.ground)) if x is not None}}
     (d / "piece.html").write_text(compose.render(d, brand, brief, v, headline), encoding="utf-8")
     print(f"piece.html written ({brief['size'][0]}x{brief['size'][1]}): {headline!r}")
     (d / "piece.png").unlink(missing_ok=True)
@@ -205,6 +210,7 @@ def cmd_status(a):
     have = {n: (d / n).exists() for n in names}
     have["image.png"] = bool(image_file(d))
     nvar = len(list((d / "variants").glob("*.json"))) if (d / "variants").is_dir() else 0
+    print("  x = present, - = not yet")
     for n in names:
         extra = f" ({nvar})" if n == "variants" else ""
         print(f"  {'x' if have[n] else '-'} {n}{extra}")
@@ -244,6 +250,7 @@ def build_parser():
     s = add("brand", cmd_brand, "check brand.md, render 1-brand.html (or write brand.md from a brandkit dossier)")
     s.add_argument("--from-dossier", metavar="BRANDKIT_DIR")
     s.add_argument("--force", action="store_true", help="overwrite an existing brand.md")
+    s.add_argument("--look", help="with --from-dossier: the look to take colours, fonts and logo from (needed when the dossier has several looks and no master)")
     add("brief", cmd_brief, "check brief.md, render 2-brief.html")
     add("diverge", cmd_diverge, "check variants/*.json, render 3-divergence.html")
     s = add("pick", cmd_pick, "choose a variant")
@@ -257,7 +264,7 @@ def build_parser():
     s = add("compose", cmd_compose, "write piece.html (and piece.png), render 4-piece.html")
     s.add_argument("--headline", help="your own headline (required when there is no pick)")
     s.add_argument("--subline")
-    s.add_argument("--layout", choices=LAYOUTS)
+    s.add_argument("--layout", choices=(*LAYOUTS, *LAYOUT_ALIASES))
     s.add_argument("--ground", choices=GROUNDS)
     add("check", cmd_check, "check piece.html against the brand, render 5-check.html")
     s = add("decide", cmd_decide, "keep the piece or ask again")

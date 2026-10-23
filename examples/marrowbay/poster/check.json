@@ -3,10 +3,11 @@
   "variant": "v2",
   "headline": "It's tea that got a little wild.",
   "summary": {
-    "pass": 5,
-    "warn": 2,
+    "pass": 7,
+    "warn": 1,
     "fail": 0,
-    "judge": 3
+    "judge": 4,
+    "major": 0
   },
   "results": [
     {
@@ -22,7 +23,12 @@
     {
       "id": "contrast",
       "status": "pass",
-      "say": "headline #1e2a24 on #f4efe6: contrast 13.0:1 (large text needs 3:1)"
+      "say": "headline #c8553d on #f4efe6: contrast 3.8:1 (large text needs 3:1)"
+    },
+    {
+      "id": "headline colour",
+      "status": "pass",
+      "say": "headline is #c8553d, the brand's headline colour"
     },
     {
       "id": "length",
@@ -36,27 +42,31 @@
     },
     {
       "id": "image",
-      "status": "warn",
-      "say": "placeholder: no generated image"
+      "status": "pass",
+      "say": "a generated or provided image is used"
     },
     {
       "id": "logo",
       "status": "warn",
-      "say": "no logo file: the brand name is set in type instead"
+      "say": "logo placeholder: drop the logo file in and set `logo: <path>`"
     }
   ],
   "judge": [
     {
-      "level": "major",
-      "say": "The headline asks the reader to do nothing; the call to action is the only verb on the page."
+      "level": "minor",
+      "say": "The cup on the right is cut by the edge of the text panel: shift the crop or move the cup left in the still life."
     },
     {
       "level": "minor",
-      "say": "The accent colour is used only on the shape: the piece feels more oat than brick."
+      "say": "The headline fills only the top of the panel's middle band and the panel feels empty below the call to action; a larger headline would use the space."
+    },
+    {
+      "level": "minor",
+      "say": "The logo placeholder is a dashed square in the corner: fine as a stand-in, but the piece is not final until the real logo is dropped in."
     },
     {
       "level": "note",
-      "say": "The image prompt answers the headline well: one jar, no people, daylight."
+      "say": "The image answers the headline: one jar of amber tea, no people, daylight, and the panel does not cover any of it."
     }
   ]
 }

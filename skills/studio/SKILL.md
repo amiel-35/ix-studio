@@ -25,22 +25,33 @@ each step, give the path of the page to open and the one question it asks.
 ## The flow
 
 1. **Brand, minimal.** `<dir>/brand.md`, about ten `key: value` lines: `name`, `background`, `text`, `accent`
-   (hex), `extra colours`, `headline font`, `body font`, `logo` (a file path), `voice`, `never`. Take them, in this
+   (hex), `extra colours` (a comma-separated list of hex: `extra colours: #E8C547, #7A8B6F`), `headline colour`
+   (hex), `headline font`, `body font`, `logo` (a file path, or `placeholder` when the logo exists but was not given:
+   the piece shows a dashed square), `logo position` (`bottom-right` default, `bottom-left`, `top-right`, `top-left`),
+   `voice`, `never` (the exact words or characters that must not appear in the copy, `;`-separated, e.g.
+   `never: detox; superfood; —`; prose there shows up as "not verifiable"), `never show` (what the image must not
+   show, free prose, `;`-separated). Take them, in this
    order, from: a design-system skill that speaks for the brand (read it as it prescribes, copy only what it says);
-   an existing brand dossier (`python3 "$ST" brand <dir> --from-dossier <brand dir>`); the user's words. Never
+   an existing brand dossier (`python3 "$ST" brand <dir> --from-dossier <brand dir> [--look <name>]`; when the dossier
+   has several looks and no master, the tool stops and asks for `--look`); the user's words. Never
    invent a colour, a font or a logo: what nobody gave stays out, and you say so. Then `python3 "$ST" brand <dir>`.
    The rich dossier (skill `brand-dossier`) stays available but is not required.
 2. **Brief of the piece.** `<dir>/brief.md`: `objective` (awareness, purchase, engagement...), `audience`,
-   `message`, `format` (`post-4x5`, `post-1x1`, `story`, `poster-a3`), optional `fixed`, `cta`, `language`. Clean
+   `message`, `format` (`post-4x5`, `post-1x1`, `story`, `poster-a3`, `poster-3x2`, `linkedin`, or a free size `WxH` like `1600x900`), optional `fixed`, `cta`, `language`. Clean
    the message of drawn-in solutions ("a photo of the bottle on a beach" is a solution, not a message). Then
    `python3 "$ST" brief <dir>`.
 3. **Divergence.** The method is the one of [design-divergent](https://github.com/amiel-35/ix-design-divergent):
    if that plugin is installed, follow it for the mandates and the attractor; it is the reference. Here, scaled to
    an ad: propose 3 stances that each look somewhere else, plus one rupture; then run **one subagent per mandate,
    in parallel, blind** (each sees the brand, the brief, `bans.md` if any, and its own mandate only). Each writes
-   `variants/<id>.json`: `mandate`, `default` (the headline and image it would have made by default, written down,
-   then set aside), `headline`, `subline`, `image_prompt` (what the image shows, no text in it), `layout`
-   (`top|bottom|center`), `ground` (`background|text|accent`), `why`. The brand does not diverge: the idea does.
+   `variants/<id>.json`: `mandate`, `default` (an object `{"headline": "...", "image": "..."}`: what it would have made by default, written
+   down, then set aside), `headline`, `subline`, `image_prompt` (what the image shows, no text in it), `layout`
+   (`side|stack|ground|overlay-top|overlay-bottom`), `ground` (`background|text|accent`), `why`. The brand does not
+   diverge: the idea does. **Pick a layout that does not cover the subject of the image.** `side` (image and a flat
+   brand panel next to each other; stacks in a portrait or square piece), `stack` (image above, panel below) and
+   `ground` (flat brand colour, the image a framed inset) never overlap the image; use `overlay-top` or
+   `overlay-bottom` only when the image prompt leaves that edge calm. Each mandate chooses its own layout: the
+   stances should not all share one (`diverge` warns when they do).
    Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."]`.
 4. **The piece.** `python3 "$ST" image <dir>` then `python3 "$ST" compose <dir>`. The image comes from an
    executor behind an adapter: the user's key (`OPENAI_API_KEY`), or locally their own plan through the Codex CLI.
@@ -48,8 +59,9 @@ each step, give the path of the page to open and the one question it asks.
    generator, and carry on. A user's own `image.png` dropped in the folder is kept.
 5. **Check.** Look at `piece.png` (or `piece.html`) as a judge with a fresh eye, ideally a subagent that did not
    write the variants: does the headline read in three seconds, does the image answer it, does it feel like the
-   brand, anything off (cropping, contrast, a cliché). Write `<dir>/judge.md`, one `- ` line per note, prefixed
-   `[minor]` or `[major]`. Notes annotate, they never block. Then `python3 "$ST" check <dir>`: the mechanical
+   brand, anything off (cropping, contrast, a cliché), and flag as `[major]` any claim that is in neither the brand nor the
+   brief (a figure, a place, a label or award, a promise). Write `<dir>/judge.md`, one `- ` line per note, prefixed
+   `[minor]` or `[major]`. Notes annotate, they never block; the summary counts the majors. Then `python3 "$ST" check <dir>`: the mechanical
    checks (palette, type, contrast, banned words) plus your notes, on one page.
 6. **The person decides.** `python3 "$ST" decide <dir> keep "<their words>"` or
    `python3 "$ST" decide <dir> again "<their words>"`. "Again" writes a ban that the next round of variants reads.

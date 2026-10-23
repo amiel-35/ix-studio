@@ -2,17 +2,20 @@
 <html lang="en"><head><meta charset="utf-8"><title>Marrowbay Ferments</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces&amp;family=Inter&amp;display=swap">
 <style>
 html,body{margin:0;padding:0}
-body{width:1080px;height:1350px;position:relative;overflow:hidden;background:#f4efe6}
-.bg{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover}
-.shape{position:absolute;bottom:-12%;right:-14%;width:756px;height:756px;border-radius:50%;background:rgba(200,85,61,0.16)}
-.blk{position:absolute;left:6%;right:6%;top:6%;padding:56px;background:#f4efe6;box-sizing:border-box}
-.hl{margin:0;font-family:'Fraunces',Georgia,serif;font-size:86px;line-height:1.05;font-weight:600;color:#1e2a24}
-.sub{margin:24px 0 0;font-family:'Inter',system-ui,sans-serif;font-size:34px;line-height:1.3;color:#1e2a24}
-.cta{display:inline-block;margin:32px 0 0;padding:10px 24px;border:3px solid #1e2a24;font-family:'Inter',system-ui,sans-serif;font-size:28px;font-weight:600;color:#1e2a24}
-.sig{margin-top:40px;font-family:'Fraunces',Georgia,serif;font-size:28px;color:#1e2a24}
-.logo{display:block;margin-top:40px;height:64px;max-width:60%}
+body{width:1800px;height:1200px;position:relative;overflow:hidden;background:#f4efe6}
+.bg{position:absolute;left:0px;top:0px;width:990px;height:1200px;object-fit:cover;box-sizing:border-box;}
+.shape{position:absolute;left:0px;top:0px;width:990px;height:1200px;overflow:hidden;background:rgba(200,85,61,0.14);box-sizing:border-box;}
+.shape::after{content:"";position:absolute;right:-12%;bottom:-18%;width:70%;padding-bottom:70%;border-radius:50%;background:rgba(200,85,61,0.16)}
+.blk{position:absolute;left:990px;top:0px;width:810px;height:1200px;padding:76px 76px 185px 76px;background:#f4efe6;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center}
+.hl{margin:0;font-family:'Fraunces',Georgia,serif;font-size:69px;line-height:1.05;font-weight:600;color:#c8553d}
+.sub{margin:33px 0 0;font-family:'Inter',system-ui,sans-serif;font-size:46px;line-height:1.3;color:#1e2a24}
+.cta{align-self:flex-start;margin:44px 0 0;padding:14px 33px;border:3px solid #1e2a24;font-family:'Inter',system-ui,sans-serif;font-size:38px;font-weight:600;color:#1e2a24}
+.sig{margin-top:54px;font-family:'Fraunces',Georgia,serif;font-size:38px;color:#1e2a24}
+.logo{position:absolute;right:54px;bottom:54px;z-index:2;display:block;height:98px;box-sizing:content-box}
+.ph{width:98px;border:2px dashed #1e2a24;display:flex;align-items:center;justify-content:center;font-family:'Inter',system-ui,sans-serif;font-size:27px;color:#1e2a24}
 </style></head>
-<body>
-<div class="shape"></div>
-<div class="blk"><h1 class="hl">It&#x27;s tea that got a little wild.</h1><p class="sub">Brewed in a harbour town. Drunk anywhere.</p><p class="cta">Find us at the market</p><div class="sig">Marrowbay Ferments</div></div>
+<body data-layout="side">
+<img class="bg" src="image.png" alt="">
+<div class="blk"><h1 class="hl">It&#x27;s tea that got a little wild.</h1><p class="sub">Brewed in a harbour town. Drunk anywhere.</p><p class="cta">Find us at the market</p></div>
+<div class="logo ph">logo</div>
 </body></html>

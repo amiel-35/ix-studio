@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Still life (fictional)</title>
+<style>
+html,body{margin:0;padding:0}
+body{width:1200px;height:1200px;position:relative;overflow:hidden;background:#F4EFE6}
+.wall{position:absolute;left:0;top:0;width:1200px;height:700px;background:rgba(30,42,36,.08)}
+.window{position:absolute;left:90px;top:70px;width:330px;height:430px;background:#F4EFE6;box-shadow:inset 0 0 0 14px rgba(30,42,36,.2)}
+.window::before{content:"";position:absolute;left:158px;top:0;width:14px;height:100%;background:rgba(30,42,36,.2)}
+.window::after{content:"";position:absolute;left:0;top:208px;width:100%;height:14px;background:rgba(30,42,36,.2)}
+.table{position:absolute;left:0;top:700px;width:1200px;height:500px;background:#1E2A24}
+.plank{position:absolute;left:0;width:1200px;height:3px;background:rgba(244,239,230,.12)}
+.shadow{position:absolute;left:470px;top:925px;width:460px;height:48px;border-radius:50%;background:rgba(244,239,230,.08)}
+.jar{position:absolute;left:520px;top:420px;width:340px;height:520px;border-radius:44px 44px 70px 70px;background:#C8553D;opacity:.94;overflow:hidden}
+.jar .tea{position:absolute;left:0;bottom:0;width:100%;height:84%;background:#C8553D}
+.jar .glow{position:absolute;left:36px;top:70px;width:26px;height:380px;border-radius:13px;background:#F4EFE6;opacity:.55}
+.lid{position:absolute;left:560px;top:372px;width:260px;height:62px;border-radius:12px;background:#1E2A24}
+.cup{position:absolute;left:930px;top:800px;width:190px;height:120px;border-radius:0 0 95px 95px;background:#F4EFE6}
+.cup::before{content:"";position:absolute;left:12px;top:0;width:166px;height:26px;border-radius:50%;background:#C8553D}
+.cup::after{content:"";position:absolute;right:-44px;top:24px;width:56px;height:56px;border-radius:50%;border:12px solid #F4EFE6;box-sizing:border-box}
+.tag{position:absolute;left:250px;top:880px;width:150px;height:84px;background:#F4EFE6;transform:rotate(-8deg)}
+.tag::after{content:"";position:absolute;left:14px;top:34px;width:16px;height:16px;border-radius:50%;background:#1E2A24}
+</style></head><body>
+<div class="wall"></div><div class="window"></div><div class="table"></div>
+<div class="plank" style="top:800px"></div><div class="plank" style="top:930px"></div><div class="plank" style="top:1080px"></div>
+<div class="shadow"></div><div class="tag"></div><div class="cup"></div>
+<div class="lid"></div><div class="jar"><div class="tea"></div><div class="glow"></div></div>
+</body></html>

@@ -5,8 +5,8 @@ from pathlib import Path
 
 from checks import text
 from colour import ink_on, rgba
-from compose import fonts_link
-from files import (font_css, ground_hex, image_file, load_brand, load_brief, load_pick, load_variants, picked, read_json,
+from compose import areas, fonts_link
+from files import (font_css, ground_hex, image_file, load_brand, load_brief, load_pick, load_variants, never_hits, picked, read_json,
                    StudioError)
 from ui import cli, e, shell, write_page
 
@@ -28,7 +28,8 @@ EN = {
     "mech": "Mechanical checks", "judge": "The judge's notes (never blocking)", "no_judge": "no judge.md yet", "call": "Your call",
     "keep": "Keep it", "again": "Again, and say what is wrong", "decision": "Decision", "verdict": "Verdict",
     "t5": ["Read the failures first, then the judge's notes: they are advice, not a gate.", "Answer: keep, or again with what is wrong (it is remembered)."],
-    "not_picked": "no pick yet",
+    "not_picked": "no pick yet", "never_show": "Never show", "ph_logo": "logo placeholder: the logo file was not given",
+    "sum": "{pass} pass · {warn} warn · {fail} fail · {major} major judge notes", "hcol": "headline",
 }
 FR = {
     "name": "Nom", "voice": "Voix", "never": "Jamais", "notes": "Notes", "logo": "Logo", "no_logo": "pas de logo : le nom est composé en lettres",
@@ -48,7 +49,8 @@ FR = {
     "mech": "Vérifications mécaniques", "judge": "Notes du juge (jamais bloquantes)", "no_judge": "pas encore de judge.md", "call": "À toi de trancher",
     "keep": "Garder", "again": "Recommencer, en disant ce qui ne va pas", "decision": "Décision", "verdict": "Verdict",
     "t5": ["Lis d'abord les échecs, puis les notes du juge : ce sont des conseils, pas une barrière.", "Réponse : garder, ou recommencer avec ce qui ne va pas (c'est retenu)."],
-    "not_picked": "pas encore de choix",
+    "not_picked": "pas encore de choix", "never_show": "Ne jamais montrer", "ph_logo": "emplacement du logo : le fichier n'a pas été donné",
+    "sum": "{pass} réussis, {warn} alertes, {fail} échec, {major} notes majeures du juge", "hcol": "titre",
 }
 
 
@@ -61,7 +63,7 @@ def swatch(h, label):
 
 
 def sws(b):
-    items = [("background", b["background"]), ("text", b["text"])] + ([("accent", b["accent"])] if b["accent"] else [])
+    items = [("background", b["background"]), ("text", b["text"])] + ([("accent", b["accent"])] if b["accent"] else []) + ([("headline", b["headline_colour"])] if b["headline_colour"] else [])
     return '<div class="sws">' + "".join(swatch(h, n) for n, h in items + [("extra", x) for x in b["extras"]]) + "</div>"
 
 
@@ -69,7 +71,8 @@ def brand_page(d, lang):
     t, b = tt(lang), load_brand(d)
     hf, bf = e(font_css(b["hfont"], "Georgia,serif")), e(font_css(b["bfont"], "system-ui,sans-serif"))
     logo = (f'<img src="{e(b["logo"])}" alt="" style="max-height:72px;max-width:260px">' if b["logo"] and not b.get("logo_missing")
-            else f'<span class="mute">{t["no_logo"]}</span>')
+            else f'<span class="mute">{t["ph_logo"] if b["logo_placeholder"] else t["no_logo"]}</span>')
+    never_show = "".join(f'<span class="pill fail">{e(w)}</span> ' for w in b["never_show"]) or f'<span class="mute">{t["none"]}</span>' 
     never = "".join(f'<span class="pill fail">{e(w)}</span> ' for w in b["never"]) or f'<span class="mute">{t["none"]}</span>'
     other = "".join(f"<tr><td>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in b["other"].items())
     body = f"""<h1>{e(b['name'])}</h1>
@@ -79,7 +82,8 @@ def brand_page(d, lang):
 <p style="font-family:{bf};margin:8px 0 0">{t['body']}: the quick brown fox, set in {e(b['bfont'] or 'the default sans')}.</p></div>
 <div class="cols"><div class="card"><h3>{t['logo']}</h3>{logo}</div>
 <div class="card"><h3>{t['voice']}</h3>{e(b['voice']) or '<span class="mute">' + t['none'] + '</span>'}</div>
-<div class="card"><h3>{t['never']}</h3>{never}</div></div>
+<div class="card"><h3>{t['never']}</h3>{never}</div>
+<div class="card"><h3>{t['never_show']}</h3>{never_show}</div></div>
 {('<div class="card"><h3>' + t['notes'] + '</h3>' + e(b['notes']) + '</div>') if b['notes'] else ''}
 {('<div class="card"><h3>' + t['other'] + '</h3><table>' + other + '</table></div>') if other else ''}"""
     return write_page(d, 1, shell(1, b["name"], body, lang, t["t1"], cli(d, "brief"), fonts_link(b)))
@@ -110,13 +114,16 @@ def mock(b, br, v, headline=None):
     w, h = br["size"]
     g = ground_hex(b, v["ground"])
     ink = ink_on(g, [b["text"], b["background"], *([b["accent"]] if b["accent"] else [])])
-    pos = {"top": "top:5%", "bottom": "bottom:5%", "center": "top:50%;transform:translateY(-50%)"}[v["layout"]]
-    cap = "bottom:3%" if v["layout"] == "top" else "top:3%"
+    lay, ir, tr, solid = areas(v["layout"], w, h)
+    box = lambda r: f"left:{r[0] / w:.1%};top:{r[1] / h:.1%};width:{r[2] / w:.1%};height:{r[3] / h:.1%}"
+    over = lay.startswith("overlay")
+    fill = (f"linear-gradient({'to bottom' if lay == 'overlay-top' else 'to top'},{rgba(g, .55)},{rgba(g, 0)})" if over else g)
+    fs = 8 * min(1, tr[2] / w * 1.3)
     sub = f"<small style=\"font-family:{e(font_css(b['bfont'], 'sans-serif'))}\">{e(v['subline'])}</small>" if v["subline"] else ""
-    return (f'<div class="mock" style="aspect-ratio:{w}/{h};background:{b["background"]}">'
-            f'<div class="hatch" style="background:repeating-linear-gradient(45deg,{rgba(b["text"], .13)} 0 6px,transparent 6px 12px)"></div>'
-            f'<div class="cap" style="{cap};color:{b["text"]}">{e(v["image_prompt"])}</div>'
-            f'<div class="mblk" style="{pos};background:{g};color:{ink}"><b style="font-family:{e(font_css(b["hfont"], "Georgia,serif"))}">{e(headline or v["headline"])}</b>{sub}</div></div>')
+    return (f'<div class="mock" style="aspect-ratio:{w}/{h};background:{g if lay == "ground" else b["background"]}">'
+            f'<div class="hatch" style="{box(ir)};background:repeating-linear-gradient(45deg,{rgba(b["text"], .13)} 0 6px,transparent 6px 12px)"></div>'
+            f'<div class="cap" style="left:{ir[0] / w:.1%};width:{ir[2] / w:.1%};{"bottom:3%" if lay == "overlay-top" else f"top:{(ir[1] + .03 * h) / h:.1%}"};color:{b["text"]}">{e(v["image_prompt"])}</div>'
+            f'<div class="mblk" style="{box(tr)};background:{fill};color:{ink}"><b style="font-size:{fs:.1f}cqw;font-family:{e(font_css(b["hfont"], "Georgia,serif"))}">{e(headline or v["headline"])}</b>{sub}</div></div>')
 
 
 def diverge_page(d, lang):
@@ -131,7 +138,7 @@ def diverge_page(d, lang):
         close = max(overlap(x["headline"], dh) for dh in defaults)
         if close >= 0.6:
             flags.append(f'<span class="pill warn">{t["close"]}</span>')
-        hit = [w for w in b["never"] if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", x["headline"], re.I)]
+        hit = never_hits(b["never"], x["headline"])
         if hit:
             flags.append(f'<span class="pill fail">{t["never_hit"]}: {e(", ".join(hit))}</span>')
         on = pk.get("variant") == x["id"]
@@ -167,7 +174,9 @@ def piece_page(d, lang):
     w, h = br["size"]
     im = read_json(Path(d) / "image.json", {})
     ph = [t["no_image"]] if not image_file(d) else []
-    if not b["logo"] or b.get("logo_missing"):
+    if b["logo_placeholder"]:
+        ph.append(t["ph_logo"])
+    elif not b["logo"] or b.get("logo_missing"):
         ph.append(t["no_logo"])
     ph_html = "".join(f"<li>{e(x)}</li>" for x in ph) or f'<li class="mute">{t["none"]}</li>'
     body = f"""<div class="cols"><div class="small">{view(d, w, h)}<p><a href="piece.html">piece.html</a> · {w}×{h}</p></div><div>
@@ -202,7 +211,7 @@ def check_page(d, lang):
         nxt = cli(d, "decide", "keep|again", '"..."')
     s = ck["summary"]
     body = f"""<div class="cols"><div class="small">{view(d, w, h)}</div><div>
-<h1>{s['pass']} pass · {s['warn']} warn · {s['fail']} fail</h1>
+<h1>{t['sum'].format(**{**s, 'major': s.get('major', 0)})}</h1>
 <h3>{t['mech']}</h3><table>{rows}</table><h3>{t['judge']}</h3><ul>{notes}</ul></div></div>{call}"""
     return write_page(d, 5, shell(5, ck.get("headline", ""), body, lang, t["t5"], nxt, fonts_link(b)))
 

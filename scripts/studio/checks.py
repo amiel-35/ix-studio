@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from colour import contrast, css_to_hex, hex6
-from files import GENERIC_FONTS, palette
+from files import GENERIC_FONTS, never_checkable, never_hits, palette
 
 RGB = re.compile(r"rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[\d.]+\s*)?\)")
 HEXC = re.compile(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b")
@@ -59,10 +59,22 @@ def run(d, brand):
     bad = sorted({f for f in fams if f and f not in ok_fonts})
     add("fonts", not bad, "every font is a brand font" if not bad else f"fonts outside the brand: {', '.join(bad)}")
 
-    fg, bg = _prop(css, "hl", "color"), _prop(css, "blk", "background")
+    lay = (re.search(r'<body[^>]*data-layout="([\w-]+)"', src) or [0, ""])[1]
+    fg, bgv = _prop(css, "hl", "color"), re.search(r"\.blk\s*\{[^}]*?(?<![-\w])background\s*:\s*([^;}]+)", css)
+    bg = css_to_hex(RGB.search(bgv.group(1)).group(0) if bgv and RGB.search(bgv.group(1)) else bgv.group(1)) if bgv else None
     if fg and bg:
         c = contrast(fg, bg)
-        add("contrast", c >= 3, f"headline {fg} on {bg}: contrast {c:.1f}:1 (large text needs 3:1)")
+        if lay.startswith("overlay"):
+            add("contrast", False, f"headline over the image with a light gradient of {bg}: contrast with {bg} is {c:.1f}:1; the image under it decides, look at piece.png", "warn")
+        else:
+            add("contrast", c >= 3, f"headline {fg} on {bg}: contrast {c:.1f}:1 (large text needs 3:1)")
+        want = brand["headline_colour"] or brand["text"]
+        if fg == want:
+            add("headline colour", True, f"headline is {fg}, the brand's " + ("headline colour" if brand["headline_colour"] else "text colour"))
+        elif contrast(want, bg) < 3:
+            add("headline colour", False, f"{want} is unreadable on {bg} ({contrast(want, bg):.1f}:1): {fg} used instead", "warn")
+        else:
+            add("headline colour", False, f"headline is {fg}, the brand's colour is {want}")
     else:
         add("contrast", False, "headline colour or its ground not found in piece.html (.hl color, .blk background)", "warn")
 
@@ -73,20 +85,29 @@ def run(d, brand):
     else:
         n = len(head.split())
         add("length", n <= 12, f"headline is {n} word(s)" + ("" if n <= 12 else ": shorter is stronger (12 max)"), "warn")
-        hits = [w for w in brand["never"] if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", " ".join((head, sub, cta)), re.I)]
-        add("never", not hits, "none of the brand's never-words appears" if not hits else f"forbidden by the brand: {', '.join(hits)}")
+        hits = never_hits(brand["never"], " ".join((head, sub, cta)))
+        prose = [w for w in brand["never"] if w not in never_checkable(brand["never"])]
+        if hits:
+            add("never", False, f"forbidden by the brand: {', '.join(hits)}")
+        elif prose:
+            add("never", False, f"not verifiable: {'; '.join(prose)}; write the exact words or characters", "warn")
+        else:
+            add("never", True, "none of the brand's never-words appears")
 
     has_img = 'class="bg"' in src
     add("image", has_img, "a generated or provided image is used" if has_img else "placeholder: no generated image", "warn")
-    has_logo = 'class="logo"' in src
-    add("logo", has_logo, "logo present" if has_logo else "no logo file: the brand name is set in type instead", "warn")
+    if 'class="logo ph"' in src:
+        add("logo", False, "logo placeholder: drop the logo file in and set `logo: <path>`", "warn")
+    else:
+        has_logo = 'class="logo"' in src
+        add("logo", has_logo, "logo present" if has_logo else "no logo file: the brand name is set in type instead", "warn")
     return res
 
 
 def summary(results, notes):
     c = {k: sum(1 for r in results if r["status"] == k) for k in ("pass", "warn", "fail")}
-    return {**c, "judge": len(notes)}
+    return {**c, "judge": len(notes), "major": sum(1 for n in notes if n["level"] == "major")}
 
 
 def line(s):
-    return f"check: {s['pass']} pass · {s['warn']} warn · {s['fail']} fail · {s['judge']} judge notes"
+    return f"check: {s['pass']} pass · {s['warn']} warn · {s['fail']} fail · {s['major']} major judge notes ({s['judge']} notes)"
