@@ -38,7 +38,8 @@ def build_prompt(brand, brief, variant) -> str:
     w, h = brief["size"]
     iw, ih = zone(brief, variant)
     parts = [variant["image_prompt"].rstrip(". ") + ".",
-             f"Format {iw}x{ih}, ratio {api_ratio((iw, ih))}, for the image zone of a {w}x{h} {brief['format']} poster.",
+             f"Format {iw}x{ih}, ratio {api_ratio((iw, ih))}, for the image zone of a {w}x{h} {brief['format']} poster"
+             " (this frame wins over any ratio named above: a series may reuse a prompt written for another format).",
              f"Mood from the brand palette: background {brand['background']}, text {brand['text']}"
              + (f", accent {brand['accent']}" if brand["accent"] else "") + ".",
              f"Voice of the brand: {brand['voice']}." if brand["voice"] else "",
