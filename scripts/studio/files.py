@@ -4,6 +4,7 @@ Nothing here renders anything. Every problem is a StudioError with a sentence a 
 """
 
 import json
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -26,7 +27,7 @@ GENERIC_FONTS = ("serif", "sans-serif", "monospace", "cursive", "fantasy", "syst
                  "georgia", "times new roman", "arial", "helvetica", "inherit")
 BRAND_KEYS = ("name", "background", "text", "accent", "extra colours", "headline font", "body font", "logo", "logo position",
               "headline colour", "headline case", "voice", "never", "never show", "notes", "slogan")
-BRIEF_KEYS = ("objective", "audience", "message", "format", "fixed", "cta", "language")
+BRIEF_KEYS = ("objective", "audience", "message", "format", "layout", "fixed", "cta", "language")
 VARIANT_KEYS = ("mandate", "default", "headline", "image_prompt", "layout", "ground", "why")
 FONT = re.compile(r"[\w .'-]+")
 UNCONFIRMED = re.compile(r"\s*\(\s*(?:to confirm|à confirmer)\s*(?:[:;]\s*(.*?))?\s*\)\s*$", re.I)
@@ -156,6 +157,26 @@ def parse_format(fmt: str):
     raise StudioError(f"brief.md: format must be one of {', '.join(FORMATS)}, or WxH like 1600x900 (each side 200 to 4000), got {fmt!r}")
 
 
+MOVING = re.compile(r"t[ée]l[ée]|\btv\b|vid[ée]o|film|spot|reel|motion|\d+\s*s(ec\w*)?\b")
+
+
+def parse_formats(raw: str):
+    """(still formats, moving formats left out). Several formats, comma-separated, make one piece each; a film is not
+    a still: the studio says so and leaves it out instead of failing."""
+    still, moving = [], []
+    for x in [x.strip().lower() for x in (raw or "post-4x5").split(",") if x.strip()]:
+        if MOVING.search(x):
+            moving.append(x)
+            continue
+        x = re.sub(r"\s+", "-", x)
+        parse_format(x)
+        if x not in still:
+            still.append(x)
+    if not still:
+        raise StudioError(f"brief.md: no still format in {raw!r} (a film is not made here): give one of {', '.join(FORMATS)}, or WxH")
+    return still, moving
+
+
 def font_css(name: str, generic: str) -> str:
     return f"'{name}',{generic}" if name else generic
 
@@ -163,9 +184,36 @@ def font_css(name: str, generic: str) -> str:
 def load_brief(d) -> dict:
     kv = _kv_file(d, "brief.md", "write it as `key: value` lines (objective, audience, message, ...)")
     _need(kv, "brief.md", ("objective", "audience", "message"))
-    fmt = kv.get("format", "post-4x5").strip().lower()
-    return {**{k: kv.get(k, "") for k in BRIEF_KEYS}, "format": fmt, "size": parse_format(fmt),
+    formats, moving = parse_formats(kv.get("format", ""))
+    fmt = formats[0]
+    lay = norm_layout(kv.get("layout", "").strip().lower())
+    if lay and lay not in LAYOUTS:
+        raise StudioError(f"brief.md: layout must be one of {', '.join(LAYOUTS)}, got {lay!r}")
+    return {**{k: kv.get(k, "") for k in BRIEF_KEYS}, "format": fmt, "size": parse_format(fmt), "layout": lay,
+            "formats": formats, "moving": moving,
             "other": {k: v for k, v in kv.items() if k not in BRIEF_KEYS}}
+
+
+def layout_of(brief, v) -> str:
+    """The layout of a variant: the brief's when it imposes one (a campaign keeps its look), else the variant's own."""
+    return brief.get("layout") or v.get("layout") or "side"
+
+
+def load_references(d) -> list:
+    """references.md: one `- <file or url> | <what it shows>` per line, the visuals the person kept for this brand.
+    The variants read them for their grammar (light, framing, rhythm), never to copy them."""
+    p = Path(d) / "references.md"
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines() if p.exists() else []:
+        line = line.strip()
+        if not line.startswith("- "):
+            continue
+        ref, _, note = line[2:].partition(" | ")
+        ref = ref.strip()
+        if ref:
+            web = ref.startswith(("http://", "https://"))
+            out.append({"ref": ref, "note": note.strip(), "web": web, "exists": web or (Path(d) / ref).exists()})
+    return out
 
 
 def load_variants(d) -> list:
@@ -218,3 +266,22 @@ def image_file(d):
 
 def ground_hex(b, name: str) -> str:
     return b[name] or b["text"]
+
+
+def rebase(text, src, dst, keys=("logo",)) -> str:
+    """brand.md or references.md moved from src to dst: relative file paths still point at the same files."""
+    def move(path):
+        p = Path(path)
+        if p.is_absolute() or path.startswith(("http://", "https://")) or not (Path(src) / p).exists():
+            return path
+        return os.path.relpath((Path(src) / p).resolve(), Path(dst).resolve())
+    out = []
+    for line in text.splitlines():
+        m = re.match(r"^(- )(" + "|".join(re.escape(k) for k in keys) + r")(:\s*)(\S[^(]*?)(\s*\(.*)?$", line)
+        if m:
+            line = m.group(1) + m.group(2) + m.group(3) + move(m.group(4).strip()) + (m.group(5) or "")
+        elif keys == () and line.startswith("- "):
+            ref, sep, note = line[2:].partition(" | ")
+            line = "- " + move(ref.strip()) + (sep + note if sep else "")
+        out.append(line)
+    return "\n".join(out) + "\n"

@@ -53,7 +53,13 @@ flowchart TD
 3. **Fusion.** Pour chaque champ, la priorité choisit la valeur gardée ; les autres valeurs restent visibles comme
    écartées, avec leur source.
 4. **Revue.** Un seul message, groupé par élément. Pour une ligne À DEMANDER, ce qui s'en rapproche le plus peut être
-   montré, marqué comme tel ; il n'est jamais saisi à la place.
+   montré, marqué comme tel ; il n'est jamais saisi à la place. Les visuels s'arbitrent sur la page de revue
+   (`brandkit review-html`) : une carte par visuel, Je garde ou J'écarte, un aperçu des images du web branché sur
+   l'`og:image` de leur page (lu au rendu, jamais téléchargé), et la commande qui enregistre les choix, construite en
+   direct en bas de page (`brandkit keep <dossier> <ids gardés> [--logo <id>]`). Tout ce qui n'est pas gardé devient
+   `uncertain` et n'alimente plus rien (captures comprises) ; les couleurs des visuels gardés sont mesurées et
+   proposées « à confirmer ». Le logo a sa propre section : toujours un fichier, choisi à part des captures du site,
+   enregistré comme logo confirmé du look maître, jamais écarté parce que son site l'a été.
 5. **Validation.** Une version numérotée. Un dossier peut être validé avec des lignes À DEMANDER restantes : elles
    restent manquantes en aval.
 6. **Export.** `brand.md` et `MOTION.md` sont régénérés depuis le dossier, jamais modifiés à la main.
@@ -127,7 +133,7 @@ Dans le projet de la marque, un dossier `brand/` :
 |---|---|
 | `brand.json` | le dossier lui-même, la seule source |
 | `brand.md`, `MOTION.md` | exports générés, à ne pas modifier |
-| `review.md`, `review.html` | la dernière revue, en texte et en page (chaque look avec ses pastilles, ses polices, ses logos et ses captures ; les images du web en liens) |
+| `review.md`, `review.html` | la dernière revue, en texte et en page (chaque look avec ses pastilles, ses polices, ses logos et ses captures ; les images du web en liens ; la feuille je garde / j'écarte et le choix du logo) |
 | `evidence.json` | chaque source consultée : adresse, date, fichier, appartenance |
 | `history/vN/` | versions validées |
 | `sources/` | un fichier par passage d'adaptateur (interne) |

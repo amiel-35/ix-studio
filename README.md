@@ -56,7 +56,9 @@ variants, the attractor, you choose).
 `headline case` (`as written` or `upper`); `slogan` (exact words, set next to the logo); `voice`; `never` (exact words or characters, `;`-separated); `never show` (what the image must not show);
 `notes`. A value ending in `(to confirm)` is used, and the check warns that the piece relies on it.
 
-`brief.md`: `objective`, `audience`, `message` (required); `format`; `fixed`; `cta`; `language`.
+`brief.md`: `objective`, `audience`, `message` (required); `format`; `layout` (imposed on every variant, e.g. `full`
+for a campaign poster); `fixed`; `cta`; `language`. `studio form <dir> [--from <piece>]` writes it through a
+prefilled form; `references.md` lists the visuals kept for the brand; `studio pick <dir> v1 v3` makes a series (and several formats, comma-separated, one piece each).
 
 Formats: `post-4x5` (1080×1350, default), `post-1x1` (1080×1080), `story` (1080×1920), `poster-a3` (1240×1754),
 `poster-3x2` (1800×1200), `linkedin` (1200×627), or a free size like `1600x900` (width x height, 200 to 4000 px a side).

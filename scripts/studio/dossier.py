@@ -136,3 +136,39 @@ def brand_md(dossier, piece_dir, look=None, include_unconfirmed=False) -> tuple:
         lines += ["# imported unconfirmed, marked (to confirm): " if inc else "# left out, to confirm in the dossier (rerun with --include-unconfirmed to take them): "]
         lines[-1] += ", ".join(soft)
     return "\n".join(lines) + "\n", miss, soft
+
+
+KEPT = ("official", "official_relayed", "probable")  # the classes that feed the brand (brandkit's FEEDING)
+
+
+def references_md(dossier, piece_dir) -> str:
+    """references.md for a piece: the visuals whose ownership the person decided and kept, as file paths (relative to the
+    piece) or web addresses. Web images are never downloaded: their address is enough for a reader to open them."""
+    try:
+        ev = json.loads((Path(dossier) / "evidence.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    try:  # the chosen logo is the brand's logo, not a reference to read
+        dec = json.loads((Path(dossier) / "decisions.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        dec = []
+    logos = {x.get("evidence") for x in (dec if isinstance(dec, list) else dec.get("decisions", [])) if x.get("action") == "logo"}
+    lines = []
+    for x in ev if isinstance(ev, list) else []:
+        if x.get("id") in logos:
+            continue
+        if x.get("ownership") not in KEPT or x.get("ownership_status") not in ("confirmed", "corrected"):
+            continue
+        if x.get("kind") == "file":
+            f = Path(dossier) / x.get("where", "")
+            if not f.exists():
+                continue
+            ref = os.path.relpath(f, piece_dir)
+        else:
+            ref = x.get("where", "")
+        note = " ".join(str(x.get("note") or x.get("title") or x.get("kind", "")).split())
+        lines.append(f"- {ref} | {note}" if note else f"- {ref}")
+    if not lines:
+        return ""
+    return (f"# References: the visuals kept in the dossier {Path(dossier).name}. Read them for their grammar (light, framing,\n"
+            "# layout, rhythm of the words), never to copy them.\n\n" + "\n".join(lines) + "\n")

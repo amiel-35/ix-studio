@@ -54,7 +54,12 @@ flowchart TD
 3. **Merge.** For each field, the priority picks the value kept; the other values stay visible as discarded, with
    their source.
 4. **Review.** One message, grouped by asset. For an ASK line the closest thing found may be shown, marked as such;
-   it is never filled in.
+   it is never filled in. The visuals are arbitrated on the review page (`brandkit review-html`): one card per
+   visual, Keep or Discard, a preview of web images hotlinked from the page's `og:image` (read at render time, never
+   downloaded), and the command that records the choices built live at the bottom (`brandkit keep <dir> <kept ids> [--logo <id>]`).
+   Everything not kept becomes `uncertain` and stops feeding (screenshots included); the colours of the kept visuals
+   are measured and proposed "to confirm". The logo has its own section: always a file, chosen apart from the site
+   screenshots, recorded as the confirmed logo of the master look, never discarded because its site was.
 5. **Validate.** A numbered version. A dossier can be validated with ASK lines left: they stay missing downstream.
 6. **Export.** `brand.md` and `MOTION.md` are regenerated from the dossier, never edited by hand.
 
@@ -127,7 +132,7 @@ In the brand's project, a `brand/` folder:
 |---|---|
 | `brand.json` | the dossier itself, the only source |
 | `brand.md`, `MOTION.md` | generated exports, not to be edited |
-| `review.md`, `review.html` | the latest review, as text and as a page (each look with its swatches, type, logos and screenshots; web images as links) |
+| `review.md`, `review.html` | the latest review, as text and as a page (each look with its swatches, type, logos and screenshots; web images as links; the keep / discard sheet and the logo choice) |
 | `evidence.json` | every source consulted: address, date, file, ownership |
 | `history/vN/` | validated versions |
 | `sources/` | one file per adapter run (internal) |

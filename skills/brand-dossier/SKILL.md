@@ -40,7 +40,9 @@ the exports yourself.
    Ask them in two or three batches, as in `references/adapter-free-text.md`. Record the answers as a typed source.
 5. **Review.** `python3 "$BK" merge brand` writes `brand/review.md` and `brand/review.html`. **Show the visual one**:
    `python3 "$BK" review-html brand --embed` builds a standalone page (the brand's own screenshots and logos
-   embedded, web images as links only) that you send or open for the user; a text review alone shows nothing. Then
+   embedded, web images as links only) that you send or open for the user; a text review alone shows nothing. The
+   same page is the **keep / discard sheet** (step 6): one card per visual, with a preview hotlinked from the page's
+   og:image for web images (never downloaded; `--no-previews` to stay offline). Then
    sum up in **one** message:
    conflicts, what is inferred and waits for confirmation, the ASK lines, what is to create, the visuals whose
    ownership needs confirming, and the master look when there are several. For an ASK line you may show the closest
@@ -52,7 +54,13 @@ the exports yourself.
    - `master brand <look-id>`;
    - `ownership brand <evidence-id> <official|official_relayed|probable|uncertain> --reason "..."`: when the user says
      a visual is not the brand's, what rested only on it leaves the dossier;
-   - `to-create brand <path>` when the user wants an asset made by the identity family.
+   - `to-create brand <path>` when the user wants an asset made by the identity family;
+   - `keep brand <kept ids…> [--logo <id>]`: the outcome of the keep / discard sheet in one go (the page builds the
+     command live, the user copies it to you). The listed visuals become `official`, **every other visual becomes
+     `uncertain`** (screenshots included, so a discarded site stops feeding colours, type and looks), the logo
+     file is recorded as the confirmed logo of the master look, and the dominant colours of the kept visuals are
+     measured (ffmpeg) and added as "measured on the kept visuals", to confirm. `--none` discards everything.
+     Run it again after a new choice: the measured colours are rewritten, not stacked.
    Show the new review, repeat until the user validates.
 7. **Validate** only when the user says so: `python3 "$BK" validate brand --by "<who>"`. A dossier can be validated
    with ASK lines left: they stay missing for every module downstream. Validation writes `history/vN/` and the
@@ -74,6 +82,8 @@ may feed an exploration (a divergence variant), never a final deliverable withou
 - **A disagreement with the skill is not settled in the dossier.** The skill wins; to change the value, change the
   design system.
 - **The logo is a file.** Never redrawn. A favicon or a blurry PNG is kept with its nature, and the vector logo is ASK.
+  When learning a brand, always take the logo file: it is chosen in its own section of the sheet, apart from the site
+  screenshots, and it is never discarded because its site was.
 - **Several looks are named, never averaged.** The user picks the master look.
 - **Images found on the web are never kept**: their address, date and ownership are, nothing else.
 - **The promise is quoted, never rephrased.**

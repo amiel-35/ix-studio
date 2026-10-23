@@ -3,6 +3,7 @@
     python3 -m unittest discover -s tests
 """
 
+import html
 import json
 import os
 import re
@@ -450,6 +451,100 @@ class FullLayout(unittest.TestCase):
         r = run("brand", d, ok=False)
         self.assertEqual(r.returncode, 2)
         self.assertIn("headline case", r.stderr)
+
+
+class Campaign(unittest.TestCase):
+    """A declination: the brief imposes the layout, references feed the brief, several picks make a series, a form writes the brief."""
+
+    def test_brief_layout_is_imposed_and_silences_the_warning(self):
+        d = prep()
+        kv(d, "brief.md", layout="full")
+        out = run("brief", d).stdout
+        self.assertIn("layout full for every variant", out)
+        out = run("diverge", d).stdout
+        self.assertIn("layout full imposed by the brief", out)
+        self.assertNotIn("can diverge", out)
+        run("pick", d, "v1")
+        run("compose", d)
+        self.assertIn('data-layout="full"', (d / "piece.html").read_text())
+        kv(d, "brief.md", layout="diagonal")
+        self.assertIn("layout must be one of", run("brief", d, ok=False).stderr)
+
+    def test_references_are_read_and_shown(self):
+        d = prep()
+        sized(d, 0)
+        img = next(p for p in d.iterdir() if p.name.startswith("image."))
+        (d / "references.md").write_text(f"# kept\n\n- {img.name} | a poster of the campaign\n- https://example.org/p | a post\n- gone.png | lost\n")
+        out = run("brief", d).stdout
+        self.assertIn("3 references", out)
+        self.assertIn("reference not found: gone.png", out)
+        h = (d / "2-brief.html").read_text()
+        self.assertIn("a poster of the campaign", h)
+        self.assertIn(f'src="{img.name}"', h)
+
+    def test_several_picks_make_a_series(self):
+        d = prep()
+        (d / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 10'/>")
+        kv(d, "brand.md", logo="logo.svg")
+        run("pick", d, "v1", "v3")
+        for i in ("v1", "v3"):
+            p = d / "pieces" / i
+            self.assertEqual(json.loads((p / "pick.json").read_text())["variant"], i)
+            self.assertIn("- logo: ../../logo.svg", (p / "brand.md").read_text())
+            self.assertIn("next: " , run("status", p).stdout)
+            self.assertIn(" image ", run("status", p).stdout)
+        self.assertIn("a series", run("status", d).stdout)
+        self.assertIn("--headline", run("pick", d, "v1", "v2", "--headline", "x", ok=False).stderr)
+
+    def test_references_from_the_dossier_kept_visuals_only(self):
+        sys.path.insert(0, str(ST))
+        from dossier import references_md
+        b = Path(tempfile.mkdtemp()) / "brand"
+        (b / "collect").mkdir(parents=True)
+        (b / "collect" / "a.png").write_bytes(b"x")
+        ev = [{"id": "e1", "kind": "file", "where": "collect/a.png", "ownership": "official", "ownership_status": "confirmed", "note": "kept file"},
+              {"id": "e2", "kind": "web_image", "where": "https://example.org/x", "ownership": "official", "ownership_status": "corrected", "note": "kept web"},
+              {"id": "e3", "kind": "web_image", "where": "https://example.org/y", "ownership": "probable", "ownership_status": "to_confirm", "note": "not decided"},
+              {"id": "e4", "kind": "web_image", "where": "https://example.org/z", "ownership": "uncertain", "ownership_status": "corrected", "note": "discarded"}]
+        ev.append({"id": "e5", "kind": "file", "where": "collect/a.png", "ownership": "official", "ownership_status": "confirmed", "note": "the logo"})
+        (b / "evidence.json").write_text(json.dumps(ev))
+        (b / "decisions.json").write_text(json.dumps([{"action": "logo", "evidence": "e5"}]))
+        piece = b.parent / "piece"
+        piece.mkdir()
+        md = references_md(b, piece)
+        self.assertIn("- ../brand/collect/a.png | kept file", md)
+        self.assertIn("- https://example.org/x | kept web", md)
+        self.assertNotIn("not decided", md)
+        self.assertNotIn("discarded", md)
+        self.assertNotIn("the logo", md)
+
+    def test_several_formats_make_one_piece_each_and_films_are_left_out(self):
+        d = prep()
+        kv(d, "brief.md", format="post-4x5, Poster A3, pub télé 30s")
+        out = run("brief", d).stdout
+        self.assertIn("2 formats: post-4x5, poster-a3", out)
+        self.assertIn("left out: 'pub télé 30s'", out)
+        self.assertIn("pas une image fixe", run("brief", d, "--lang", "fr").stdout + (d / "2-brief.html").read_text())
+        run("pick", d, "v2")
+        for name, fmt in (("v2-post-4x5", "post-4x5"), ("v2-poster-a3", "poster-a3")):
+            b = (d / "pieces" / name / "brief.md").read_text()
+            self.assertRegex(b, rf"(?m)^- format: {fmt}$")
+        kv(d, "brief.md", format="spot tv 15s")
+        self.assertIn("no still format", run("brief", d, ok=False).stderr)
+
+    def test_form_prefilled_from_another_piece(self):
+        d = prep()
+        n = d.parent / (d.name + "-decl")
+        run("form", n, "--from", d)
+        self.assertTrue((n / "brand.md").exists())
+        self.assertFalse((n / "brief.md").exists())
+        h = (n / "0-brief-form.html").read_text()
+        brief = (d / "brief.md").read_text()
+        msg = re.search(r"(?im)^- message:\s*(.+)$", brief).group(1)
+        self.assertIn(html.escape(msg), h)
+        self.assertIn('data-k="layout"', h)
+        self.assertIn("cat > ", h)
+        self.assertIn("brief", h)
 
 
 class HeadlineColour(unittest.TestCase):

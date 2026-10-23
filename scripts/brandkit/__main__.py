@@ -21,7 +21,7 @@ import media  # noqa: E402
 import review as rv  # noqa: E402
 import visual  # noqa: E402
 from fuse import Fusion, iter_values  # noqa: E402
-from model import DEFAULT_LOOK, LISTS, OWNERSHIP, SCALARS, fingerprint, get_path, today  # noqa: E402
+from model import DEFAULT_LOOK, FEEDING, LISTS, OWNERSHIP, SCALARS, VISUAL_KINDS, fingerprint, get_path, hex_distance, today  # noqa: E402
 from store import BrandError, Dossier, read_json, write_json  # noqa: E402
 
 
@@ -58,7 +58,7 @@ def _reviews(dz, doc, evidence, review, st):
     lang = st.get("ui_language", "en")
     dz.review.write_text(rv.render(doc, evidence, review, lang), encoding="utf-8")
     out = dz.root / "review.html"
-    out.write_text(visual.render_html(doc, evidence, review, dz.root, out, lang), encoding="utf-8")
+    out.write_text(visual.render_html(doc, evidence, review, dz.root, out, lang, decisions=dz.decisions()), encoding="utf-8")
 
 
 def cmd_init(a):
@@ -277,8 +277,129 @@ def cmd_review_html(a):
     dz = Dossier(a.dir).require()
     doc, evidence, review = merge(dz, quiet=True)
     out = Path(a.out) if a.out else dz.root / ("review-standalone.html" if a.embed else "review.html")
-    out.write_text(visual.render_html(doc, evidence, review, dz.root, out, a.lang or dz.state().get("ui_language", "en"), embed=a.embed), encoding="utf-8")
-    print(f"{out} ({round(out.stat().st_size / 1e6, 2)} MB{', images embedded' if a.embed else ''})")
+    out.write_text(visual.render_html(doc, evidence, review, dz.root, out, a.lang or dz.state().get("ui_language", "en"), embed=a.embed,
+                                      previews=not a.no_previews, decisions=dz.decisions()), encoding="utf-8")
+    print(f"{out} ({round(out.stat().st_size / 1e6, 2)} MB{', images embedded' if a.embed else ''}{'' if a.no_previews else ', web previews hotlinked'})")
+
+
+def _target_look(doc):
+    """The look the logo and the measured colours go to: the master look, or the only one."""
+    items = doc.get("looks", {}).get("items", [])
+    for it in items:
+        if it.get("master", {}).get("value") is True:
+            return it["id"]
+    return items[0]["id"] if len(items) == 1 else DEFAULT_LOOK
+
+
+def _replace_source(dz, label, raw):
+    """A source the keep command derives is rewritten at each run, not stacked: drop the old one, add the new."""
+    for s in dz.sources():
+        if s.get("label") == label:
+            (dz.sources_dir / s["_file"]).unlink()
+    if raw:
+        dz.add_source(raw)
+
+
+def _measure(dz, kept):
+    """Dominant colours of the kept visuals, pooled: ([{hex, share, evidence}], what could not be read).
+    A local file is read where it is; a web image or a page by its image (og:image), fetched to a temp file and deleted."""
+    if not media.available():
+        return None, ["ffmpeg and ffprobe are missing"]
+    samples, unread = [], []
+    for x in kept:
+        if x["kind"] == "file":
+            target = dz.root / x["where"]
+        elif x["kind"] in ("web_image", "page"):
+            target = media.preview_url(x)
+        else:
+            continue
+        try:
+            if not target or (not str(target).startswith("http") and not Path(target).exists()):
+                raise ValueError("no image")
+            samples.append((x["id"], media.sample(str(target), 5)["colours"]))
+        except (SystemExit, Exception):
+            unread.append(x["id"])
+    pool = []
+    for eid, cols in samples:
+        for c in cols:
+            near = next((p for p in pool if hex_distance(p["hex"], c["hex"]) < 24), None)
+            if not near:
+                near = {"hex": c["hex"], "share": 0.0, "best": 0.0, "evidence": []}
+                pool.append(near)
+            near["share"] += c["share"] / len(samples)
+            if c["share"] > near["best"]:
+                near["hex"], near["best"] = c["hex"], c["share"]
+            if eid not in near["evidence"]:
+                near["evidence"].append(eid)
+    pool = [p for p in sorted(pool, key=lambda p: -p["share"]) if p["share"] >= 0.03][:6]
+    return pool, unread
+
+
+def cmd_keep(a):
+    """The outcome of the visual review in one go: kept ids official, every other visual uncertain, the logo, the colours."""
+    dz = Dossier(a.dir).require()
+    if not a.ids and not a.none:
+        raise BrandError("nothing to keep: list the evidence ids to keep, or pass --none to discard every visual")
+    doc, evidence, _ = merge(dz, quiet=True)
+    by_id = {x["id"]: x for x in evidence}
+    for i in a.ids + ([a.logo] if a.logo else []):
+        if i not in by_id or by_id[i]["kind"] not in VISUAL_KINDS:
+            raise BrandError(f"unknown visual evidence {i}")
+    if a.logo and (by_id[a.logo]["kind"] != "file" or by_id[a.logo]["where"].startswith(("http://", "https://"))):
+        raise BrandError(f"{a.logo} is not a file of the dossier: the logo is a file, never an address (R9)")
+    # a logo chosen earlier is never discarded because its site was
+    logos = {d["evidence"] for d in dz.decisions() if d.get("action") == "logo"} | ({a.logo} if a.logo else set())
+    kept = [x for x in evidence if x["kind"] in VISUAL_KINDS and (x["id"] in a.ids or x["id"] in logos)]
+    n_keep = n_disc = 0
+    for x in evidence:
+        if x["kind"] not in VISUAL_KINDS:
+            continue
+        keep = x["id"] in a.ids or x["id"] in logos
+        now = x.get("ownership")
+        decided = x.get("ownership_status") in ("confirmed", "corrected")
+        if keep:
+            n_keep += 1
+            if decided and now in FEEDING:
+                continue  # already kept as official, relayed or probable: the class stays
+            dz.add_decision({"action": "ownership", "evidence": x["id"], "ownership": "official",
+                             "reason": "kept as the logo" if x["id"] in logos and x["id"] not in a.ids else "kept in review"})
+        else:
+            n_disc += 1
+            if decided and now == "uncertain":
+                continue
+            dz.add_decision({"action": "ownership", "evidence": x["id"], "ownership": "uncertain", "reason": "discarded in review"})
+    look = _target_look(doc)
+    if a.logo:
+        f = by_id[a.logo]["where"]
+        dz.add_decision({"action": "logo", "evidence": a.logo, "look": look})
+        _replace_source(dz, "review: logo", {
+            "adapter": "typed", "origin": "review: logo chosen by the user", "label": "review: logo",
+            "values": [{"path": "logo", "look": look, "item": {"file": f, "format": Path(f).suffix.lstrip(".").lower() or "file", "variant": "primary"}}]})
+    seen = [x for x in kept if x["id"] not in logos or x["id"] in a.ids]  # a logo is not a colour source unless it was kept as a visual
+    pool, unread = _measure(dz, seen)
+    src = None
+    if pool:
+        used = sorted({i for p in pool for i in p["evidence"]})
+        ev = [{"id": i, "kind": by_id[i]["kind"], "where": by_id[i]["where"], "at": by_id[i]["at"],
+               **({"ownership": "official"} if by_id[i]["kind"] != "file" else {})} for i in used]
+        src = {"adapter": "inferred", "origin": f"measured on the kept visuals ({today()})", "label": "review: kept colours", "evidence": ev,
+               "values": [{"path": "colours", "look": look, "item": {"hex": p["hex"], "role": "dominant" if i == 0 else f"dominant {i + 1}", "share": round(p["share"], 3)},
+                           "confidence": "medium", "rank": "measured", "evidence": p["evidence"], "note": "measured on the kept visuals"}
+                          for i, p in enumerate(pool)]}
+    _replace_source(dz, "review: kept colours", src)
+    print(f"kept {n_keep} · discarded {n_disc}" + (f" · logo {a.logo}" if a.logo else ""))
+    if pool is None:
+        print("colours not measured: ffmpeg and ffprobe are missing (install ffmpeg, then run keep again)")
+    else:
+        print(f"colours measured on {len(seen) - len(unread)} kept visual(s): " + (", ".join(p["hex"] for p in pool) or "none") + f" (look {look}, to confirm)")
+        if unread:
+            print(f"  not readable as images: {', '.join(unread)}")
+    merge(dz)
+    if not a.no_previews:  # merge writes the page offline: put the web previews back, the person reviews it again
+        doc, evidence, review = merge(dz, quiet=True)
+        out = dz.root / "review.html"
+        out.write_text(visual.render_html(doc, evidence, review, dz.root, out, dz.state().get("ui_language", "en"), previews=True,
+                                          decisions=dz.decisions()), encoding="utf-8")
 
 
 def cmd_status(a):
@@ -369,6 +490,12 @@ def build_parser():
     s.add_argument("--embed", action="store_true", help="embed the brand's own images (web images are never embedded)")
     s.add_argument("--out")
     s.add_argument("--lang", choices=("en", "fr"))
+    s.add_argument("--no-previews", action="store_true", help="do not read the web pages' og:image for the cards' previews (no network)")
+    s = add("keep", cmd_keep, "record the keep / discard choices of the visual review, the logo, and measure the kept colours", "dir")
+    s.add_argument("ids", nargs="*", help="evidence ids to keep (ev-…); every other visual is discarded")
+    s.add_argument("--logo", help="evidence id of the file that is the logo (it stays apart from the screenshots)")
+    s.add_argument("--none", action="store_true", help="keep nothing: discard every visual")
+    s.add_argument("--no-previews", action="store_true", help="rewrite review.html without fetching the web previews")
     add("status", cmd_status, "counts by status", "dir")
     return p
 

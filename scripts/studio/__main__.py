@@ -8,6 +8,7 @@ piece folder and renders one HTML page. Run `python3 scripts/studio --help` for 
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -19,8 +20,8 @@ import dossier  # noqa: E402
 import gfonts  # noqa: E402
 import images  # noqa: E402
 import pages  # noqa: E402
-from files import (GROUNDS, LAYOUT_ALIASES, LAYOUTS, StudioError, image_file, load_brand, load_brief, load_pick, load_variants, norm_layout, palette, picked,  # noqa: E402
-                   read_json, today, write_json)
+from files import (GROUNDS, LAYOUT_ALIASES, LAYOUTS, StudioError, image_file, layout_of, load_brand, load_brief, load_pick, load_references, load_variants,  # noqa: E402
+                   norm_layout, palette, parse_kv, picked, read_json, rebase, today, write_json)
 from ui import PAGES, cli  # noqa: E402
 
 
@@ -55,6 +56,10 @@ def cmd_brand(a):
         text, miss, soft = dossier.brand_md(a.from_dossier, d, a.look, a.include_unconfirmed)
         target.write_text(text, encoding="utf-8")
         print(f"brand.md written from {a.from_dossier}" + (f" (missing: {', '.join(miss)})" if miss else ""))
+        refs = dossier.references_md(a.from_dossier, d)
+        if refs:
+            (d / "references.md").write_text(refs, encoding="utf-8")
+            print(f"references.md written: {refs.count(chr(10) + '- ')} kept visuals for the variants to read")
         if soft:
             print(("imported unconfirmed, marked (to confirm): " if a.include_unconfirmed else "left out, to confirm in the dossier (rerun with --include-unconfirmed to take them): ") + ", ".join(soft))
         try:
@@ -72,8 +77,58 @@ def cmd_brand(a):
 def cmd_brief(a):
     load_brand(a.dir)
     br = load_brief(a.dir)
-    print(f"brief ok: {br['objective']} · {br['format']} {br['size'][0]}x{br['size'][1]}")
+    refs = load_references(a.dir)
+    print(f"brief ok: {br['objective']} · {br['format']} {br['size'][0]}x{br['size'][1]}" + (f" · layout {br['layout']} for every variant" if br["layout"] else "")
+          + (f" · {len(refs)} references" if refs else ""))
+    for r in refs:
+        if not r["exists"]:
+            print(f"warning: reference not found: {r['ref']}")
+    if len(br["formats"]) > 1:
+        print(f"{len(br['formats'])} formats: {', '.join(br['formats'])}; the variants are shown in {br['format']}, the pick makes one piece per format")
+    for x in br["moving"]:
+        print(f"left out: {x!r} is not a still image; the studio makes posters and posts, not films")
     page(a, 2)
+
+
+def copy_piece(src, dst, vid=None, fmt=None):
+    """A new piece that starts from another one: same brand, brief, references and bans; file paths still point right."""
+    src, dst = Path(src), Path(dst)
+    (dst / "variants").mkdir(parents=True, exist_ok=True)
+    for name, keys in (("brand.md", ("logo",)), ("references.md", ())):
+        if (src / name).exists():
+            (dst / name).write_text(rebase((src / name).read_text(encoding="utf-8"), src, dst, keys), encoding="utf-8")
+    for name in ("brief.md", "bans.md"):
+        if (src / name).exists():
+            text = (src / name).read_text(encoding="utf-8")
+            if fmt and name == "brief.md":  # one piece per format: this one keeps only its own
+                text = re.sub(r"(?im)^(\s*-?\s*format\s*:).*$", lambda m: f"{m.group(1)} {fmt}", text)
+            (dst / name).write_text(text, encoding="utf-8")
+    if vid:
+        for p in (src / "variants").glob("*.json"):
+            (dst / "variants" / p.name).write_text(p.read_text(encoding="utf-8"), encoding="utf-8")
+        write_json(dst / "pick.json", {"variant": vid, "at": today(), "from": str(src.resolve())})
+
+
+def cmd_form(a):
+    """The brief as a form: prefilled from this piece's brief.md, else from the piece it starts from (--from), whose brand,
+    references and brief it takes as a start, so a declination of a campaign only changes what changes."""
+    d = Path(a.dir)
+    d.mkdir(parents=True, exist_ok=True)
+    pre = {}
+    if a.src:
+        src = Path(a.src)
+        if not (src / "brand.md").exists():
+            raise StudioError(f"{src} has no brand.md: --from takes a piece folder")
+        if not (d / "brand.md").exists():
+            copy_piece(src, d)
+            (d / "brief.md").unlink(missing_ok=True)
+            print(f"brand.md{' and references.md' if (src / 'references.md').exists() else ''} taken from {src}")
+        if (src / "brief.md").exists():
+            pre = parse_kv((src / "brief.md").read_text(encoding="utf-8"))
+    if (d / "brief.md").exists():
+        pre = parse_kv((d / "brief.md").read_text(encoding="utf-8"))
+    lang = a.lang or ("fr" if pre.get("language", "").lower().startswith("fr") else "en")
+    print(f"page: {pages.form_page(d, lang, pre, a.title or '')}")
 
 
 def cmd_diverge(a):
@@ -81,19 +136,42 @@ def cmd_diverge(a):
     w, h = load_brief(a.dir)["size"]
     vs = load_variants(a.dir)
     print(f"{len(vs)} variants ok: {', '.join(v['id'] for v in vs)}")
+    imposed = load_brief(a.dir)["layout"]
+    if imposed:  # a campaign keeps its look: the idea diverges, the layout does not
+        print(f"layout {imposed} imposed by the brief for every variant")
     same = {}
     for v in vs:
         same.setdefault(compose.areas(v["layout"], w, h)[0], []).append(v["id"])
     for lay, ids in same.items():
-        if len(ids) > 1:
+        if len(ids) > 1 and not imposed:
             print(f"warning: {', '.join(ids)} share the layout {lay}: the layout can diverge too")
     page(a, 3)
 
 
 def cmd_pick(a):
     vs = load_variants(a.dir)
-    if a.id not in [v["id"] for v in vs]:
-        raise StudioError(f"no variant {a.id!r}: choose one of {', '.join(v['id'] for v in vs)}")
+    for i in a.id:
+        if i not in [v["id"] for v in vs]:
+            raise StudioError(f"no variant {i!r}: choose one of {', '.join(v['id'] for v in vs)}")
+    formats = load_brief(a.dir)["formats"]
+    if len(a.id) > 1 or len(formats) > 1:  # a series: one piece per kept variant and per format, under pieces/
+        if a.headline or a.subline is not None:
+            raise StudioError("--headline and --subline go with one variant in one format: set them in its piece")
+        made = []
+        for i in a.id:
+            for fmt in formats:
+                name = i if len(formats) == 1 else f"{i}-{fmt}"
+                dst = Path(a.dir) / "pieces" / name
+                copy_piece(a.dir, dst, i, fmt if len(formats) > 1 else None)
+                for step in (1, 2, 3):  # the piece's own pages, so its status goes straight to the image
+                    pages.RENDER[step](dst, lang_of(a))
+                made.append(name)
+                print(f"piece {dst}: picked {i}, {fmt}; next: " + cli(dst, "image"))
+        write_json(Path(a.dir) / "series.json", {"pieces": made, "at": today()})
+        (Path(a.dir) / "pick.json").unlink(missing_ok=True)  # this folder is no longer one piece: the series lives under pieces/
+        page(a, 3)
+        return
+    a.id = a.id[0]
     pick = {"variant": a.id, "at": today()}
     if a.headline:
         pick["headline"] = a.headline
@@ -123,6 +201,7 @@ def cmd_image(a):
     if not v and not a.prompt:
         raise StudioError('no pick yet: give the image prompt with --prompt "...", or put your own image.png in ' + str(d))
     v2 = {"layout": "overlay-top", **(v or {}), "image_prompt": a.prompt or v["image_prompt"]}
+    v2["layout"] = layout_of(brief, v2)
     prompt = images.build_prompt(brand, brief, v2)
     tmp = d / "image.new.png"
     tmp.unlink(missing_ok=True)
@@ -153,6 +232,7 @@ def cmd_compose(a):
     else:
         raise StudioError("no pick yet: " + cli(d, "pick", "<id>") + " or write the piece by hand: " + cli(d, "compose", "--headline", '"..."'))
     headline = a.headline or headline
+    v = {**v, "layout": layout_of(brief, v)}
     v = {**v, **{k: x for k, x in (("subline", a.subline), ("layout", norm_layout(a.layout)), ("ground", a.ground)) if x is not None}}
     page_html, warns = compose.render(d, brand, brief, v, headline)
     (d / "piece.html").write_text(page_html, encoding="utf-8")
@@ -241,7 +321,7 @@ def cmd_status(a):
     newest = max([t(f"variants/{p.name}") for p in (d / "variants").glob("*.json")] or [0]) if nvar else 0
     steps = [(not have["brand.md"], "write brand.md (about ten `key: value` lines) or: " + cli(d, "brand", "--from-dossier", "<brandkit dir>")),
              (not have["1-brand.html"], cli(d, "brand")),
-             (not have["brief.md"], "write brief.md (objective, audience, message, format, ...)"),
+             (not have["brief.md"], "write brief.md (objective, audience, message, format, ...) or fill the form: " + cli(d, "form")),
              (not have["2-brief.html"], cli(d, "brief")),
              (again and newest <= t("decision.md"), "write new variants under variants/ (bans.md lists what was refused), then: " + cli(d, "diverge")),
              (not hand and nvar < 2, "an agent writes variants/v1.json … v4.json (at least 2)"),
@@ -251,6 +331,9 @@ def cmd_status(a):
              (not have["piece.html"] or t("piece.html") < max(t("pick.json"), t(img) if img else 0), cli(d, "compose")),
              (not have["check.json"] or t("check.json") < t("piece.html"), cli(d, "check") + "   (an agent may write judge.md first)"),
              (not have["decision.md"] or t("decision.md") < t("check.json"), cli(d, "decide", "keep|again", '"<words>"'))]
+    series = read_json(d / "series.json", {}).get("pieces", [])
+    if series and not have["pick.json"]:  # a series: the work goes on in each piece
+        steps.insert(7, (True, "a series: carry on in each piece: " + "; ".join(cli(d / "pieces" / i, "status") for i in series)))
     nxt = next((c for need, c in steps if need), None)
     print("next: " + (nxt or ("done. The next round reads bans.md." if have["bans.md"] else "done.")))
 
@@ -274,8 +357,11 @@ def build_parser():
     s.add_argument("--look", help="with --from-dossier: the look to take colours, fonts and logo from (needed when the dossier has several looks and no master)")
     add("brief", cmd_brief, "check brief.md, render 2-brief.html")
     add("diverge", cmd_diverge, "check variants/*.json, render 3-divergence.html")
-    s = add("pick", cmd_pick, "choose a variant")
-    s.add_argument("id")
+    s = add("form", cmd_form, "write 0-brief-form.html: the brief as a form to fill, prefilled when there is something to start from")
+    s.add_argument("--from", dest="src", metavar="PIECE_DIR", help="start from another piece: its brand, references and brief (a declination)")
+    s.add_argument("--title", help="the page title")
+    s = add("pick", cmd_pick, "choose a variant (several: a series, one piece each under pieces/)")
+    s.add_argument("id", nargs="+")
     s.add_argument("--headline", help="your own headline instead of the variant's")
     s.add_argument("--subline", help="your own subline instead of the variant's")
     s = add("image", cmd_image, "generate the image (or keep yours)", lang=False)

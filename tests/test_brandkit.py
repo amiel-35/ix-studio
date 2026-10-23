@@ -3,21 +3,30 @@
     python3 -m unittest discover -s tests
 """
 
+import contextlib
+import importlib.util
+import io
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 BK = ROOT / "scripts" / "brandkit"
 EXAMPLE = ROOT / "examples" / "marrowbay"
 sys.path.insert(0, str(BK))
 
+import media  # noqa: E402
+import visual  # noqa: E402
 from checks import check  # noqa: E402
 from fuse import iter_values  # noqa: E402
+from model import evidence_id  # noqa: E402
 
 
 def run(*args, ok=True):
@@ -135,7 +144,7 @@ class Example(unittest.TestCase):
             self.assertIn(f"id='{look}'", page)
         self.assertIn("https://foodpress.example/2026/05/marrowbay-summer", page)
         self.assertNotIn("data:image", page)  # relative links by default; web images never embedded
-        r = run("review-html", self.b, "--embed", "--out", self.tmp / "standalone.html")
+        r = run("review-html", self.b, "--embed", "--no-previews", "--out", self.tmp / "standalone.html")
         self.assertIn("images embedded", r.stdout)
 
     def test_versions_are_kept(self):
@@ -199,6 +208,199 @@ class Rules(unittest.TestCase):
         write(self.tmp / "x.json", {"adapter": "inferred", "origin": "guess", "values": [{"path": "voice.register", "value": "cool"}]})
         r = run("add", self.b, self.tmp / "x.json", ok=False)
         self.assertNotEqual(r.returncode, 0)
+
+
+def cli(*args):
+    """The command line in this process (so that media can be mocked); returns what it printed."""
+    spec = importlib.util.spec_from_file_location("brandkit_cli", BK / "__main__.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        mod.main([str(a) for a in args])
+    return out.getvalue()
+
+
+class Keep(unittest.TestCase):
+    """The review's outcome: keep / discard, the logo, the measured colours. A made-up brand, local files, no network."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ixs-keep-"))
+        self.b = self.tmp / "brand"
+        run("init", self.b, "--name", "Nobody")
+        (self.b / "collect").mkdir(exist_ok=True)
+        for n in ("screen-old.png", "screen-new.png", "logo.png"):
+            (self.b / "collect" / n).write_bytes(b"not really an image")
+        self.id = {"old": evidence_id("page", "https://old.example/"), "new": evidence_id("page", "https://new.example/"),
+                   "s_old": evidence_id("file", "collect/screen-old.png"), "s_new": evidence_id("file", "collect/screen-new.png"),
+                   "logo": evidence_id("file", "collect/logo.png"), "web": evidence_id("web_image", "https://press.example/poster.jpg")}
+        shot = lambda i, w, page: {"id": i, "kind": "file", "where": w, "page": page, "note": "screenshot home"}
+        write(self.tmp / "s.json", {"adapter": "inferred", "origin": "two sites", "evidence": [
+            {"id": "old", "kind": "page", "where": "https://old.example/", "ownership": "official", "ownership_given_by_user": True},
+            {"id": "new", "kind": "page", "where": "https://new.example/", "ownership": "official", "ownership_given_by_user": True},
+            shot("s_old", "collect/screen-old.png", "https://old.example/"), shot("s_new", "collect/screen-new.png", "https://new.example/"),
+            {"id": "logo", "kind": "file", "where": "collect/logo.png", "page": "https://new.example/", "note": "logo candidate, header"},
+            {"id": "web", "kind": "web_image", "where": "https://press.example/poster.jpg", "ownership": "probable", "note": "poster"}],
+            "values": [{"path": "colours", "item": {"hex": "#AA0000", "role": "background"}, "confidence": "high", "rank": "declared_used", "evidence": ["old", "s_old"]},
+                       {"path": "logo", "item": {"file": "collect/logo.png", "format": "png", "variant": "header"}, "confidence": "medium", "rank": "rendered", "evidence": ["new", "logo"]}]})
+        run("add", self.b, self.tmp / "s.json")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def doc(self):
+        return json.loads((self.b / "brand.json").read_text())
+
+    def ev(self):
+        return {e["id"]: e for e in json.loads((self.b / "evidence.json").read_text())}
+
+    def fake_sample(self, colours):
+        return mock.patch.object(media, "sample", side_effect=lambda image, k=6: {"image": str(image), "colours": colours.get(Path(str(image)).name, [])})
+
+    def test_ownership_decision_on_a_file_stops_it_feeding(self):
+        self.assertEqual(self.doc()["colours"]["items"][0]["hex"]["value"], "#AA0000")
+        run("ownership", self.b, self.id["old"], "uncertain")
+        self.assertEqual(self.doc()["colours"]["items"][0]["hex"]["value"], "#AA0000")  # its screenshot still feeds it
+        run("ownership", self.b, self.id["s_old"], "uncertain", "--reason", "old identity")
+        self.assertEqual(self.doc()["colours"]["items"], [])
+        e = self.ev()[self.id["s_old"]]
+        self.assertEqual((e["ownership"], e["ownership_status"]), ("uncertain", "confirmed"))
+
+    def test_keep_records_the_choices_and_the_logo_file(self):
+        with mock.patch.object(media, "available", return_value=False):
+            out = cli("keep", self.b, "--no-previews", self.id["new"], self.id["s_new"], "--logo", self.id["logo"])
+        self.assertIn("colours not measured", out)
+        ev = self.ev()
+        self.assertEqual([ev[self.id[k]]["ownership"] for k in ("new", "s_new", "logo")], ["official"] * 3)
+        self.assertEqual([ev[self.id[k]]["ownership"] for k in ("old", "s_old", "web")], ["uncertain"] * 3)
+        d = self.doc()
+        self.assertEqual(d["colours"]["items"], [])  # the discarded site's CSS colour is gone
+        logo = d["logo"]["items"][0]
+        self.assertEqual((logo["file"]["value"], logo["file"]["status"], logo["file"]["source"]["type"]), ("collect/logo.png", "confirmed", "typed"))
+        decisions = json.loads((self.b / "decisions.json").read_text())
+        self.assertEqual([x["reason"] for x in decisions if x["evidence"] == self.id["old"]], ["discarded in review"])
+        # a later keep that leaves the site out does not discard the logo it gave
+        with mock.patch.object(media, "available", return_value=False):
+            cli("keep", self.b, "--no-previews", self.id["old"])
+        self.assertEqual(self.ev()[self.id["logo"]]["ownership"], "official")
+        self.assertEqual(self.doc()["logo"]["items"][0]["file"]["value"], "collect/logo.png")
+
+    def test_keep_wants_ids_or_none_and_a_logo_that_is_a_file(self):
+        self.assertNotEqual(run("keep", self.b, "--no-previews", ok=False).returncode, 0)
+        run("keep", self.b, "--no-previews", "--none")
+        self.assertEqual({e["ownership"] for e in self.ev().values()}, {"uncertain"})
+        self.assertNotEqual(run("keep", self.b, "--no-previews", "--none", "--logo", self.id["web"], ok=False).returncode, 0)
+        self.assertNotEqual(run("keep", self.b, "--no-previews", "ev-00000000", ok=False).returncode, 0)
+
+    def test_keep_measures_the_kept_visuals_and_rewrites_at_each_run(self):
+        reds = {"screen-new.png": [{"hex": "#102030", "share": 0.6}, {"hex": "#f0e0d0", "share": 0.4}]}
+        with mock.patch.object(media, "available", return_value=True), self.fake_sample(reds):
+            out = cli("keep", self.b, "--no-previews", self.id["s_new"], self.id["new"])
+        self.assertIn("#102030", out)
+        cols = [(it["hex"]["value"], it["role"]["value"], it["hex"]["status"], it["hex"]["source"]["origin"]) for it in self.doc()["colours"]["items"]]
+        self.assertEqual([c[:3] for c in cols], [("#102030", "dominant", "to_confirm"), ("#f0e0d0", "dominant 2", "to_confirm")])
+        self.assertTrue(cols[0][3].startswith("measured on the kept visuals"))
+        # the site's CSS colour came from a discarded source: it does not sit next to the measured ones
+        self.assertNotIn("#aa0000", [c[0] for c in cols])
+        with mock.patch.object(media, "available", return_value=True), self.fake_sample({"screen-old.png": [{"hex": "#00ff00", "share": 1.0}]}):
+            cli("keep", self.b, "--no-previews", self.id["s_old"])
+        self.assertEqual([it["hex"]["value"] for it in self.doc()["colours"]["items"] if it["hex"]["source"]["type"] == "inferred" and it["role"]["value"].startswith("dominant")], ["#00ff00"])
+        self.assertEqual(len([f for f in (self.b / "sources").glob("*kept-colours*")]), 1)
+
+    def test_keep_samples_a_web_image_by_its_og_image_and_keeps_nothing(self):
+        seen = []
+        with mock.patch.object(media, "available", return_value=True), \
+                mock.patch.object(media, "preview_url", side_effect=lambda x, t=4: "https://press.example/poster.jpg"), \
+                mock.patch.object(media, "sample", side_effect=lambda image, k=6: seen.append(image) or {"colours": [{"hex": "#cc3300", "share": 0.5}]}):
+            cli("keep", self.b, "--no-previews", self.id["web"])
+        self.assertEqual(seen, ["https://press.example/poster.jpg"])
+        item = self.doc()["colours"]["items"][0]
+        self.assertEqual(item["hex"]["value"], "#cc3300")
+        self.assertEqual(item["hex"]["evidence"], [self.id["web"]])
+        web = self.ev()[self.id["web"]]
+        self.assertFalse(web["kept"])
+        self.assertNotIn("file", web)
+        self.assertEqual(check(self.doc(), list(self.ev().values())), [])
+
+    @unittest.skipUnless(media.available(), "ffmpeg is not installed")
+    def test_keep_measures_a_real_local_image(self):
+        png = self.b / "collect" / "screen-new.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x1040a0:s=32x32", "-frames:v", "1", str(png)], check=True)
+        cli("keep", self.b, "--no-previews", self.id["s_new"])
+        hexes = [it["hex"]["value"] for it in self.doc()["colours"]["items"]]
+        self.assertTrue(hexes and media_close(hexes[0], "#1040a0"), hexes)
+
+    def test_review_html_is_the_arbitration_page(self):
+        run("review-html", self.b, "--no-previews")
+        page = (self.b / "review.html").read_text()
+        for k in ("old", "new", "s_old", "s_new", "web"):
+            self.assertIn(f"data-id='{self.id[k]}'", page)
+        self.assertNotIn(f"data-id='{self.id['logo']}'", page)  # the logo candidate is in its own section
+        self.assertIn(f"name='logo' value='{self.id['logo']}'", page)
+        self.assertIn("data-set='keep'", page)
+        self.assertIn(f"{(BK).resolve()} keep {self.b.resolve()}", page)  # the command carries absolute paths
+        self.assertNotIn("data:image", page)
+        run("keep", self.b, "--no-previews", self.id["s_new"], "--logo", self.id["logo"])
+        run("review-html", self.b, "--no-previews", "--lang", "fr")
+        page = (self.b / "review.html").read_text()
+        self.assertIn(f"data-id='{self.id['s_new']}' data-choice='keep'", page)
+        self.assertIn(f"data-id='{self.id['web']}' data-choice='discard'", page)
+        self.assertIn(f"value='{self.id['logo']}' checked", page)
+        self.assertIn("J'écarte", page)
+
+    def test_previews_are_hotlinked_from_og_image_never_downloaded(self):
+        doc, evidence, review = json.loads((self.b / "brand.json").read_text()), list(self.ev().values()), {}
+        with mock.patch.object(media, "preview_url", side_effect=lambda x, t=4: "https://cdn.example/p.jpg" if x["kind"] == "web_image" else None):
+            page = visual.render_html(doc, evidence, review, self.b, self.b / "review.html", "en", previews=True)
+        self.assertIn("src='https://cdn.example/p.jpg'", page)
+        self.assertIn("referrerpolicy='no-referrer'", page)
+        self.assertEqual([p.name for p in self.b.iterdir() if p.suffix in (".jpg", ".png")], [])
+
+
+def media_close(a, b, tol=12):
+    from model import hex_distance
+    return hex_distance(a, b) < tol
+
+
+class Previews(unittest.TestCase):
+    """Reading a page's og:image, against a throwaway local server."""
+
+    @classmethod
+    def setUpClass(cls):
+        pages = {"/a": b'<html><head><meta content="/img/a.jpg" property="og:image"></head></html>',
+                 "/b": b'<html><head><meta name="twitter:image" content="https://cdn.example/t.png"></head></html>',
+                 "/c": b"<html><head><title>nothing</title></head></html>"}
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = pages.get(self.path)
+                self.send_response(200 if body else 404)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body or b"")
+
+            def log_message(self, *a):
+                pass
+
+        cls.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.base = f"http://127.0.0.1:{cls.srv.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def test_og_image_relative_twitter_fallback_and_nothing(self):
+        self.assertEqual(media.og_image(self.base + "/a", 2), self.base + "/img/a.jpg")
+        self.assertEqual(media.og_image(self.base + "/b", 2), "https://cdn.example/t.png")
+        self.assertIsNone(media.og_image(self.base + "/c", 2))
+        self.assertIsNone(media.og_image(self.base + "/missing", 2))
+        self.assertIsNone(media.og_image("http://127.0.0.1:9/", 1))
+
+    def test_an_image_address_is_its_own_preview(self):
+        self.assertEqual(media.preview_url({"where": "https://x.example/a.PNG?w=1"}), "https://x.example/a.PNG?w=1")
+        self.assertIsNone(media.preview_url({"where": "collect/screen.png"}))
 
 
 if __name__ == "__main__":
