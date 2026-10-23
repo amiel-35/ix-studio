@@ -54,7 +54,7 @@ each step, give the path of the page to open and the one question it asks.
    in parallel, blind** (each sees the brand, the brief, `bans.md` if any, and its own mandate only). Each writes
    `variants/<id>.json`: `mandate`, `default` (an object `{"headline": "...", "image": "..."}`: what it would have made by default, written
    down, then set aside), `headline`, `subline`, `image_prompt` (what the image shows, no text in it), `layout`
-   (`side|stack|ground|overlay-top|overlay-bottom`), `ground` (`background|text|accent`), `why`. The brand does not
+   (`side|stack|ground|overlay-top|overlay-bottom`), `ground` (`background|text|accent`), `why`, optionally `fit` (`contain`, the default: the whole image shows; `cover`: it may be cropped). The brand does not
    diverge: the idea does. **Pick a layout that does not cover the subject of the image.** `side` (image and a flat
    brand panel next to each other; stacks in a portrait or square piece), `stack` (image above, panel below) and
    `ground` (flat brand colour, the image a framed inset) never overlap the image; use `overlay-top` or

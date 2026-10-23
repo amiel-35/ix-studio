@@ -121,21 +121,20 @@ def render(d, brand, brief, variant, headline, alt=True):
     pt = pb = pl = pr = p
     if lg and meets(tr, lg) and lay != "ground":
         band = round(24 * u)
-        if tr[2] > 2 * tr[3]:  # a wide band: keep the logo's corner free on its side, not across the whole width
-            if pos.endswith("left"):
-                pl = max(p, lg[0] + lg[2] - tr[0] + band)
-            else:
-                pr = max(p, tr[0] + tr[2] - lg[0] + band)
+        vt = max(p, lg[1] + lg[3] - tr[1] + band) if lg[1] < h / 2 else max(p, tr[1] + tr[3] - lg[1] + band)
+        hz = max(p, lg[0] + lg[2] - tr[0] + band) if pos.endswith("left") else max(p, tr[0] + tr[2] - lg[0] + band)
+        if tr[2] > 2 * tr[3] and hz * tr[3] <= vt * tr[2]:  # a wide band: keep the logo's corner free on its side if that costs less area than a strip
+            pl, pr = (hz, p) if pos.endswith("left") else (p, hz)
         elif lg[1] < h / 2:
-            pt = max(p, lg[1] + lg[3] - tr[1] + band)
+            pt = vt
         else:
-            pb = max(p, tr[1] + tr[3] - lg[1] + band)
+            pb = vt
     sub_t, cta_t = variant["subline"], brief["cta"]
     iw, ih = tr[2] - pl - pr, tr[3] - pt - pb
     ss, warns = round(34 * u), []
 
     def fit(ss):
-        extra = (round(24 * u) + wrap_lines(sub_t, ss, iw) * ss * 1.3 if sub_t else 0) + (round(110 * u) if cta_t else 0) + ((80 + (40 if slogan else 0)) * u if kind == "none" else 0)
+        extra = (round(24 * u) + wrap_lines(sub_t, ss, min(iw, 34 * ss)) * ss * 1.3 if sub_t else 0) + (round(110 * u) if cta_t else 0) + ((80 + (40 if slogan else 0)) * u if kind == "none" else 0)
         return headline_size(headline, iw, ih, .11 * math.sqrt(w * h), extra)
     size = fit(ss)
     while sub_t and size < 1.4 * ss and ss > round(24 * u):  # the headline must stay clearly above the subline
@@ -175,12 +174,12 @@ def render(d, brand, brief, variant, headline, alt=True):
                       f"text-align:{'right' if right else 'left'};font-size:{fs}px;{'background:' + ground + ';' if chip else ''}}}")
     css = f"""html,body{{margin:0;padding:0}}
 body{{width:{w}px;height:{h}px;position:relative;overflow:hidden;background:{ground if lay == 'ground' else brand['background']}}}
-.bg{{position:absolute;{px(ir)};object-fit:cover;box-sizing:border-box;{frame}}}
+.bg{{position:absolute;{px(ir)};object-fit:{variant.get('fit', 'contain')};background:{ground};box-sizing:border-box;{frame}}}
 .shape{{position:absolute;{px(ir)};overflow:hidden;background:{rgba(shape_c, 0.14)};box-sizing:border-box;{frame}}}
 .shape::after{{content:"";position:absolute;right:-12%;bottom:-18%;width:70%;padding-bottom:70%;border-radius:50%;background:{rgba(shape_c, 0.16)}}}
 .blk{{position:absolute;{px(tr)};padding:{pt}px {pr}px {pb}px {pl}px;background:{block};box-sizing:border-box;display:flex;flex-direction:column;justify-content:{just}}}
 .hl{{margin:0;font-family:{hf};font-size:{size}px;line-height:1.05;font-weight:600;text-wrap:balance;color:{hc}}}
-.sub{{margin:{round(24 * u)}px 0 0;font-family:{bf};font-size:{ss}px;line-height:1.3;color:{ink}}}
+.sub{{margin:{round(24 * u)}px 0 0;max-width:34em;font-family:{bf};font-size:{ss}px;line-height:1.3;color:{ink}}}
 .cta{{align-self:flex-start;margin:{round(32 * u)}px 0 0;padding:{round(10 * u)}px {round(24 * u)}px;border:3px solid {ink};font-family:{bf};font-size:{round(28 * u)}px;font-weight:600;color:{ink}}}
 .sig{{margin-top:{round(40 * u)}px;font-family:{hf};font-size:{round(28 * u)}px;color:{ink}}}
 .slogan{{margin:{round(8 * u)}px 0 0;font-family:{bf};font-size:{sg}px;line-height:1.25;white-space:nowrap;color:{ink}}}{slogan_css}

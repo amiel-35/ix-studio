@@ -349,6 +349,21 @@ class Layouts(unittest.TestCase):
         self.assertIn("overlay-top", run("diverge", d, ok=False).stderr)
 
 
+class SquareStack(unittest.TestCase):
+    def test_full_width_text_whole_image_zone_ratio(self):
+        d = prep()
+        kv(d, "brief.md", format="post-1x1")
+        run("brief", d)
+        run("image", d, "--engine", "none")
+        self.assertIn("Format 1080x626, ratio 16:9, for the image zone of a 1080x1080 post-1x1 poster", json.loads((d / "image.json").read_text())["prompt"])
+        sized(d, 0)
+        run("compose", d, "--layout", "stack")
+        h = (d / "piece.html").read_text()
+        self.assertIn("object-fit:contain", h)
+        self.assertRegex(h, r"\.blk\{[^}]*padding:\d+px 56px \d+px 56px;")
+        self.assertGreater(int(re.search(r"\.hl\{[^}]*font-size:(\d+)px", h).group(1)), 47)  # 47 with the old side padding
+
+
 class Logo(unittest.TestCase):
     def test_placeholder_positions_and_check(self):
         for pos in ("bottom-right", "bottom-left", "top-right", "top-left"):

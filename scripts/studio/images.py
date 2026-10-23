@@ -15,11 +15,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from compose import areas
 from ui import cli
 
 BASE = "No text, no letters, no words, no logos, no watermark."
 CALM = "Leave the {where} ~40% of the frame calm and uncluttered, the headline sits there."
-BESIDE = "The text sits beside the image, not on it: let the subject fill the frame, centred, it may be cropped to fit."
+BESIDE = "The text sits beside the image, not on it: let the subject fill the frame, centred, the whole subject inside the frame with a margin, nothing important at the edges."
 OR_MODEL = "google/gemini-2.5-flash-image"
 RATIOS = ((1, 1), (2, 3), (3, 2), (3, 4), (4, 3), (4, 5), (5, 4), (9, 16), (16, 9), (21, 9))
 SIGNS = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
@@ -33,14 +34,20 @@ def none_msg(d) -> str:
 
 def build_prompt(brand, brief, variant) -> str:
     w, h = brief["size"]
+    iw, ih = zone(brief, variant)
     parts = [variant["image_prompt"].rstrip(". ") + ".",
-             f"Format {w}x{h} ({brief['format']}).",
+             f"Format {iw}x{ih}, ratio {api_ratio((iw, ih))}, for the image zone of a {w}x{h} {brief['format']} poster.",
              f"Mood from the brand palette: background {brand['background']}, text {brand['text']}"
              + (f", accent {brand['accent']}" if brand["accent"] else "") + ".",
              f"Voice of the brand: {brand['voice']}." if brand["voice"] else "",
              f"Do not show: {'; '.join(brand.get('never_show', []))}." if brand.get("never_show") else "",
              BASE, calm(variant.get("layout"))]
     return " ".join(p for p in parts if p)
+
+
+def zone(brief, variant):
+    """(w, h) of the image zone of the variant's layout."""
+    return areas(variant.get("layout"), *brief["size"])[1][2:]
 
 
 def calm(layout) -> str:

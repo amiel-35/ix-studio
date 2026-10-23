@@ -162,6 +162,8 @@ def load_variants(d) -> list:
             raise StudioError(f"{p.name}: key 'layout' must be one of {', '.join(LAYOUTS)}")
         if v["ground"] not in GROUNDS:
             raise StudioError(f"{p.name}: key 'ground' must be one of {', '.join(GROUNDS)}")
+        if v.get("fit", "contain") not in ("contain", "cover"):
+            raise StudioError(f"{p.name}: key 'fit' must be contain or cover")
         out.append({"subline": "", **v, "id": p.stem})
     if len(out) < 2:
         raise StudioError(f"variants/: {len(out)} variant(s), need at least 2 (v1.json, v2.json, ...)")

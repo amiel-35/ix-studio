@@ -122,10 +122,11 @@ def cmd_image(a):
         return
     if not v and not a.prompt:
         raise StudioError('no pick yet: give the image prompt with --prompt "...", or put your own image.png in ' + str(d))
-    prompt = images.build_prompt(brand, brief, {"layout": "overlay-top", **(v or {}), "image_prompt": a.prompt or v["image_prompt"]})
+    v2 = {"layout": "overlay-top", **(v or {}), "image_prompt": a.prompt or v["image_prompt"]}
+    prompt = images.build_prompt(brand, brief, v2)
     tmp = d / "image.new.png"
     tmp.unlink(missing_ok=True)
-    engine, ok, msg = images.generate(a.engine, prompt, brief["size"], tmp)
+    engine, ok, msg = images.generate(a.engine, prompt, images.zone(brief, v2), tmp)
     if ok:
         os.replace(tmp, d / "image.png")
         (d / "image.jpg").unlink(missing_ok=True)
