@@ -48,6 +48,19 @@ writes text. The divergence follows the method of
 [design-divergent](https://github.com/amiel-35/ix-design-divergent) (mandates that each look somewhere else, blind
 variants, the attractor, you choose).
 
+## The two files you can write by hand
+
+`brand.md`, one `key: value` per line: `name`, `background`, `text` (required); `accent`, `extra colours`
+(comma-separated), `headline colour` (hex); `headline font`, `body font`; `logo` (a file, or `placeholder`),
+`logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`); `slogan` (exact words, set next to the
+logo); `voice`; `never` (exact words or characters, `;`-separated); `never show` (what the image must not show);
+`notes`. A value ending in `(to confirm)` is used, and the check warns that the piece relies on it.
+
+`brief.md`: `objective`, `audience`, `message` (required); `format`; `fixed`; `cta`; `language`.
+
+Formats: `post-4x5` (1080×1350, default), `post-1x1` (1080×1080), `story` (1080×1920), `poster-a3` (1240×1754),
+`poster-3x2` (1800×1200), `linkedin` (1200×627), or a free size like `1600x900` (width x height, 200 to 4000 px a side).
+
 ## Images
 
 | Engine | How | When |
@@ -70,7 +83,8 @@ python3 -m unittest discover -s tests       # tests, including the end-to-end fl
 ## Going further
 
 The rich **brand dossier** (provenance on every value, inference from a site, conflicts, versions) is still here and
-optional: skill `brand-dossier`, `python3 scripts/studio brand poster --from-dossier brand` to start a piece from it.
+optional: skill `brand-dossier`, `python3 scripts/studio brand poster --from-dossier brand` to start a piece from it
+(confirmed values only; `--include-unconfirmed` also takes the rest, marked to confirm).
 See [the brand dossier](docs/en/brand-dossier.md) and [the architecture](docs/en/architecture.md).
 
 Experimental. MIT, see [LICENSE](LICENSE) and [THIRD_PARTY.md](THIRD_PARTY.md). Marrowbay Ferments is fictional.

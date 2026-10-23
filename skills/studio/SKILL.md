@@ -28,13 +28,21 @@ each step, give the path of the page to open and the one question it asks.
    (hex), `extra colours` (a comma-separated list of hex: `extra colours: #E8C547, #7A8B6F`), `headline colour`
    (hex), `headline font`, `body font`, `logo` (a file path, or `placeholder` when the logo exists but was not given:
    the piece shows a dashed square), `logo position` (`bottom-right` default, `bottom-left`, `top-right`, `top-left`),
-   `voice`, `never` (the exact words or characters that must not appear in the copy, `;`-separated, e.g.
+   `voice`, `slogan` (the brand's tagline or signature line, exact words: the piece sets it next to the logo),
+   `never` (the exact words or characters that must not appear in the copy, `;`-separated, e.g.
    `never: detox; superfood; —`; prose there shows up as "not verifiable"), `never show` (what the image must not
    show, free prose, `;`-separated). Take them, in this
    order, from: a design-system skill that speaks for the brand (read it as it prescribes, copy only what it says);
    an existing brand dossier (`python3 "$ST" brand <dir> --from-dossier <brand dir> [--look <name>]`; when the dossier
    has several looks and no master, the tool stops and asks for `--look`); the user's words. Never
-   invent a colour, a font or a logo: what nobody gave stays out, and you say so. Then `python3 "$ST" brand <dir>`.
+   invent a colour, a font or a logo: what nobody gave stays out, and you say so. Most brands have a slogan: when
+   nobody gave it, look for it yourself (the brand's own site first, then the web) and write it with its source,
+   marked to confirm, without asking: `slogan: <exact words> (to confirm: <url>)`. Approximate is fine, made up is
+   not: if you find nothing, leave it out. Any value can carry that marker (`(to confirm)` or `(à confirmer)`): the
+   piece uses it, and `check` and its page warn that the piece relies on it.
+   From a dossier, only confirmed values are imported; `--include-unconfirmed` also takes the rest, marked to
+   confirm. The dossier's reference visuals and web images whose ownership the person has not confirmed never feed
+   an image prompt, in any mode. Then `python3 "$ST" brand <dir>`.
    The rich dossier (skill `brand-dossier`) stays available but is not required.
 2. **Brief of the piece.** `<dir>/brief.md`: `objective` (awareness, purchase, engagement...), `audience`,
    `message`, `format` (`post-4x5`, `post-1x1`, `story`, `poster-a3`, `poster-3x2`, `linkedin`, or a free size `WxH` like `1600x900`), optional `fixed`, `cta`, `language`. Clean
@@ -51,7 +59,9 @@ each step, give the path of the page to open and the one question it asks.
    brand panel next to each other; stacks in a portrait or square piece), `stack` (image above, panel below) and
    `ground` (flat brand colour, the image a framed inset) never overlap the image; use `overlay-top` or
    `overlay-bottom` only when the image prompt leaves that edge calm. Each mandate chooses its own layout: the
-   stances should not all share one (`diverge` warns when they do).
+   stances should not all share one (`diverge` warns when they do). Before returning, each subagent rereads its own
+   headline and subline in the piece's language as a reader would, looking for any second reading (sexual, vulgar,
+   ridiculous, hurtful), slang included; if it finds one, it rewrites the line. No word list: a human eye.
    Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."]`.
 4. **The piece.** `python3 "$ST" image <dir>` then `python3 "$ST" compose <dir>`. The image comes from an
    executor behind an adapter: the user's key (`OPENAI_API_KEY`), or locally their own plan through the Codex CLI.
@@ -60,7 +70,11 @@ each step, give the path of the page to open and the one question it asks.
 5. **Check.** Look at `piece.png` (or `piece.html`) as a judge with a fresh eye, ideally a subagent that did not
    write the variants: does the headline read in three seconds, does the image answer it, does it feel like the
    brand, anything off (cropping, contrast, a cliché), and flag as `[major]` any claim that is in neither the brand nor the
-   brief (a figure, a place, a label or award, a promise). Write `<dir>/judge.md`, one `- ` line per note, prefixed
+   brief (a figure, a place, a label or award, a promise). Then reread the headline and the subline in the piece's
+   language, slowly, as a reader with a dirty mind or a mocking one would: any double meaning (sexual, vulgar,
+   ridiculous, hurtful), slang included, is a `[major]` note that quotes the problem reading
+   (`- [major] double meaning: "<line>" reads as "<the other reading>"`). No word list: a human eye; a human
+   copywriter would have pulled the line. Check that the slogan is there when the brand has one. Write `<dir>/judge.md`, one `- ` line per note, prefixed
    `[minor]` or `[major]`. Notes annotate, they never block; the summary counts the majors. Then `python3 "$ST" check <dir>`: the mechanical
    checks (palette, type, contrast, banned words) plus your notes, on one page.
 6. **The person decides.** `python3 "$ST" decide <dir> keep "<their words>"` or
@@ -81,5 +95,7 @@ For anything with text inside the image, do not ask the image model: the text is
 
 - The brand's values are imposed: the idea diverges, never the palette or the type.
 - Nothing is invented: no figure, no testimonial, no claim, no logo redrawn from memory.
+- Matter the person was asked to confirm and did not (a colour, a visual, an image's ownership) is not the brand:
+  leave it out, or mark it to confirm and say the piece relies on it.
 - A reference serves its grammar, never a model to copy.
 - Nothing is published or sent outside without the user's explicit yes.

@@ -49,6 +49,20 @@ n'écrit jamais de texte. La divergence suit la méthode de
 [design-divergent](https://github.com/amiel-35/ix-design-divergent) (des mandats qui regardent chacun ailleurs, des
 variantes en aveugle, l'attracteur, tu choisis).
 
+## Les deux fichiers qu'on peut écrire à la main
+
+`brand.md`, une ligne `clé: valeur` par entrée : `name`, `background`, `text` (obligatoires) ; `accent`,
+`extra colours` (séparées par des virgules), `headline colour` (hex) ; `headline font`, `body font` ; `logo` (un
+fichier, ou `placeholder`), `logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`) ; `slogan` (mots
+exacts, posé près du logo) ; `voice` ; `never` (mots ou caractères exacts, séparés par `;`) ; `never show` (ce que
+l'image ne doit pas montrer) ; `notes`. Une valeur suivie de `(à confirmer)` est utilisée, et le contrôle signale que
+la pièce s'appuie dessus.
+
+`brief.md` : `objective`, `audience`, `message` (obligatoires) ; `format` ; `fixed` ; `cta` ; `language`.
+
+Formats : `post-4x5` (1080×1350, par défaut), `post-1x1` (1080×1080), `story` (1080×1920), `poster-a3` (1240×1754),
+`poster-3x2` (1800×1200), `linkedin` (1200×627), ou une taille libre comme `1600x900` (largeur x hauteur, 200 à 4000 px de côté).
+
 ## Images
 
 | Moteur | Comment | Quand |
@@ -72,7 +86,8 @@ python3 -m unittest discover -s tests       # les tests, dont le flux de bout en
 
 Le **dossier de marque** riche (provenance de chaque valeur, inférence depuis un site, conflits, versions) est
 toujours là, et facultatif : skill `brand-dossier`, puis `python3 scripts/studio brand poster --from-dossier brand`
-pour démarrer une pièce depuis lui. Voir [le dossier de marque](docs/fr/dossier-de-marque.md) et
+pour démarrer une pièce depuis lui (valeurs confirmées seulement ; `--include-unconfirmed` prend aussi les
+autres, marquées à confirmer). Voir [le dossier de marque](docs/fr/dossier-de-marque.md) et
 [l'architecture](docs/fr/architecture.md).
 
 Expérimental. MIT, voir [LICENSE](LICENSE) et [THIRD_PARTY.md](THIRD_PARTY.md). Marrowbay Ferments est fictive.
