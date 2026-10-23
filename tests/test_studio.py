@@ -77,7 +77,7 @@ class Flow(unittest.TestCase):
         self.assertEqual((st["image"], st["logo"], st["headline colour"]), ("warn", "warn", "pass"))
         self.assertEqual(len(ck["judge"]), 5)
         self.assertEqual(ck["judge"][0]["level"], "minor")
-        self.assertIn("check: 7 pass · 2 warn · 0 fail · 0 major judge notes (5 notes)", self.out.stdout)
+        self.assertIn("check: 9 pass · 2 warn · 0 fail · 0 major judge notes (5 notes)", self.out.stdout)
 
     def test_decide_keep_and_again(self):
         d = piece()
@@ -339,7 +339,7 @@ class Layouts(unittest.TestCase):
             v = json.loads(p.read_text())
             v["layout"] = "center"
             p.write_text(json.dumps(v))
-        self.assertIn("warning: all variants use ground: the layout can diverge too", run("diverge", d).stdout)
+        self.assertIn("warning: v1, v2, v3, v4 share the layout ground: the layout can diverge too", run("diverge", d).stdout)
         self.assertIn("ground", (d / "3-divergence.html").read_text())
 
     def test_bad_layout(self):
@@ -462,6 +462,67 @@ class Summary(unittest.TestCase):
 
     def test_status_legend(self):
         self.assertIn("x = present, - = not yet", run("status", piece()).stdout)
+
+
+class Round3(unittest.TestCase):
+    def test_hierarchy_warns_and_check(self):
+        d = prep()
+        kv(d, "brief.md", format="linkedin")
+        r = run("compose", d, "--layout", "stack", "--headline", "Tea that got a little wild again",
+                "--subline", "Brewed in a harbour town and poured anywhere you like to be, with friends")
+        self.assertRegex(r.stdout, r"warning: headline \d+px is under 1\.4x the subline \d+px: try the layout side")
+        run("check", d)
+        self.assertEqual(results(d)["hierarchy"]["status"], "fail")
+        h = (d / "piece.html").read_text()
+        for sz, want in ((30, "warn"), (20, "pass")):
+            (d / "piece.html").write_text(re.sub(r"(\.hl\{[^}]*font-size:)\d+px", r"\g<1>40px", re.sub(r"(\.sub\{[^}]*font-size:)\d+px", rf"\g<1>{sz}px", h)))
+            run("check", d)
+            self.assertEqual(results(d)["hierarchy"]["status"], want)
+
+    def test_orphans_and_slogan_one_line(self):
+        d = prep()
+        run("compose", d, "--headline", "Boire le thé sauvage")
+        h = (d / "piece.html").read_text()
+        self.assertIn("Boire le\xa0thé\xa0sauvage", h)
+        self.assertIn("text-wrap:balance", h)
+        self.assertIn("white-space:nowrap", re.search(r"\.slogan\{[^}]*\}", h).group(0))
+        run("check", d)
+        self.assertEqual(results(d)["never"]["status"], "pass")
+
+    def test_pick_subline(self):
+        d = piece()
+        for cmd in ("brand", "brief", "diverge"):
+            run(cmd, d)
+        self.assertIn("with subline 'Only this.'", run("pick", d, "v2", "--subline", "Only this.").stdout)
+        run("compose", d)
+        self.assertIn('<p class="sub">Only this.</p>', (d / "piece.html").read_text())
+
+    def test_cta_repeats_subline(self):
+        d = prep()
+        run("compose", d, "--subline", "Find us at the market on Saturday")
+        run("check", d)
+        self.assertEqual(results(d)["cta"]["status"], "warn")
+        kv(d, "brief.md", cta="Visit example.org")
+        run("compose", d, "--subline", "Poured fresh, example.org")
+        run("check", d)
+        self.assertEqual(results(d)["cta"]["status"], "warn")
+        run("compose", d, "--subline", "Poured anywhere")
+        run("check", d)
+        self.assertEqual(results(d)["cta"]["status"], "pass")
+
+    def test_decide_again_archives_variants(self):
+        d = piece()
+        build(d)
+        self.assertIn("variants/round-1", run("decide", d, "again", "no").stdout)
+        self.assertEqual(len(list((d / "variants").glob("*.json"))), 0)
+        self.assertEqual(len(list((d / "variants" / "round-1").glob("*.json"))), 4)
+        self.assertIn("write new variants", run("status", d).stdout)
+        self.assertIn("need at least 2", run("diverge", d, ok=False).stderr)
+        h = piece()  # a piece written by hand has no variants to archive
+        shutil.rmtree(h / "variants")
+        run("compose", h, "--headline", "Tea, by hand")
+        run("check", h)
+        self.assertNotIn("round-", run("decide", h, "again", "no").stdout)
 
 
 if __name__ == "__main__":

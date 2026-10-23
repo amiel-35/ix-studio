@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote_plus
 
 from colour import contrast, ink_on, rgba
-from files import font_css, ground_hex, image_file
+from files import LAYOUTS, font_css, ground_hex, image_file
 
 e = html.escape
 
@@ -69,6 +69,12 @@ def headline_size(headline, iw, ih, cap, extra):
     return round(size)
 
 
+def glue(t):
+    """Non-breaking spaces: the last two words stay together (3+ words), and a 1-2 letter word sticks to the next one."""
+    ws = t.split()
+    return "".join((("\xa0" if len(ws[i - 1]) <= 2 or (len(ws) > 2 and i == len(ws) - 1) else " ") if i else "") + w for i, w in enumerate(ws))
+
+
 def fonts_link(brand) -> str:
     fams = [f for f in dict.fromkeys([brand["hfont"], brand["bfont"]]) if f]
     if not fams:
@@ -81,7 +87,8 @@ def px(r):
     return f"left:{r[0]}px;top:{r[1]}px;width:{r[2]}px;height:{r[3]}px"
 
 
-def render(d, brand, brief, variant, headline) -> str:
+def render(d, brand, brief, variant, headline, alt=True):
+    """(html, warnings). `alt`: look for another layout to suggest when the hierarchy fails."""
     w, h = brief["size"]
     u = math.sqrt(w * h) / 1080
     img = image_file(d)
@@ -100,7 +107,7 @@ def render(d, brand, brief, variant, headline) -> str:
     slogan, sl = brand["slogan"], None
     if slogan and lg:  # beside the logo, on its inner side; the reserved corner grows to cover both
         pad, fs = round(10 * u), 26 * u
-        while wrap_lines(slogan, fs, .4 * w - 2 * pad) > 2:
+        while len(slogan) * fs * .56 > .4 * w - 2 * pad:  # one line
             fs *= .94
         sw = round(min(len(slogan) * fs * .56, .4 * w - 2 * pad)) + 2 * pad
         off = lm + lw + 2 * pad + (4 if kind == 'placeholder' else 0)  # flush with the logo's chip (and its dashed border)
@@ -125,8 +132,19 @@ def render(d, brand, brief, variant, headline) -> str:
             pb = max(p, tr[1] + tr[3] - lg[1] + band)
     sub_t, cta_t = variant["subline"], brief["cta"]
     iw, ih = tr[2] - pl - pr, tr[3] - pt - pb
-    extra = (round(24 * u) + wrap_lines(sub_t, 34 * u, iw) * 44 * u if sub_t else 0) + (round(110 * u) if cta_t else 0) + ((80 + (40 if slogan else 0)) * u if kind == "none" else 0)
-    size = headline_size(headline, iw, ih, .11 * math.sqrt(w * h), extra)
+    ss, warns = round(34 * u), []
+
+    def fit(ss):
+        extra = (round(24 * u) + wrap_lines(sub_t, ss, iw) * ss * 1.3 if sub_t else 0) + (round(110 * u) if cta_t else 0) + ((80 + (40 if slogan else 0)) * u if kind == "none" else 0)
+        return headline_size(headline, iw, ih, .11 * math.sqrt(w * h), extra)
+    size = fit(ss)
+    while sub_t and size < 1.4 * ss and ss > round(24 * u):  # the headline must stay clearly above the subline
+        ss = max(round(24 * u), round(ss * .94))
+        size = fit(ss)
+    if sub_t and size < 1.4 * ss:
+        other = next((l for l in LAYOUTS if alt and areas(l, w, h)[0] != lay and not render(d, brand, brief, {**variant, "layout": l}, headline, False)[1]), None)
+        warns.append(f"headline {size}px is under 1.4x the subline {ss}px: " + (f"try the layout {other}" if other else "try a shorter headline"))
+    sg = round(min(26 * u, iw / (len(slogan) * .56))) if slogan else 0  # a slogan never wraps
     shape_c = brand["accent"] if brand["accent"] and brand["accent"] != ground else brand["text"]
     frame = f"border:{max(2, round(4 * u))}px solid {ink};" if lay == "ground" else ""
     if over:
@@ -140,7 +158,7 @@ def render(d, brand, brief, variant, headline) -> str:
     sub = f'<p class="sub">{e(sub_t)}</p>' if sub_t else ""
     said = f'<p class="slogan">{e(slogan)}</p>' if slogan else ""
     sig = f'<div class="sig">{e(brand["name"])}{said}</div>' if kind == "none" else ""
-    parts.append(f'<div class="blk"><h1 class="hl">{e(headline)}</h1>{sub}{cta}{sig}</div>')
+    parts.append(f'<div class="blk"><h1 class="hl">{e(glue(headline))}</h1>{sub}{cta}{sig}</div>')
     if kind == "file":
         parts.append(f'<img class="logo" src="{e(brand["logo"])}" alt="{e(brand["name"])}">')
     elif kind == "placeholder":
@@ -161,15 +179,15 @@ body{{width:{w}px;height:{h}px;position:relative;overflow:hidden;background:{gro
 .shape{{position:absolute;{px(ir)};overflow:hidden;background:{rgba(shape_c, 0.14)};box-sizing:border-box;{frame}}}
 .shape::after{{content:"";position:absolute;right:-12%;bottom:-18%;width:70%;padding-bottom:70%;border-radius:50%;background:{rgba(shape_c, 0.16)}}}
 .blk{{position:absolute;{px(tr)};padding:{pt}px {pr}px {pb}px {pl}px;background:{block};box-sizing:border-box;display:flex;flex-direction:column;justify-content:{just}}}
-.hl{{margin:0;font-family:{hf};font-size:{size}px;line-height:1.05;font-weight:600;color:{hc}}}
-.sub{{margin:{round(24 * u)}px 0 0;font-family:{bf};font-size:{round(34 * u)}px;line-height:1.3;color:{ink}}}
+.hl{{margin:0;font-family:{hf};font-size:{size}px;line-height:1.05;font-weight:600;text-wrap:balance;color:{hc}}}
+.sub{{margin:{round(24 * u)}px 0 0;font-family:{bf};font-size:{ss}px;line-height:1.3;color:{ink}}}
 .cta{{align-self:flex-start;margin:{round(32 * u)}px 0 0;padding:{round(10 * u)}px {round(24 * u)}px;border:3px solid {ink};font-family:{bf};font-size:{round(28 * u)}px;font-weight:600;color:{ink}}}
 .sig{{margin-top:{round(40 * u)}px;font-family:{hf};font-size:{round(28 * u)}px;color:{ink}}}
-.slogan{{margin:{round(8 * u)}px 0 0;font-family:{bf};font-size:{round(26 * u)}px;line-height:1.25;color:{ink}}}{slogan_css}
+.slogan{{margin:{round(8 * u)}px 0 0;font-family:{bf};font-size:{sg}px;line-height:1.25;white-space:nowrap;color:{ink}}}{slogan_css}
 .logo{{position:absolute;{lpos};z-index:2;{chip}display:block;height:{lh}px;box-sizing:content-box}}
 .ph{{width:{lh}px;border:2px dashed {ink};display:flex;align-items:center;justify-content:center;font-family:{bf};font-size:{round(20 * u)}px;color:{ink}}}"""
     return (f'<!doctype html>\n<html lang="{e(brief["language"] or "en")}"><head><meta charset="utf-8">'
-            f'<title>{e(brand["name"])}</title>{fonts_link(brand)}\n<style>\n{css}\n</style></head>\n<body data-layout="{lay}">\n' + "\n".join(parts) + "\n</body></html>\n")
+            f'<title>{e(brand["name"])}</title>{fonts_link(brand)}\n<style>\n{css}\n</style></head>\n<body data-layout="{lay}">\n' + "\n".join(parts) + "\n</body></html>\n", warns)
 
 
 def find_chrome():

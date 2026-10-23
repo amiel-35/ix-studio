@@ -3,7 +3,7 @@
   "variant": "v2",
   "headline": "It's tea that got a little wild.",
   "summary": {
-    "pass": 8,
+    "pass": 10,
     "warn": 1,
     "fail": 0,
     "judge": 5,
@@ -39,6 +39,16 @@
       "id": "never",
       "status": "pass",
       "say": "none of the brand's never-words appears"
+    },
+    {
+      "id": "hierarchy",
+      "status": "pass",
+      "say": "headline 69px, subline 46px"
+    },
+    {
+      "id": "cta",
+      "status": "pass",
+      "say": "the call to action does not repeat the subline"
     },
     {
       "id": "image",

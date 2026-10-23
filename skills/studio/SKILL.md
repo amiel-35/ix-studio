@@ -62,7 +62,7 @@ each step, give the path of the page to open and the one question it asks.
    stances should not all share one (`diverge` warns when they do). Before returning, each subagent rereads its own
    headline and subline in the piece's language as a reader would, looking for any second reading (sexual, vulgar,
    ridiculous, hurtful), slang included; if it finds one, it rewrites the line. No word list: a human eye.
-   Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."]`.
+   Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."] [--subline "..."]`.
 4. **The piece.** `python3 "$ST" image <dir>` then `python3 "$ST" compose <dir>`. The image comes from an
    executor behind an adapter: the user's key (`OPENAI_API_KEY`), or locally their own plan through the Codex CLI.
    With neither, the piece is composed on a flat brand ground and the page says so: say it too, with how to plug a

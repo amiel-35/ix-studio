@@ -173,14 +173,14 @@ def load_pick(d):
 
 
 def picked(d, variants):
-    """(variant, headline) of the pick, or (None, None)."""
+    """(variant, headline) of the pick (its subline overridden by pick.json's), or (None, None)."""
     pk = load_pick(d)
     if not pk:
         return None, None
     v = next((x for x in variants if x["id"] == pk["variant"]), None)
     if not v:
         raise StudioError(f"pick.json names {pk['variant']!r}, which is not in variants/")
-    return v, pk.get("headline") or v["headline"]
+    return ({**v, "subline": pk["subline"]} if "subline" in pk else v), pk.get("headline") or v["headline"]
 
 
 def image_file(d):

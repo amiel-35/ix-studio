@@ -22,12 +22,17 @@ def _style(src):
 def text(src, cls):
     """The text of the first element carrying the class token `cls`, or None."""
     m = re.search(rf"""<(\w+)[^>]*class=["'][^"']*(?<![\w-]){cls}(?![\w-])[^"']*["'][^>]*>(.*?)</\1>""", src, re.S)
-    return html.unescape(re.sub(r"<[^>]+>", "", m.group(2))).strip() if m else None
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", "", m.group(2))).split()) if m else None  # \xa0 counts as a space
 
 
 def _prop(css, sel, prop):
     m = re.search(rf"\.{sel}\s*\{{[^}}]*?(?<![-\w]){prop}\s*:\s*([^;}}]+)", css)
     return css_to_hex(m.group(1)) if m else None
+
+
+def _px(css, sel):
+    m = re.search(rf"\.{sel}\s*\{{[^}}]*?(?<![-\w])font-size\s*:\s*([\d.]+)px", css)
+    return float(m.group(1)) if m else None
 
 
 def judge_notes(d):
@@ -93,6 +98,16 @@ def run(d, brand):
             add("never", False, f"not verifiable: {'; '.join(prose)}; write the exact words or characters", "warn")
         else:
             add("never", True, "none of the brand's never-words appears")
+
+    hs, ss = _px(css, "hl"), _px(css, "sub")
+    if hs and ss:
+        add("hierarchy", hs >= 1.4 * ss, f"headline {hs:g}px, subline {ss:g}px" + ("" if hs >= 1.4 * ss else ": the headline should be at least 1.4x the subline"), "fail" if hs < ss else "warn")
+    if cta and sub:
+        tok = lambda t: [w.strip(".,;:!?\"'()") for w in t.lower().split()]
+        gram = lambda ws: {tuple(ws[i:i + 3]) for i in range(len(ws) - 2)}
+        cw, sw = tok(cta), tok(sub)
+        dup = f" {' '.join(cw)} " in f" {' '.join(sw)} " or any(("." in w or "@" in w) and w in sw for w in cw) or gram(cw) & gram(sw)
+        add("cta", not dup, "the call to action does not repeat the subline" if not dup else "the call to action repeats the subline word for word: say it once", "warn")
 
     has_img = 'class="bg"' in src
     add("image", has_img, "a generated or provided image is used" if has_img else "placeholder: no generated image", "warn")

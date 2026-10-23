@@ -77,11 +77,16 @@ def cmd_brief(a):
 
 
 def cmd_diverge(a):
-    load_brand(a.dir), load_brief(a.dir)
+    load_brand(a.dir)
+    w, h = load_brief(a.dir)["size"]
     vs = load_variants(a.dir)
     print(f"{len(vs)} variants ok: {', '.join(v['id'] for v in vs)}")
-    if len({v["layout"] for v in vs}) == 1:
-        print(f"warning: all variants use {vs[0]['layout']}: the layout can diverge too")
+    same = {}
+    for v in vs:
+        same.setdefault(compose.areas(v["layout"], w, h)[0], []).append(v["id"])
+    for lay, ids in same.items():
+        if len(ids) > 1:
+            print(f"warning: {', '.join(ids)} share the layout {lay}: the layout can diverge too")
     page(a, 3)
 
 
@@ -92,8 +97,10 @@ def cmd_pick(a):
     pick = {"variant": a.id, "at": today()}
     if a.headline:
         pick["headline"] = a.headline
+    if a.subline is not None:
+        pick["subline"] = a.subline
     write_json(Path(a.dir) / "pick.json", pick)
-    print(f"picked {a.id}" + (f" with headline {a.headline!r}" if a.headline else ""))
+    print(f"picked {a.id}" + (f" with headline {a.headline!r}" if a.headline else "") + (f" with subline {a.subline!r}" if a.subline is not None else ""))
     page(a, 3)
 
 
@@ -146,7 +153,10 @@ def cmd_compose(a):
         raise StudioError("no pick yet: " + cli(d, "pick", "<id>") + " or write the piece by hand: " + cli(d, "compose", "--headline", '"..."'))
     headline = a.headline or headline
     v = {**v, **{k: x for k, x in (("subline", a.subline), ("layout", norm_layout(a.layout)), ("ground", a.ground)) if x is not None}}
-    (d / "piece.html").write_text(compose.render(d, brand, brief, v, headline), encoding="utf-8")
+    page_html, warns = compose.render(d, brand, brief, v, headline)
+    (d / "piece.html").write_text(page_html, encoding="utf-8")
+    for msg in warns:
+        print(f"warning: {msg}")
     print(f"piece.html written ({brief['size'][0]}x{brief['size'][1]}): {headline!r}")
     (d / "piece.png").unlink(missing_ok=True)
     print(compose.screenshot(d / "piece.html", d / "piece.png", brief["size"])[1])
@@ -192,7 +202,14 @@ def cmd_decide(a):
             gone += ["image.png", "image.jpg", "image.json"]
         for n in gone:
             (d / n).unlink(missing_ok=True)
-        print("bans.md updated; pick, piece and check cleared for round 2")
+        vd, moved = d / "variants", ""
+        if list(vd.glob("*.json")):  # a piece written by hand has no variants
+            arch = vd / f"round-{1 + len(list(vd.glob('round-*')))}"
+            arch.mkdir()
+            for p in vd.glob("*.json"):
+                p.rename(arch / p.name)
+            moved = f", variants moved to {arch.relative_to(d)}"
+        print(f"bans.md updated; pick, piece and check cleared{moved} for the next round")
         return
     page(a, 5)
 
@@ -259,6 +276,7 @@ def build_parser():
     s = add("pick", cmd_pick, "choose a variant")
     s.add_argument("id")
     s.add_argument("--headline", help="your own headline instead of the variant's")
+    s.add_argument("--subline", help="your own subline instead of the variant's")
     s = add("image", cmd_image, "generate the image (or keep yours)", lang=False)
     s.add_argument("--engine", default="auto", choices=("auto", "openai", "codex", "none"))
     s.add_argument("--variant")
