@@ -1,40 +1,71 @@
 ---
 name: studio
-description: Entry point of the creative studio. Takes a brand (even one you know nothing about) and a request for a creative piece (a film or motion graphic, a still visual, a screen or mock-up, a visual identity direction), and routes it through the studio's modules in order, starting with the brand dossier. Use on "/studio", "creative studio", "make a film / a visual / a screen / a logo direction for <brand>", "studio créatif", "fais-moi un visuel pour <marque>", or whenever creative work for a brand starts and it is not clear what to do first.
+description: Entry point of the creative studio. Makes a still ad (a poster or a social post) for a brand in one session - minimal brand, brief of the piece, divergence, the piece, a check, the person decides - with one page per step to look at. Also routes to the brand dossier when a rich one is wanted. Use on "/studio", "make a poster / an ad / a post for <brand>", "creative studio", "fais-moi une affiche / une pub / un post pour <marque>", "studio créatif", or whenever creative work for a brand starts and it is not clear what to do first.
 ---
 
 # Studio
 
-The studio turns a brand and a request into creative pieces that really diverge before anyone chooses, respect the
-brand, and are executed by the right tool without that tool's own look taking over. It is built in parts; this skill
-knows which ones exist and sends the work to them in order.
+One piece, one folder, five pages. The studio carries a still ad from a few lines about the brand to a poster the
+person keeps or sends back. For an ad, the unit is the pair **headline + image**: the headline first, the image
+answers it. The image model never writes text; the headline is set in HTML in the brand's type.
 
-| Module | What it does | Status |
-|---|---|---|
-| Brand dossier | what is known about the brand, where each value came from, what is missing | **available**: skill `brand-dossier` |
-| Brief | cleans the request of solutions drawn into it; holds the project's content and format | planned |
-| Divergence | mandates that each look somewhere else, blind variants, the user picks | available as a separate plugin: [design-divergent](https://github.com/amiel-35/ix-design-divergent) |
-| Treatment and execution | per family (film, still, screen, identity), with third-party executors behind adapters | planned |
-| Checks and memory | the brand's design system used as a filter on the output; refusals remembered as bans | planned |
+All the bookkeeping is done by `studio` (Python 3.10+, no dependencies). You write the files that need judgement
+(the brand lines, the brief, the variants, the judge's notes); the tool checks them, generates, measures and renders.
 
-The architecture and the contracts between modules: `docs/en/architecture.md` in the repository.
+```bash
+ST="${CLAUDE_PLUGIN_ROOT}/scripts/studio"      # installed as a plugin
+# from a clone: ST=<repo>/scripts/studio
+python3 "$ST" status <piece dir>               # where we are, and the exact next command
+```
 
-## Routing
+Talk to the user in their language. Ask little: one global goal is enough to start; fill what you can, show it, let
+the person correct on the page. Use `poster/` in the current project as the piece dir unless told otherwise. After
+each step, give the path of the page to open and the one question it asks.
 
-1. **Is there a brand dossier?** Look for `brand/brand.json` in the project. None: run the `brand-dossier` skill
-   first, whatever the request. Nothing creative starts on a brand without one.
-2. **Is the dossier usable for this request?** Read the fields the request needs with
-   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/brandkit" get brand <path>`. A field that comes back missing is asked or the
-   work stops; it is never filled in. A "to confirm" value may feed an exploration, and a final piece that uses one
-   says so.
-3. **Divergence.** If `design-divergent` is installed, hand it the request with the dossier's confirmed values as hard
-   constraints (palette, type and logo do not diverge; the idea does). If it is not, say that the divergence module
-   is a separate plugin and how to install it; do not imitate it.
-4. **The rest** (treatment, execution, checks) is not built yet: say so plainly, and offer what exists.
+## The flow
+
+1. **Brand, minimal.** `<dir>/brand.md`, about ten `key: value` lines: `name`, `background`, `text`, `accent`
+   (hex), `extra colours`, `headline font`, `body font`, `logo` (a file path), `voice`, `never`. Take them, in this
+   order, from: a design-system skill that speaks for the brand (read it as it prescribes, copy only what it says);
+   an existing brand dossier (`python3 "$ST" brand <dir> --from-dossier <brand dir>`); the user's words. Never
+   invent a colour, a font or a logo: what nobody gave stays out, and you say so. Then `python3 "$ST" brand <dir>`.
+   The rich dossier (skill `brand-dossier`) stays available but is not required.
+2. **Brief of the piece.** `<dir>/brief.md`: `objective` (awareness, purchase, engagement...), `audience`,
+   `message`, `format` (`post-4x5`, `post-1x1`, `story`, `poster-a3`), optional `fixed`, `cta`, `language`. Clean
+   the message of drawn-in solutions ("a photo of the bottle on a beach" is a solution, not a message). Then
+   `python3 "$ST" brief <dir>`.
+3. **Divergence.** The method is the one of [design-divergent](https://github.com/amiel-35/ix-design-divergent):
+   if that plugin is installed, follow it for the mandates and the attractor; it is the reference. Here, scaled to
+   an ad: propose 3 stances that each look somewhere else, plus one rupture; then run **one subagent per mandate,
+   in parallel, blind** (each sees the brand, the brief, `bans.md` if any, and its own mandate only). Each writes
+   `variants/<id>.json`: `mandate`, `default` (the headline and image it would have made by default, written down,
+   then set aside), `headline`, `subline`, `image_prompt` (what the image shows, no text in it), `layout`
+   (`top|bottom|center`), `ground` (`background|text|accent`), `why`. The brand does not diverge: the idea does.
+   Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."]`.
+4. **The piece.** `python3 "$ST" image <dir>` then `python3 "$ST" compose <dir>`. The image comes from an
+   executor behind an adapter: the user's key (`OPENAI_API_KEY`), or locally their own plan through the Codex CLI.
+   With neither, the piece is composed on a flat brand ground and the page says so: say it too, with how to plug a
+   generator, and carry on. A user's own `image.png` dropped in the folder is kept.
+5. **Check.** Look at `piece.png` (or `piece.html`) as a judge with a fresh eye, ideally a subagent that did not
+   write the variants: does the headline read in three seconds, does the image answer it, does it feel like the
+   brand, anything off (cropping, contrast, a cliché). Write `<dir>/judge.md`, one `- ` line per note, prefixed
+   `[minor]` or `[major]`. Notes annotate, they never block. Then `python3 "$ST" check <dir>`: the mechanical
+   checks (palette, type, contrast, banned words) plus your notes, on one page.
+6. **The person decides.** `python3 "$ST" decide <dir> keep "<their words>"` or
+   `python3 "$ST" decide <dir> again "<their words>"`. "Again" writes a ban that the next round of variants reads.
+
+Each step works alone if its input file is written by hand: a user who already has a headline and an image can go
+straight to `compose` and `check`.
+
+## Which tool for which job
+
+Claude writes the brief, the mandates, the headlines and the judge's notes. It does not make images: for the image,
+use a dedicated image model (`gpt-image-1` by default through the adapters; set `STUDIO_IMAGE_MODEL` to change it).
+For anything with text inside the image, do not ask the image model: the text is HTML.
 
 ## Rules
 
-- The brand's design system, when there is one, is imposed: the idea diverges, never the palette or the type.
-- Nothing is invented: no figure, no testimonial, no logo redrawn from memory.
+- The brand's values are imposed: the idea diverges, never the palette or the type.
+- Nothing is invented: no figure, no testimonial, no claim, no logo redrawn from memory.
 - A reference serves its grammar, never a model to copy.
 - Nothing is published or sent outside without the user's explicit yes.
