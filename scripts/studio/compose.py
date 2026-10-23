@@ -27,14 +27,14 @@ def inside(a, b):
     return a[0] >= b[0] and a[1] >= b[1] and a[0] + a[2] <= b[0] + b[2] and a[1] + a[3] <= b[1] + b[3]
 
 
-def areas(layout, w, h, lg=None, gap=24):
+def areas(layout, w, h, lg=None, gap=24, share=.58):
     """(effective layout, image rect, text rect, solid rects), rects as (x, y, w, h) in px; lg is the logo rect, if any."""
     lay = "stack" if layout == "side" and w <= h else layout
     if lay == "side":
         iw = round(.55 * w)
         return lay, (0, 0, iw, h), (iw, 0, w - iw, h), [(iw, 0, w - iw, h)]
     if lay == "stack":
-        ih = round(.58 * h)
+        ih = round(share * h)
         return lay, (0, 0, w, ih), (0, ih, w, h - ih), [(0, ih, w, h - ih)]
     if lay == "ground":
         m = round(.06 * min(w, h))
@@ -115,7 +115,7 @@ def render(d, brand, brief, variant, headline, alt=True):
         x = w - off - sw if right else off
         sl = (right, off, sw, pad, round(fs))
         lg = (min(x, lg[0]), lg[1], max(x + sw, lg[0] + lg[2]) - min(x, lg[0]), lg[3])
-    lay, ir, tr, solid = areas(variant["layout"], w, h, lg, round(24 * u))
+    lay, ir, tr, solid = areas(variant["layout"], w, h, lg, round(24 * u), variant.get("share", .58))
     over = lay.startswith("overlay")
     p = 0 if lay == "ground" else round(56 * u)
     pt = pb = pl = pr = p
@@ -140,6 +140,8 @@ def render(d, brand, brief, variant, headline, alt=True):
     while sub_t and size < 1.4 * ss and ss > round(24 * u):  # the headline must stay clearly above the subline
         ss = max(round(24 * u), round(ss * .94))
         size = fit(ss)
+    if lay == "stack" and size < 1.4 * round(34 * u) and variant.get("share", .58) > .46:  # accroche à l'étroit : la zone de texte grandit, l'image entière rétrécit
+        return render(d, brand, brief, {**variant, "share": round(variant.get("share", .58) - .04, 2)}, headline, alt)
     if sub_t and size < 1.4 * ss:
         other = next((l for l in LAYOUTS if alt and areas(l, w, h)[0] != lay and not render(d, brand, brief, {**variant, "layout": l}, headline, False)[1]), None)
         warns.append(f"headline {size}px is under 1.4x the subline {ss}px: " + (f"try the layout {other}" if other else "try a shorter headline"))

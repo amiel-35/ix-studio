@@ -364,6 +364,24 @@ class SquareStack(unittest.TestCase):
         self.assertGreater(int(re.search(r"\.hl\{[^}]*font-size:(\d+)px", h).group(1)), 47)  # 47 with the old side padding
 
 
+    def test_long_headline_grows_text_zone(self):
+        """Accroche de 80 caractères, sans logo : l'ancien rendu tenait à 26 px ; la zone de texte grandit, l'image rétrécit."""
+        sys.path.insert(0, str(ST))
+        from compose import wrap_lines
+        head = "Slow fermented vegetables from a small kitchen, packed by hand every single week"
+        d = prep(logo="none")
+        kv(d, "brief.md", format="post-1x1")
+        run("brief", d)
+        run("image", d, "--engine", "none")
+        sized(d, 0)
+        run("compose", d, "--layout", "stack", "--headline", head)
+        h = (d / "piece.html").read_text()
+        size = int(re.search(r"\.hl\{[^}]*font-size:(\d+)px", h).group(1))
+        self.assertGreaterEqual(size, 1.5 * 26)
+        self.assertGreater(wrap_lines(head, size, 1080 - 112), 1)
+        self.assertLess(int(re.search(r"\.bg\{[^}]*height:(\d+)px", h).group(1)), 626)
+
+
 class Logo(unittest.TestCase):
     def test_placeholder_positions_and_check(self):
         for pos in ("bottom-right", "bottom-left", "top-right", "top-left"):
@@ -484,7 +502,7 @@ class Round3(unittest.TestCase):
         d = prep()
         kv(d, "brief.md", format="linkedin")
         r = run("compose", d, "--layout", "stack", "--headline", "Tea that got a little wild again",
-                "--subline", "Brewed in a harbour town and poured anywhere you like to be, with friends")
+                "--subline", "Brewed in a harbour town and poured anywhere you like to be, with friends, family, neighbours and the odd stranger met at the market on a sunny morning")
         self.assertRegex(r.stdout, r"warning: headline \d+px is under 1\.4x the subline \d+px: try the layout side")
         run("check", d)
         self.assertEqual(results(d)["hierarchy"]["status"], "fail")
