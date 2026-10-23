@@ -127,7 +127,7 @@ In the brand's project, a `brand/` folder:
 |---|---|
 | `brand.json` | the dossier itself, the only source |
 | `brand.md`, `MOTION.md` | generated exports, not to be edited |
-| `review.md` | the latest review |
+| `review.md`, `review.html` | the latest review, as text and as a page (each look with its swatches, type, logos and screenshots; web images as links) |
 | `evidence.json` | every source consulted: address, date, file, ownership |
 | `history/vN/` | validated versions |
 | `sources/` | one file per adapter run (internal) |

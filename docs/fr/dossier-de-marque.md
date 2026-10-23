@@ -127,7 +127,7 @@ Dans le projet de la marque, un dossier `brand/` :
 |---|---|
 | `brand.json` | le dossier lui-même, la seule source |
 | `brand.md`, `MOTION.md` | exports générés, à ne pas modifier |
-| `review.md` | la dernière revue |
+| `review.md`, `review.html` | la dernière revue, en texte et en page (chaque look avec ses pastilles, ses polices, ses logos et ses captures ; les images du web en liens) |
 | `evidence.json` | chaque source consultée : adresse, date, fichier, appartenance |
 | `history/vN/` | versions validées |
 | `sources/` | un fichier par passage d'adaptateur (interne) |

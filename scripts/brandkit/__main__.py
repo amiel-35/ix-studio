@@ -19,6 +19,7 @@ import infer  # noqa: E402
 import interview  # noqa: E402
 import media  # noqa: E402
 import review as rv  # noqa: E402
+import visual  # noqa: E402
 from fuse import Fusion, iter_values  # noqa: E402
 from model import DEFAULT_LOOK, LISTS, OWNERSHIP, SCALARS, fingerprint, get_path, today  # noqa: E402
 from store import BrandError, Dossier, read_json, write_json  # noqa: E402
@@ -42,15 +43,22 @@ def merge(dz: Dossier, quiet=False):
         doc["meta"]["draft"] = _strip(prev) != _strip(doc)
     write_json(dz.brand, doc)
     write_json(dz.evidence, evidence)
-    dz.review.write_text(rv.render(doc, evidence, review, st.get("ui_language", "en")), encoding="utf-8")
+    _reviews(dz, doc, evidence, review, st)
     if not quiet:
         counts = {}
         for _, v in iter_values(doc):
             counts[v.get("status")] = counts.get(v.get("status"), 0) + 1
         print(f"merged {len(dz.sources())} sources → {dz.brand}")
         print("  " + " · ".join(f"{k} {n}" for k, n in sorted(counts.items(), key=lambda x: str(x[0]))))
-        print(f"  conflicts {len(review['conflicts'])} · review: {dz.review}")
+        print(f"  conflicts {len(review['conflicts'])} · review: {dz.review} and {dz.root / 'review.html'}")
     return doc, evidence, review
+
+
+def _reviews(dz, doc, evidence, review, st):
+    lang = st.get("ui_language", "en")
+    dz.review.write_text(rv.render(doc, evidence, review, lang), encoding="utf-8")
+    out = dz.root / "review.html"
+    out.write_text(visual.render_html(doc, evidence, review, dz.root, out, lang), encoding="utf-8")
 
 
 def cmd_init(a):
@@ -196,7 +204,7 @@ def cmd_validate(a):
     write_json(hist / "evidence.json", evidence)
     st["last_validated"] = {"version": n, "at": today(), "by": a.by}
     dz.save_state(st)
-    dz.review.write_text(rv.render(doc, evidence, review, st.get("ui_language", "en")), encoding="utf-8")
+    _reviews(dz, doc, evidence, review, st)
     _export(dz, doc)
     left = sum(1 for _, v in iter_values(doc) if v.get("status") in ("ask", "to_create"))
     print(f"validated version {n} ({left} value(s) still ASK or to create, visible as missing downstream)")
@@ -263,6 +271,14 @@ def cmd_frames(a):
 
 def cmd_sample(a):
     print(json.dumps(media.sample(a.image, a.k), indent=2))
+
+
+def cmd_review_html(a):
+    dz = Dossier(a.dir).require()
+    doc, evidence, review = merge(dz, quiet=True)
+    out = Path(a.out) if a.out else dz.root / ("review-standalone.html" if a.embed else "review.html")
+    out.write_text(visual.render_html(doc, evidence, review, dz.root, out, a.lang or dz.state().get("ui_language", "en"), embed=a.embed), encoding="utf-8")
+    print(f"{out} ({round(out.stat().st_size / 1e6, 2)} MB{', images embedded' if a.embed else ''})")
 
 
 def cmd_status(a):
@@ -349,6 +365,10 @@ def build_parser():
     s = add("sample", cmd_sample, "dominant colours of an image (a web image is deleted after reading)")
     s.add_argument("image")
     s.add_argument("--k", type=int, default=6)
+    s = add("review-html", cmd_review_html, "the visual review; --embed for one standalone file to send", "dir")
+    s.add_argument("--embed", action="store_true", help="embed the brand's own images (web images are never embedded)")
+    s.add_argument("--out")
+    s.add_argument("--lang", choices=("en", "fr"))
     add("status", cmd_status, "counts by status", "dir")
     return p
 

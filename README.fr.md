@@ -35,8 +35,8 @@ marque**. Le reste du studio (brief, divergence, exécution, contrôles) le lit.
   voir.
 - **Nomme plusieurs looks au lieu de les moyenner** (l'identité actuelle, une ancienne, une campagne) et demande
   lequel est le look maître.
-- **Montre une seule revue**, groupée par élément, y compris les images trouvées sur le web qu'il croit être celles
-  de la marque, pour que tu les confirmes ou les corriges.
+- **Montre une seule revue**, en page à regarder : chaque look avec ses pastilles, ses polices, ses logos et ses
+  captures, et les images trouvées sur le web en liens, avec l'appartenance qu'il propose, que tu confirmes ou corriges.
 - **Exporte** `brand.md` et `MOTION.md` au format de
   [brand-intake](https://github.com/charlie947/motion-graphics-skills), pour que les skills qui les lisent
   fonctionnent tels quels.

@@ -129,6 +129,15 @@ class Example(unittest.TestCase):
         olds = [it["hex"]["value"] for it in self.doc["colours"]["items"] if it["look"] == "old-identity"]
         self.assertEqual(sorted(olds), ["#2F5D3A", "#C9A227"])
 
+    def test_visual_review_shows_looks_and_links_web_images(self):
+        page = (self.b / "review.html").read_text()
+        for look in ("brand", "summer-2026", "old-identity"):
+            self.assertIn(f"id='{look}'", page)
+        self.assertIn("https://foodpress.example/2026/05/marrowbay-summer", page)
+        self.assertNotIn("data:image", page)  # relative links by default; web images never embedded
+        r = run("review-html", self.b, "--embed", "--out", self.tmp / "standalone.html")
+        self.assertIn("images embedded", r.stdout)
+
     def test_versions_are_kept(self):
         self.assertEqual(self.doc["meta"]["version"], 1)
         self.assertTrue((self.b / "history" / "v1" / "brand.json").exists())

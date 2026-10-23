@@ -38,7 +38,10 @@ the exports yourself.
    stays "to confirm".
 4. **Free text, last, to fill the gaps.** `python3 "$BK" missing brand` lists the only questions still worth asking.
    Ask them in two or three batches, as in `references/adapter-free-text.md`. Record the answers as a typed source.
-5. **Review.** `python3 "$BK" merge brand`, then show the user the content of `brand/review.md` in **one** message:
+5. **Review.** `python3 "$BK" merge brand` writes `brand/review.md` and `brand/review.html`. **Show the visual one**:
+   `python3 "$BK" review-html brand --embed` builds a standalone page (the brand's own screenshots and logos
+   embedded, web images as links only) that you send or open for the user; a text review alone shows nothing. Then
+   sum up in **one** message:
    conflicts, what is inferred and waits for confirmation, the ASK lines, what is to create, the visuals whose
    ownership needs confirming, and the master look when there are several. For an ASK line you may show the closest
    thing found, marked as such; never fill it in.

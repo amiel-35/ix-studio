@@ -35,8 +35,8 @@ from, and what nobody has said yet. This first release is that part, the **brand
   them.
 - **Names several looks instead of averaging them** (the current identity, an older one, a campaign) and asks which
   one is the master.
-- **Shows one review**, grouped by asset, including which images found on the web it believes are the brand's, for
-  you to confirm or correct.
+- **Shows one review**, as a page you look at: each look with its swatches, typefaces, logos and screenshots, and
+  the images found on the web as links, with the ownership it proposes for you to confirm or correct.
 - **Exports** `brand.md` and `MOTION.md` in the format of
   [brand-intake](https://github.com/charlie947/motion-graphics-skills), so the skills that read it work as is.
 

@@ -42,7 +42,7 @@ def from_site(facts, collect_dir, brand_dir, look=None, look_name=None, look_kin
     for f in facts.get("files", []):
         if f["kind"] == "screen":
             ev.append({"id": f["file"], "kind": "file", "where": f"{rel}/{f['file']}", "at": at, "kept": True,
-                       "page": url, "note": f"screenshot {f.get('note', '')}"})
+                       "page": url, "note": f"screenshot {f.get('note', '')}", **({"look": look} if look else {})})
     values, ignored, not_found = [], [], list(facts.get("missing", []))
     used = [v for v in facts.get("vars", []) if v.get("used") and v.get("hex")]
     used_vars = {v["hex"] for v in used if not KIT_VAR.match(v["name"])}
