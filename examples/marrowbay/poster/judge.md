@@ -2,3 +2,4 @@
 - [minor] The headline fills only the top of the panel's middle band and the panel feels empty below the call to action; a larger headline would use the space.
 - [minor] The logo placeholder is a dashed square in the corner: fine as a stand-in, but the piece is not final until the real logo is dropped in.
 - The image answers the headline: one jar of amber tea, no people, daylight, and the panel does not cover any of it.
+- No second reading in the headline or the subline: "got a little wild" stays on the tea, "Poured anywhere" was chosen over "Drunk anywhere", which a fermented drink cannot afford.

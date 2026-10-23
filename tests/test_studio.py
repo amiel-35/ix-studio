@@ -75,9 +75,9 @@ class Flow(unittest.TestCase):
         st = {r["id"]: r["status"] for r in ck["results"]}
         self.assertEqual((st["palette"], st["fonts"], st["contrast"], st["never"]), ("pass",) * 4)
         self.assertEqual((st["image"], st["logo"], st["headline colour"]), ("warn", "warn", "pass"))
-        self.assertEqual(len(ck["judge"]), 4)
+        self.assertEqual(len(ck["judge"]), 5)
         self.assertEqual(ck["judge"][0]["level"], "minor")
-        self.assertIn("check: 6 pass · 2 warn · 0 fail · 0 major judge notes (4 notes)", self.out.stdout)
+        self.assertIn("check: 7 pass · 2 warn · 0 fail · 0 major judge notes (5 notes)", self.out.stdout)
 
     def test_decide_keep_and_again(self):
         d = piece()
@@ -466,3 +466,148 @@ class Summary(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SLOGAN = "Brewed slowly. Drunk quickly."
+DOSSIER = ROOT / "examples" / "marrowbay" / "brand"
+
+
+def slogan_el(d):
+    m = re.search(r'<p class="slogan">(.*?)</p>', (d / "piece.html").read_text())
+    return m and m.group(1)
+
+
+class Slogan(unittest.TestCase):
+    def test_parsed_and_on_every_layout_and_logo_kind(self):
+        sys.path.insert(0, str(ST))
+        from files import load_brand
+        self.assertEqual(load_brand(EXAMPLE)["slogan"], SLOGAN)
+        for kind in ("placeholder", "file", None):
+            for lay in ("side", "stack", "ground", "overlay-top", "overlay-bottom"):
+                for pos in ("bottom-right", "top-left"):
+                    d = prep(logo_position=pos)
+                    if kind == "file":
+                        (d / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>")
+                    kv(d, "brand.md", logo={"file": "logo.svg", "placeholder": "placeholder"}.get(kind))
+                    run("compose", d, "--layout", lay)
+                    run("check", d)
+                    self.assertEqual(slogan_el(d), SLOGAN, (kind, lay, pos))
+                    self.assertEqual(results(d)["palette"]["status"], "pass", (kind, lay, pos))
+                    self.assertEqual(results(d)["slogan"]["status"], "pass")
+                    h = (d / "piece.html").read_text()
+                    self.assertEqual(".blk~.slogan{position:absolute" in h, bool(kind))
+        d = prep(logo=None)
+        run("compose", d)
+        self.assertRegex((d / "piece.html").read_text(), r'<div class="sig">Marrowbay Ferments<p class="slogan">Brewed slowly\. Drunk quickly\.</p></div>')
+
+    def test_slogan_side_of_logo(self):
+        for pos, side in (("bottom-right", "right"), ("top-left", "left")):
+            d = prep(logo_position=pos)
+            run("compose", d)
+            self.assertIn(side + ":", re.search(r"\.blk~\.slogan\{[^}]*\}", (d / "piece.html").read_text()).group(0))
+
+    def test_check_fails_when_altered_or_missing(self):
+        d = prep()
+        run("compose", d)
+        h = (d / "piece.html").read_text()
+        (d / "piece.html").write_text(h.replace("Drunk quickly.", "Drunk fast."))
+        run("check", d)
+        self.assertEqual(results(d)["slogan"]["status"], "fail")
+        self.assertIn("not the brand's exact words", results(d)["slogan"]["say"])
+        (d / "piece.html").write_text(re.sub(r'<p class="slogan">.*?</p>', "", h))
+        run("check", d)
+        self.assertIn("missing from the piece", results(d)["slogan"]["say"])
+
+    def test_no_slogan_no_result(self):
+        d = prep(slogan=None)
+        run("compose", d)
+        run("check", d)
+        self.assertNotIn("slogan", results(d))
+        self.assertNotIn('class="slogan"', (d / "piece.html").read_text())
+
+    def test_brand_page_shows_it(self):
+        d = prep()
+        self.assertIn(SLOGAN, (d / "1-brand.html").read_text())
+
+
+class Unconfirmed(unittest.TestCase):
+    def test_marker_parsing(self):
+        sys.path.insert(0, str(ST))
+        from files import load_brand
+        d = prep(accent="#E07A2F (À confirmer)", slogan="Brewed slowly. Drunk quickly. (to confirm: https://marrowbay.example/about)",
+                 extra_colours="#112233, #445566 (to confirm; the old label)", voice="warm (to confirm)")
+        b = load_brand(d)
+        self.assertEqual(b["accent"], "#e07a2f")
+        self.assertEqual(b["slogan"], SLOGAN)
+        self.assertEqual(b["extras"], ["#112233", "#445566"])
+        self.assertEqual(b["voice"], "warm")
+        self.assertEqual(b["unconfirmed"], {"accent": "", "slogan": "https://marrowbay.example/about", "extra colours": "the old label", "voice": ""})
+        self.assertEqual(load_brand(EXAMPLE)["unconfirmed"], {})
+
+    def test_nested_parenthesis_in_source(self):
+        sys.path.insert(0, str(ST))
+        from files import load_brand
+        d = prep(slogan='Hi there (to confirm: web search "Marrowbay" (2026-10-23))')
+        self.assertEqual(load_brand(d)["unconfirmed"]["slogan"], 'web search "Marrowbay" (2026-10-23)')
+        self.assertEqual(load_brand(d)["slogan"], "Hi there")
+
+    def test_check_warns_and_page_banner(self):
+        d = prep(accent="#E07A2F (to confirm)", slogan=f"{SLOGAN} (to confirm: https://marrowbay.example/about)")
+        run("compose", d)
+        run("check", d)
+        r = results(d)["unconfirmed"]
+        self.assertEqual(r["status"], "warn")
+        self.assertIn("accent, slogan (source https://marrowbay.example/about)", r["say"])
+        self.assertEqual(results(d)["palette"]["status"], "pass")
+        self.assertIn("This piece relies on values to confirm", (d / "5-check.html").read_text())
+        self.assertIn("pill warn", (d / "1-brand.html").read_text())
+
+    def test_no_banner_when_confirmed(self):
+        d = prep()
+        run("compose", d)
+        run("check", d)
+        self.assertNotIn("unconfirmed", results(d))
+        self.assertNotIn("relies on values", (d / "5-check.html").read_text())
+
+    def test_marker_never_reaches_the_image_prompt(self):
+        d = prep(voice="warm and plain (to confirm: somewhere)", never_show="anyone drinking to camera (to confirm)")
+        run("image", d, "--engine", "none")
+        self.assertNotIn("to confirm", (d / "image.json").read_text())
+
+
+class FromDossier(unittest.TestCase):
+    def md(self, *args):
+        d = Path(tempfile.mkdtemp(prefix="ixs-dz-"))
+        run("brand", d, "--from-dossier", DOSSIER, *args)
+        return (d / "brand.md").read_text()
+
+    def test_default_leaves_out_to_confirm(self):
+        t = self.md("--look", "old-identity")
+        self.assertNotIn("#2F5D3A", t.split("# missing")[0])
+        self.assertNotIn("(to confirm", t.split("# left out")[0])
+        self.assertRegex(t, r"# left out, to confirm in the dossier \(rerun with --include-unconfirmed to take them\): colours\[old-identity #2F5D3A\]")
+
+    def test_include_unconfirmed_marks(self):
+        t = self.md("--look", "old-identity", "--include-unconfirmed")
+        self.assertRegex(t, r"- background: #2F5D3A \(to confirm: web image search")
+        self.assertRegex(t, r"- accent: #C9A227 \(to confirm: ")
+        self.assertIn("# imported unconfirmed, marked (to confirm): colours[old-identity #2F5D3A]", t)
+
+    def test_marked_brand_md_loads(self):
+        sys.path.insert(0, str(ST))
+        from files import load_brand
+        d = Path(tempfile.mkdtemp(prefix="ixs-dz-"))
+        run("brand", d, "--from-dossier", DOSSIER, "--look", "old-identity", "--include-unconfirmed")
+        kv(d, "brand.md", text="#1E2A24")
+        b = load_brand(d)
+        self.assertEqual((b["background"], b["accent"]), ("#2f5d3a", "#c9a227"))
+        self.assertEqual(set(b["unconfirmed"]), {"background", "accent"})
+        self.assertIn("web image search", b["unconfirmed"]["accent"])
+
+    def test_slogan_from_tagline_and_no_references(self):
+        for args in ((), ("--include-unconfirmed",)):
+            t = self.md(*args)
+            self.assertIn(f"- slogan: {SLOGAN}\n", t)
+            self.assertNotIn("ev-", t)
+            self.assertNotIn("reference", t.lower())
+            self.assertNotIn("summer-2026", t.split("# missing")[0])

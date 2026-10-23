@@ -30,6 +30,7 @@ EN = {
     "t5": ["Read the failures first, then the judge's notes: they are advice, not a gate.", "Answer: keep, or again with what is wrong (it is remembered)."],
     "not_picked": "no pick yet", "never_show": "Never show", "ph_logo": "logo placeholder: the logo file was not given",
     "sum": "{pass} pass · {warn} warn · {fail} fail · {major} major judge notes", "hcol": "headline",
+    "slogan": "Slogan", "to_confirm": "to confirm", "unc_banner": "This piece relies on values to confirm",
 }
 FR = {
     "name": "Nom", "voice": "Voix", "never": "Jamais", "notes": "Notes", "logo": "Logo", "no_logo": "pas de logo : le nom est composé en lettres",
@@ -51,6 +52,7 @@ FR = {
     "t5": ["Lis d'abord les échecs, puis les notes du juge : ce sont des conseils, pas une barrière.", "Réponse : garder, ou recommencer avec ce qui ne va pas (c'est retenu)."],
     "not_picked": "pas encore de choix", "never_show": "Ne jamais montrer", "ph_logo": "emplacement du logo : le fichier n'a pas été donné",
     "sum": "{pass} réussis, {warn} alertes, {fail} échec, {major} notes majeures du juge", "hcol": "titre",
+    "slogan": "Slogan", "to_confirm": "à confirmer", "unc_banner": "Cette pièce s'appuie sur des valeurs à confirmer",
 }
 
 
@@ -58,13 +60,19 @@ def tt(lang):
     return {**EN, **(FR if lang == "fr" else {})}
 
 
-def swatch(h, label):
-    return f'<div class="sw"><div class="chip" style="background:{h}"></div><b>{e(label)}</b><br><code>{h}</code></div>'
+def mark(b, t, *keys):
+    """The `to confirm` pill (and its source) for the first of these brand.md keys that carries the marker."""
+    k = next((k for k in keys if k in b["unconfirmed"]), None)
+    return "" if k is None else f' <span class="pill warn">{t["to_confirm"]}</span>' + (f' <small class="mute">{e(b["unconfirmed"][k])}</small>' if b["unconfirmed"][k] else "")
 
 
-def sws(b):
-    items = [("background", b["background"]), ("text", b["text"])] + ([("accent", b["accent"])] if b["accent"] else []) + ([("headline", b["headline_colour"])] if b["headline_colour"] else [])
-    return '<div class="sws">' + "".join(swatch(h, n) for n, h in items + [("extra", x) for x in b["extras"]]) + "</div>"
+def swatch(h, label, flag=""):
+    return f'<div class="sw"><div class="chip" style="background:{h}"></div><b>{e(label)}</b>{flag}<br><code>{h}</code></div>'
+
+
+def sws(b, t):
+    items = [("background", b["background"], "background"), ("text", b["text"], "text")] + ([("accent", b["accent"], "accent")] if b["accent"] else []) + ([("headline", b["headline_colour"], "headline colour")] if b["headline_colour"] else [])
+    return '<div class="sws">' + "".join(swatch(h, n, mark(b, t, k)) for n, h, k in items + [("extra", x, "extra colours") for x in b["extras"]]) + "</div>"
 
 
 def brand_page(d, lang):
@@ -75,16 +83,17 @@ def brand_page(d, lang):
     never_show = "".join(f'<span class="pill fail">{e(w)}</span> ' for w in b["never_show"]) or f'<span class="mute">{t["none"]}</span>' 
     never = "".join(f'<span class="pill fail">{e(w)}</span> ' for w in b["never"]) or f'<span class="mute">{t["none"]}</span>'
     other = "".join(f"<tr><td>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in b["other"].items())
-    body = f"""<h1>{e(b['name'])}</h1>
-<div class="card"><h3>{t['colours']}</h3>{sws(b)}</div>
-<div class="card"><h3>{t['fonts']}</h3>
+    body = f"""<h1>{e(b['name'])}{mark(b, t, 'name')}</h1>
+{('<div class="card"><h3>' + t['slogan'] + mark(b, t, 'slogan') + '</h3><p style="font-family:' + hf + ';font-size:28px;margin:0">' + e(b['slogan']) + '</p></div>') if b['slogan'] else ''}
+<div class="card"><h3>{t['colours']}</h3>{sws(b, t)}</div>
+<div class="card"><h3>{t['fonts']}{mark(b, t, 'headline font', 'body font')}</h3>
 <p style="font-family:{hf};font-size:32px;margin:0;line-height:1.1">{e(b['name'])}: a headline in {e(b['hfont'] or 'the default serif')}</p>
 <p style="font-family:{bf};margin:8px 0 0">{t['body']}: the quick brown fox, set in {e(b['bfont'] or 'the default sans')}.</p></div>
-<div class="cols"><div class="card"><h3>{t['logo']}</h3>{logo}</div>
-<div class="card"><h3>{t['voice']}</h3>{e(b['voice']) or '<span class="mute">' + t['none'] + '</span>'}</div>
-<div class="card"><h3>{t['never']}</h3>{never}</div>
-<div class="card"><h3>{t['never_show']}</h3>{never_show}</div></div>
-{('<div class="card"><h3>' + t['notes'] + '</h3>' + e(b['notes']) + '</div>') if b['notes'] else ''}
+<div class="cols"><div class="card"><h3>{t['logo']}{mark(b, t, 'logo')}</h3>{logo}</div>
+<div class="card"><h3>{t['voice']}{mark(b, t, 'voice')}</h3>{e(b['voice']) or '<span class="mute">' + t['none'] + '</span>'}</div>
+<div class="card"><h3>{t['never']}{mark(b, t, 'never')}</h3>{never}</div>
+<div class="card"><h3>{t['never_show']}{mark(b, t, 'never show')}</h3>{never_show}</div></div>
+{('<div class="card"><h3>' + t['notes'] + mark(b, t, 'notes') + '</h3>' + e(b['notes']) + '</div>') if b['notes'] else ''}
 {('<div class="card"><h3>' + t['other'] + '</h3><table>' + other + '</table></div>') if other else ''}"""
     return write_page(d, 1, shell(1, b["name"], body, lang, t["t1"], cli(d, "brief"), fonts_link(b)))
 
@@ -97,7 +106,7 @@ def brief_page(d, lang):
     rows = "".join(f"<tr><td class='mute'>{t[k]}</td><td>{e(v)}</td></tr>" for k, v in rows if v)
     other = "".join(f"<tr><td class='mute'>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in br["other"].items())
     body = f"""<h1>{e(b['name'])}</h1><div class="card"><table>{rows}{other}</table></div>
-<div class="card"><h3>{t['colours']}</h3>{sws(b)}</div>"""
+<div class="card"><h3>{t['colours']}</h3>{sws(b, t)}</div>"""
     return write_page(d, 2, shell(2, br["objective"], body, lang, t["t2"], "agent writes variants/v1.json … v4.json, then: " + cli(d, "diverge"), fonts_link(b)))
 
 
@@ -210,7 +219,9 @@ def check_page(d, lang):
                 f'<h3>{t["again"]}</h3><pre>{e(cli(d, "decide", "again", chr(34) + "what is wrong" + chr(34)))}</pre></div>')
         nxt = cli(d, "decide", "keep|again", '"..."')
     s = ck["summary"]
-    body = f"""<div class="cols"><div class="small">{view(d, w, h)}</div><div>
+    unc = next((r for r in ck["results"] if r["id"] == "unconfirmed"), None)
+    banner = f'<div class="card"><span class="pill warn">{t["to_confirm"]}</span> <b>{t["unc_banner"]}</b><br>{e(unc["say"])}</div>' if unc else ""
+    body = f"""<div class="cols"><div class="small">{view(d, w, h)}</div><div>{banner}
 <h1>{t['sum'].format(**{**s, 'major': s.get('major', 0)})}</h1>
 <h3>{t['mech']}</h3><table>{rows}</table><h3>{t['judge']}</h3><ul>{notes}</ul></div></div>{call}"""
     return write_page(d, 5, shell(5, ck.get("headline", ""), body, lang, t["t5"], nxt, fonts_link(b)))

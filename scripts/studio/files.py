@@ -24,10 +24,11 @@ GROUNDS = ("background", "text", "accent")
 GENERIC_FONTS = ("serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif",
                  "georgia", "times new roman", "arial", "helvetica", "inherit")
 BRAND_KEYS = ("name", "background", "text", "accent", "extra colours", "headline font", "body font", "logo", "logo position",
-              "headline colour", "voice", "never", "never show", "notes")
+              "headline colour", "voice", "never", "never show", "notes", "slogan")
 BRIEF_KEYS = ("objective", "audience", "message", "format", "fixed", "cta", "language")
 VARIANT_KEYS = ("mandate", "default", "headline", "image_prompt", "layout", "ground", "why")
 FONT = re.compile(r"[\w .'-]+")
+UNCONFIRMED = re.compile(r"\s*\(\s*(?:to confirm|à confirmer)\s*(?:[:;]\s*(.*?))?\s*\)\s*$", re.I)
 HEX = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 
 
@@ -75,6 +76,11 @@ def _need(kv, name, keys):
 
 def load_brand(d) -> dict:
     kv = _kv_file(d, "brand.md", "write about ten `key: value` lines, or run `brand --from-dossier <brandkit dir>`")
+    unconfirmed = {}
+    for k, v in kv.items():
+        m = UNCONFIRMED.search(v)
+        if m:
+            unconfirmed[k], kv[k] = (m.group(1) or "").strip(), v[:m.start()].strip()
     _need(kv, "brand.md", ("name", "background", "text"))
     extras = [x.strip() for x in kv.get("extra colours", "").split(",") if x.strip()]
     for k, v in [(k, kv.get(k)) for k in ("background", "text", "accent", "headline colour")] + [("extra colours", x) for x in extras]:
@@ -92,7 +98,7 @@ def load_brand(d) -> dict:
          "hfont": kv.get("headline font", ""), "bfont": kv.get("body font", ""), "logo": "" if holder else kv.get("logo", ""),
          "logo_placeholder": holder, "logo_position": pos, "headline_colour": hex6(kv["headline colour"]) if kv.get("headline colour") else "",
          "never_show": [x.strip() for x in kv.get("never show", "").split(";") if x.strip()], "voice": kv.get("voice", ""), "never": [x.strip() for x in kv.get("never", "").replace(",", ";").split(";") if x.strip()],
-         "notes": kv.get("notes", ""), "other": {k: v for k, v in kv.items() if k not in BRAND_KEYS}}
+         "notes": kv.get("notes", ""), "slogan": " ".join(kv.get("slogan", "").split()), "unconfirmed": unconfirmed, "other": {k: v for k, v in kv.items() if k not in BRAND_KEYS}}
     if b["logo"] and not (Path(d) / b["logo"]).exists():
         b["logo_missing"] = True
     return b

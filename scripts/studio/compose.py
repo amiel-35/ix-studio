@@ -97,6 +97,17 @@ def render(d, brand, brief, variant, headline) -> str:
     pos, lh, lm = brand["logo_position"], round(72 * u), round(40 * u)
     lw = lh * 3 if kind == "file" else lh
     lg = None if kind == "none" else (lm if pos.endswith("left") else w - lm - lw, lm if pos.startswith("top") else h - lm - lh, lw, lh)
+    slogan, sl = brand["slogan"], None
+    if slogan and lg:  # beside the logo, on its inner side; the reserved corner grows to cover both
+        pad, fs = round(10 * u), 26 * u
+        while wrap_lines(slogan, fs, .4 * w - 2 * pad) > 2:
+            fs *= .94
+        sw = round(min(len(slogan) * fs * .56, .4 * w - 2 * pad)) + 2 * pad
+        off = lm + lw + 2 * pad + (4 if kind == 'placeholder' else 0)  # flush with the logo's chip (and its dashed border)
+        right = not pos.endswith("left")
+        x = w - off - sw if right else off
+        sl = (right, off, sw, pad, round(fs))
+        lg = (min(x, lg[0]), lg[1], max(x + sw, lg[0] + lg[2]) - min(x, lg[0]), lg[3])
     lay, ir, tr, solid = areas(variant["layout"], w, h, lg, round(24 * u))
     over = lay.startswith("overlay")
     p = 0 if lay == "ground" else round(56 * u)
@@ -114,7 +125,7 @@ def render(d, brand, brief, variant, headline) -> str:
             pb = max(p, tr[1] + tr[3] - lg[1] + band)
     sub_t, cta_t = variant["subline"], brief["cta"]
     iw, ih = tr[2] - pl - pr, tr[3] - pt - pb
-    extra = (round(24 * u) + wrap_lines(sub_t, 34 * u, iw) * 44 * u if sub_t else 0) + (round(110 * u) if cta_t else 0) + (80 * u if kind == "none" else 0)
+    extra = (round(24 * u) + wrap_lines(sub_t, 34 * u, iw) * 44 * u if sub_t else 0) + (round(110 * u) if cta_t else 0) + ((80 + (40 if slogan else 0)) * u if kind == "none" else 0)
     size = headline_size(headline, iw, ih, .11 * math.sqrt(w * h), extra)
     shape_c = brand["accent"] if brand["accent"] and brand["accent"] != ground else brand["text"]
     frame = f"border:{max(2, round(4 * u))}px solid {ink};" if lay == "ground" else ""
@@ -127,14 +138,23 @@ def render(d, brand, brief, variant, headline) -> str:
     parts = [f'<img class="bg" src="{e(img)}" alt="">' if img else '<div class="shape"></div>']
     cta = f'<p class="cta">{e(cta_t)}</p>' if cta_t else ""
     sub = f'<p class="sub">{e(sub_t)}</p>' if sub_t else ""
-    sig = f'<div class="sig">{e(brand["name"])}</div>' if kind == "none" else ""
+    said = f'<p class="slogan">{e(slogan)}</p>' if slogan else ""
+    sig = f'<div class="sig">{e(brand["name"])}{said}</div>' if kind == "none" else ""
     parts.append(f'<div class="blk"><h1 class="hl">{e(headline)}</h1>{sub}{cta}{sig}</div>')
     if kind == "file":
         parts.append(f'<img class="logo" src="{e(brand["logo"])}" alt="{e(brand["name"])}">')
     elif kind == "placeholder":
         parts.append('<div class="logo ph">logo</div>')
+    if sl:
+        parts.append(said)
     chip = f"background:{ground};padding:{round(10 * u)}px;" if lg and not any(inside(lg, s) for s in solid) else ""
     lpos = f"{'left' if pos.endswith('left') else 'right'}:{lm}px;{'top' if pos.startswith('top') else 'bottom'}:{lm}px"
+    slogan_css = ""
+    if sl:
+        right, off, sw, pad, fs = sl
+        slogan_css = (f"\n.blk~.slogan{{position:absolute;{'right' if right else 'left'}:{off}px;{'top' if pos.startswith('top') else 'bottom'}:{lm}px;z-index:2;margin:0;"
+                      f"box-sizing:border-box;max-width:{sw}px;height:{lh + 2 * pad}px;padding:0 {pad}px;display:flex;align-items:center;"
+                      f"text-align:{'right' if right else 'left'};font-size:{fs}px;{'background:' + ground + ';' if chip else ''}}}")
     css = f"""html,body{{margin:0;padding:0}}
 body{{width:{w}px;height:{h}px;position:relative;overflow:hidden;background:{ground if lay == 'ground' else brand['background']}}}
 .bg{{position:absolute;{px(ir)};object-fit:cover;box-sizing:border-box;{frame}}}
@@ -145,6 +165,7 @@ body{{width:{w}px;height:{h}px;position:relative;overflow:hidden;background:{gro
 .sub{{margin:{round(24 * u)}px 0 0;font-family:{bf};font-size:{round(34 * u)}px;line-height:1.3;color:{ink}}}
 .cta{{align-self:flex-start;margin:{round(32 * u)}px 0 0;padding:{round(10 * u)}px {round(24 * u)}px;border:3px solid {ink};font-family:{bf};font-size:{round(28 * u)}px;font-weight:600;color:{ink}}}
 .sig{{margin-top:{round(40 * u)}px;font-family:{hf};font-size:{round(28 * u)}px;color:{ink}}}
+.slogan{{margin:{round(8 * u)}px 0 0;font-family:{bf};font-size:{round(26 * u)}px;line-height:1.25;color:{ink}}}{slogan_css}
 .logo{{position:absolute;{lpos};z-index:2;{chip}display:block;height:{lh}px;box-sizing:content-box}}
 .ph{{width:{lh}px;border:2px dashed {ink};display:flex;align-items:center;justify-content:center;font-family:{bf};font-size:{round(20 * u)}px;color:{ink}}}"""
     return (f'<!doctype html>\n<html lang="{e(brief["language"] or "en")}"><head><meta charset="utf-8">'

@@ -12,3 +12,4 @@
 - never: gut health; detox; superfood; miracle; !; —
 - never show: smiling people holding a glass; stock-photo wellness scenes; anyone drinking to camera
 - notes: small-batch kombucha from a harbour town; daylight still lifes on raw wood
+- slogan: Brewed slowly. Drunk quickly.

@@ -101,6 +101,13 @@ def run(d, brand):
     else:
         has_logo = 'class="logo"' in src
         add("logo", has_logo, "logo present" if has_logo else "no logo file: the brand name is set in type instead", "warn")
+    if brand["slogan"]:
+        got = " ".join((text(src, "slogan") or "").split())
+        add("slogan", got == brand["slogan"], "the slogan is the brand's exact words" if got == brand["slogan"] else
+            "the slogan in the piece is not the brand's exact words" if got else "the brand's slogan is missing from the piece")
+    if brand["unconfirmed"]:
+        keys = ", ".join(k + (f" (source {s})" if s else "") for k, s in brand["unconfirmed"].items())
+        add("unconfirmed", False, f"the piece relies on values not confirmed: {keys}; confirm them or remove the marker", "warn")
     return res
 
 

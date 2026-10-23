@@ -3,10 +3,10 @@
   "variant": "v2",
   "headline": "It's tea that got a little wild.",
   "summary": {
-    "pass": 7,
+    "pass": 8,
     "warn": 1,
     "fail": 0,
-    "judge": 4,
+    "judge": 5,
     "major": 0
   },
   "results": [
@@ -49,6 +49,11 @@
       "id": "logo",
       "status": "warn",
       "say": "logo placeholder: drop the logo file in and set `logo: <path>`"
+    },
+    {
+      "id": "slogan",
+      "status": "pass",
+      "say": "the slogan is the brand's exact words"
     }
   ],
   "judge": [
@@ -67,6 +72,10 @@
     {
       "level": "note",
       "say": "The image answers the headline: one jar of amber tea, no people, daylight, and the panel does not cover any of it."
+    },
+    {
+      "level": "note",
+      "say": "No second reading in the headline or the subline: \"got a little wild\" stays on the tea, \"Poured anywhere\" was chosen over \"Drunk anywhere\", which a fermented drink cannot afford."
     }
   ]
 }

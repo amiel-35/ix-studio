@@ -52,9 +52,11 @@ def cmd_brand(a):
         if target.exists() and not a.force:
             raise StudioError(f"{target} exists: use --force to overwrite it")
         d.mkdir(parents=True, exist_ok=True)
-        text, miss = dossier.brand_md(a.from_dossier, d, a.look)
+        text, miss, soft = dossier.brand_md(a.from_dossier, d, a.look, a.include_unconfirmed)
         target.write_text(text, encoding="utf-8")
         print(f"brand.md written from {a.from_dossier}" + (f" (missing: {', '.join(miss)})" if miss else ""))
+        if soft:
+            print(("imported unconfirmed, marked (to confirm): " if a.include_unconfirmed else "left out, to confirm in the dossier (rerun with --include-unconfirmed to take them): ") + ", ".join(soft))
         try:
             load_brand(d)
         except StudioError as err:
@@ -250,6 +252,7 @@ def build_parser():
     s = add("brand", cmd_brand, "check brand.md, render 1-brand.html (or write brand.md from a brandkit dossier)")
     s.add_argument("--from-dossier", metavar="BRANDKIT_DIR")
     s.add_argument("--force", action="store_true", help="overwrite an existing brand.md")
+    s.add_argument("--include-unconfirmed", action="store_true", help="with --from-dossier: also import values the dossier holds as to confirm, marked (to confirm) in brand.md")
     s.add_argument("--look", help="with --from-dossier: the look to take colours, fonts and logo from (needed when the dossier has several looks and no master)")
     add("brief", cmd_brief, "check brief.md, render 2-brief.html")
     add("diverge", cmd_diverge, "check variants/*.json, render 3-divergence.html")
