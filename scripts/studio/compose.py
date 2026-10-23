@@ -8,6 +8,7 @@ import glob
 import html
 import math
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -69,10 +70,15 @@ def headline_size(headline, iw, ih, cap, extra):
     return round(size)
 
 
+def fr(t):
+    """Typographie française : espace insécable avant : ; ? ! » et après «."""
+    return re.sub(r"(«)\s+", "\\1\xa0", re.sub(r"\s+([:;?!»])", "\xa0\\1", t))
+
+
 def glue(t):
     """Non-breaking spaces: the last two words stay together (3+ words), and a 1-2 letter word sticks to the next one."""
     ws = t.split()
-    return "".join((("\xa0" if len(ws[i - 1]) <= 2 or (len(ws) > 2 and i == len(ws) - 1) else " ") if i else "") + w for i, w in enumerate(ws))
+    return fr("".join((("\xa0" if len(ws[i - 1]) <= 2 or (len(ws) > 2 and i == len(ws) - 1) else " ") if i else "") + w for i, w in enumerate(ws)))
 
 
 def fonts_link(brand) -> str:
@@ -156,8 +162,8 @@ def render(d, brand, brief, variant, headline, alt=True):
         block, just = ground, "center"
     parts = [f'<img class="bg" src="{e(img)}" alt="">' if img else '<div class="shape"></div>']
     cta = f'<p class="cta">{e(cta_t)}</p>' if cta_t else ""
-    sub = f'<p class="sub">{e(sub_t)}</p>' if sub_t else ""
-    said = f'<p class="slogan">{e(slogan)}</p>' if slogan else ""
+    sub = f'<p class="sub">{e(fr(sub_t))}</p>' if sub_t else ""
+    said = f'<p class="slogan">{e(fr(slogan))}</p>' if slogan else ""
     sig = f'<div class="sig">{e(brand["name"])}{said}</div>' if kind == "none" else ""
     parts.append(f'<div class="blk"><h1 class="hl">{e(glue(headline))}</h1>{sub}{cta}{sig}</div>')
     if kind == "file":

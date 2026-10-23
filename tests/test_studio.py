@@ -480,6 +480,19 @@ class Never(unittest.TestCase):
         self.assertIn("a glass held to camera", (d / "1-brand.html").read_text())
 
 
+class French(unittest.TestCase):
+    def test_nbsp_before_high_punctuation(self):
+        d = prep()
+        run("pick", d, "v2", "--headline", "Liste de naissance, article manquant : quelqu'un à qui dire que ça ne va pas.",
+            "--subline", "Un souci ? Dites-le « maintenant » !")
+        run("compose", d)
+        page = (d / "piece.html").read_text()
+        self.assertIn("manquant\xa0:", page)
+        self.assertNotIn("manquant :", page)
+        self.assertIn("souci\xa0?", page)
+        self.assertIn("«\xa0maintenant\xa0»\xa0!", page)
+
+
 class Summary(unittest.TestCase):
     def test_counts_majors(self):
         d = prep()
