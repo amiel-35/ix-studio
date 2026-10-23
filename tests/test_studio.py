@@ -79,19 +79,24 @@ class Flow(unittest.TestCase):
         self.assertIn("check: 5 pass · 2 warn · 0 fail · 3 judge notes", self.out.stdout)
 
     def test_decide_keep_and_again(self):
-        run("decide", self.d, "keep", "good")
-        self.assertIn("verdict: keep", (self.d / "decision.md").read_text())
-        self.assertFalse((self.d / "bans.md").exists())
-        run("decide", self.d, "again", "too polite")
-        self.assertIn("verdict: again", (self.d / "decision.md").read_text())
-        self.assertIn('v2 "It\'s tea that got a little wild.": too polite', (self.d / "bans.md").read_text())
-        self.assertIn("decision", (self.d / "5-check.html").read_text().lower())
+        d = piece()
+        build(d)
+        run("decide", d, "keep", "good")
+        self.assertIn("verdict: keep", (d / "decision.md").read_text())
+        self.assertFalse((d / "bans.md").exists())
+        run("decide", d, "again", "too polite")
+        self.assertIn("verdict: again", (d / "decision.md").read_text())
+        self.assertIn('v2 "It\'s tea that got a little wild.": too polite', (d / "bans.md").read_text())
+        for n in ("pick.json", "piece.html", "check.json"):
+            self.assertFalse((d / n).exists(), n)
+        self.assertIn("write new variants", run("status", d).stdout)
 
     def test_status_and_pages(self):
         d = piece()
-        self.assertIn("next: python3 scripts/studio brand ", run("status", d).stdout)
+        self.assertRegex(run("status", d).stdout, r"next: python3 \S*scripts/studio brand ")
         build(d)
-        self.assertIn("next: python3 scripts/studio decide", run("status", d).stdout)
+        self.assertRegex(run("status", d).stdout, r"next: python3 \S*scripts/studio decide")
+        self.assertNotIn(str(ST), run("status", d).stdout)
         self.assertIn("5-check.html", run("pages", d).stdout)
 
     def test_screenshot_when_chrome(self):
@@ -188,6 +193,68 @@ class Edges(unittest.TestCase):
         self.assertTrue((d / "1-brand.html").exists(), r.stdout)
         self.assertEqual(run("brand", d, "--from-dossier", ROOT / "examples" / "marrowbay" / "brand", ok=False).returncode, 2)
         run("brand", d, "--from-dossier", ROOT / "examples" / "marrowbay" / "brand", "--force")
+
+    def test_hand_path(self):
+        d = piece()
+        shutil.rmtree(d / "variants")
+        for cmd in ("brand", "brief"):
+            run(cmd, d)
+        self.assertEqual(run("compose", d, ok=False).returncode, 2)
+        self.assertEqual(run("image", d, "--engine", "none", ok=False).returncode, 2)
+        run("compose", d, "--headline", "Drink it slow", "--subline", "Tea, aged.", "--layout", "bottom")
+        self.assertIn("Tea, aged.", (d / "piece.html").read_text())
+        run("check", d)
+        self.assertEqual(json.loads((d / "check.json").read_text())["headline"], "Drink it slow")
+        run("decide", d, "keep", "fine")
+        self.assertIn("variant: hand", (d / "decision.md").read_text())
+        self.assertIn("done", run("status", d).stdout)
+
+    def test_check_headline_forms_and_missing(self):
+        d = piece()
+        build(d)
+        h = (d / "piece.html").read_text().replace('class="hl"', "class='x hl'")
+        (d / "piece.html").write_text(h)
+        run("check", d)
+        st = {r["id"]: r for r in json.loads((d / "check.json").read_text())["results"]}
+        self.assertEqual(st["length"]["status"], "pass")
+        (d / "piece.html").write_text(h.replace("hl", "zz"))
+        run("check", d)
+        st = {r["id"]: r for r in json.loads((d / "check.json").read_text())["results"]}
+        self.assertEqual((st["length"]["status"], st["never"]["status"]), ("fail", "fail"))
+        self.assertIn("headline not found", st["never"]["say"])
+
+    def test_never_splits_on_commas(self):
+        d = piece()
+        t = (d / "brand.md").read_text()
+        (d / "brand.md").write_text(re.sub(r"(?im)^(- )?never:.*$", "never: alpha, beta; gamma", t))
+        run("brand", d)
+        sys.path.insert(0, str(ST))
+        from files import load_brand
+        self.assertEqual(load_brand(d)["never"], ["alpha", "beta", "gamma"])
+
+    def test_bad_font_name(self):
+        d = piece()
+        (d / "brand.md").write_text((d / "brand.md").read_text() + '\nheadline font: Evil"><script>\n')
+        r = run("brand", d, ok=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("headline font", r.stderr)
+
+    def test_image_stale_after_new_pick_and_force_keeps_old(self):
+        d = piece()
+        for cmd in ("brand", "brief", "diverge"):
+            run(cmd, d)
+        run("pick", d, "v1")
+        (d / "image.png").write_bytes(b"old")
+        (d / "image.json").write_text(json.dumps({"engine": "openai", "variant": "v1", "prompt": "p"}))
+        run("pick", d, "v2")
+        self.assertIn("kept", run("image", d, "--variant", "v1", "--engine", "none").stdout)
+        r = run("image", d, "--engine", "none")  # stale: regenerate, which fails and keeps the old file
+        self.assertNotIn("already there", r.stdout)
+        self.assertIn("is kept", r.stdout)
+        self.assertEqual((d / "image.png").read_bytes(), b"old")
+        run("compose", d)
+        self.assertIn("warning: the image was drawn for v1", run("compose", d).stdout)
+        self.assertIn("rerun compose and check", r.stdout)
 
 
 if __name__ == "__main__":

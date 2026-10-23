@@ -19,9 +19,10 @@ def _style(src):
     return "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", src, re.S)) + "\n" + " ".join(re.findall(r'style="([^"]*)"', src))
 
 
-def _text(src, cls):
-    m = re.search(rf'<(\w+)[^>]*class="{cls}"[^>]*>(.*?)</\1>', src, re.S)
-    return html.unescape(re.sub(r"<[^>]+>", "", m.group(2))).strip() if m else ""
+def text(src, cls):
+    """The text of the first element carrying the class token `cls`, or None."""
+    m = re.search(rf"""<(\w+)[^>]*class=["'][^"']*(?<![\w-]){cls}(?![\w-])[^"']*["'][^>]*>(.*?)</\1>""", src, re.S)
+    return html.unescape(re.sub(r"<[^>]+>", "", m.group(2))).strip() if m else None
 
 
 def _prop(css, sel, prop):
@@ -65,12 +66,15 @@ def run(d, brand):
     else:
         add("contrast", False, "headline colour or its ground not found in piece.html (.hl color, .blk background)", "warn")
 
-    head, sub, cta = _text(src, "hl"), _text(src, "sub"), _text(src, "cta")
-    n = len(head.split())
-    add("length", n <= 12, f"headline is {n} word(s)" + ("" if n <= 12 else ": shorter is stronger (12 max)"), "warn")
-
-    hits = [w for w in brand["never"] if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", " ".join((head, sub, cta)), re.I)]
-    add("never", not hits, "none of the brand's never-words appears" if not hits else f"forbidden by the brand: {', '.join(hits)}")
+    head, sub, cta = text(src, "hl"), text(src, "sub") or "", text(src, "cta") or ""
+    if head is None:
+        add("length", False, "headline not found in piece.html")
+        add("never", False, "headline not found in piece.html")
+    else:
+        n = len(head.split())
+        add("length", n <= 12, f"headline is {n} word(s)" + ("" if n <= 12 else ": shorter is stronger (12 max)"), "warn")
+        hits = [w for w in brand["never"] if re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", " ".join((head, sub, cta)), re.I)]
+        add("never", not hits, "none of the brand's never-words appears" if not hits else f"forbidden by the brand: {', '.join(hits)}")
 
     has_img = 'class="bg"' in src
     add("image", has_img, "a generated or provided image is used" if has_img else "placeholder: no generated image", "warn")

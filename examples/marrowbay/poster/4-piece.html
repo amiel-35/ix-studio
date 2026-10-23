@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>studio · piece</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces&family=Inter&display=swap"><style>
+<title>studio · piece</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces&amp;family=Inter&amp;display=swap"><style>
 :root{--bg:#f7f5f1;--card:#fff;--ink:#1c1b1a;--mute:#6d6a65;--line:#e4e0d9;--accent:#8a5a3c;--soft:#f0ebe3;
 --ok:#2f7a4b;--warn:#a8741a;--fail:#b3341f;--s1:8px;--s2:16px;--s3:24px;--s4:32px;--r:10px;
 --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
@@ -41,9 +41,9 @@ a{color:var(--accent)}
 <div class="cols"><div class="small"><div class="view"><img src="piece.png" alt=""></div><p><a href="piece.html">piece.html</a> · 1080×1350</p></div><div>
 <h1>It&#x27;s tea that got a little wild.</h1><p class="mute">v2 · Say what it is: strip the mystery and describe kombucha in the plainest, friendliest words.</p>
 <h3>Image prompt</h3><pre>A single glass jar of amber tea on a raw wooden table beside a teacup and a loose tea bag tag, steam, window daylight, calm and uncluttered. Format 1080x1350 (post-4x5). Mood from the brand palette: background #f4efe6, text #1e2a24, accent #c8553d. Voice of the brand: warm, plain, a little playful; we brew, you drink; short sentences. Do not show: gut health; detox; superfood; miracle. No text, no letters, no words, no logos, no watermark. Leave calm, uncluttered space where the headline sits (top of the frame).</pre>
-<h3>Image engine</h3><p>none: No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI (your ChatGPT plan), then rerun `studio image`. The piece is composed on a flat brand ground meanwhile.</p>
+<h3>Image engine</h3><p>none: No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI (your ChatGPT plan), then run `python3 ../../../scripts/studio image .`, and rerun compose and check after. The piece is composed on a flat brand ground meanwhile.</p>
 <h3>Placeholder</h3><ul><li>no generated image: flat brand ground</li><li>no logo file: the name is set in type</li></ul></div></div>
 <nav class="pn"><a href="3-divergence.html">← previous: 3 divergence</a><a href="5-check.html">next: 5 check →</a></nav>
-<footer>Next command: <code>python3 scripts/studio check .</code></footer>
+<footer>Next command: <code>python3 ../../../scripts/studio check .</code></footer>
 </main><script>document.querySelectorAll('.view[data-w]').forEach(function(v){var f=v.querySelector('iframe');if(!f)return;
 function fit(){var s=v.clientWidth/v.dataset.w;f.style.transform='scale('+s+')';v.style.height=(v.dataset.h*s)+'px'}fit();addEventListener('resize',fit)});</script></body></html>

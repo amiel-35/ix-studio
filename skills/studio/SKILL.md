@@ -54,8 +54,10 @@ each step, give the path of the page to open and the one question it asks.
 6. **The person decides.** `python3 "$ST" decide <dir> keep "<their words>"` or
    `python3 "$ST" decide <dir> again "<their words>"`. "Again" writes a ban that the next round of variants reads.
 
-Each step works alone if its input file is written by hand: a user who already has a headline and an image can go
-straight to `compose` and `check`.
+Each step works alone if its input file is written by hand. A user who already has a headline (and maybe an image,
+dropped in as `<dir>/image.png`) skips the divergence: `python3 "$ST" compose <dir> --headline "..."`, then `check`.
+After `decide again`, the pick and the piece are cleared: write new variants (they read `bans.md`) and run
+`diverge` again; `status` says so.
 
 ## Which tool for which job
 

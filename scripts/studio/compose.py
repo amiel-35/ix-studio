@@ -24,7 +24,7 @@ def fonts_link(brand) -> str:
     if not fams:
         return ""
     q = "&".join("family=" + quote_plus(f) for f in fams)
-    return f'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?{q}&display=swap">'
+    return f'<link rel="stylesheet" href="{e("https://fonts.googleapis.com/css2?" + q + "&display=swap")}">'
 
 
 def render(d, brand, brief, variant, headline) -> str:

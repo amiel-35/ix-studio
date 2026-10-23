@@ -14,10 +14,17 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ui import cli
+
 SUFFIX = ("No text, no letters, no words, no logos, no watermark. Leave calm, uncluttered space where the headline sits "
           "({layout} of the frame).")
-NONE_MSG = ("No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI "
-            "(your ChatGPT plan), then rerun `studio image`. The piece is composed on a flat brand ground meanwhile.")
+SIGNS = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
+
+
+def none_msg(d) -> str:
+    return (f"No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI "
+            f"(your ChatGPT plan), then run `{cli(d, 'image')}`, and rerun compose and check after. "
+            f"The piece is composed on a flat brand ground meanwhile.")
 
 
 def build_prompt(brand, brief, variant) -> str:
@@ -69,20 +76,29 @@ def codex(prompt, size, out):
     if not exe:
         return False, "The codex CLI is not on PATH."
     out = Path(out).resolve()
-    ask = (f"Generate one image with your image generation tool from this brief, then save it exactly at {out} "
+    tmp = out.with_name("image.codex.png")
+    tmp.unlink(missing_ok=True)
+    ask = (f"Generate one image with your image generation tool from this brief, then save it exactly at {tmp} "
            f"(PNG, size close to {size}). Do not write anything else to disk. Brief: {prompt}")
+    print("asking Codex for the image, this can take a few minutes…", flush=True)
     try:
-        r = subprocess.run([exe, "exec", "--skip-git-repo-check", ask], stdin=subprocess.DEVNULL, capture_output=True,
-                           text=True, cwd=out.parent, timeout=600)
+        r = subprocess.run([exe, "exec", "--skip-git-repo-check", "--sandbox", "workspace-write", ask],
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, cwd=out.parent, timeout=300)
+    except subprocess.TimeoutExpired:
+        tmp.unlink(missing_ok=True)
+        return False, "codex did not finish within 5 minutes."
     except Exception as err:
         return False, f"codex failed: {err}"
-    if out.exists():
+    if tmp.exists() and tmp.stat().st_size > 10240 and tmp.read_bytes()[:8].startswith(SIGNS):
+        os.replace(tmp, out)
         return True, "drawn by Codex (your ChatGPT plan)"
-    return False, f"codex ran (exit {r.returncode}) but saved no image at {out.name}: {(r.stderr or r.stdout).strip()[-200:]}"
+    tmp.unlink(missing_ok=True)
+    last = next((x for x in reversed((r.stderr or "").strip().splitlines()) if x.strip()), "")
+    return False, f"codex ran (exit {r.returncode}) but saved no usable PNG or JPEG image" + (f": {last.strip()[:200]}" if last else ".")
 
 
 def none(prompt, size, out):
-    return False, NONE_MSG
+    return False, none_msg(Path(out).parent)
 
 
 ENGINES = {"openai": openai, "codex": codex, "none": none}
@@ -98,4 +114,4 @@ def generate(engine, prompt, size, out):
     ok, msg = ENGINES[name](prompt, size, out)
     if ok:
         return name, True, msg
-    return "none", False, msg if name == "none" else f"{name}: {msg} {NONE_MSG}"
+    return "none", False, msg if name == "none" else f"{name}: {msg} {none_msg(Path(out).parent)}"

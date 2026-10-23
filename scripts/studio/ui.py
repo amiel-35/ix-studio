@@ -4,6 +4,7 @@ Pages are static files opened with a browser. Images are linked relatively.
 """
 
 import html
+import os
 import shlex
 from pathlib import Path
 
@@ -61,7 +62,10 @@ function fit(){var s=v.clientWidth/v.dataset.w;f.style.transform='scale('+s+')';
 
 def cli(d, cmd, *args) -> str:
     """The command a person types, ready to paste."""
-    return " ".join(["python3 scripts/studio", cmd, shlex.quote(str(d)), *args])
+    tool = Path(__file__).resolve().parent
+    if Path.cwd().resolve().is_relative_to(tool.parent.parent):
+        tool = os.path.relpath(tool)  # inside the repository (the example): short and machine-independent
+    return " ".join(["python3", shlex.quote(str(tool)), cmd, shlex.quote(str(d)), *args])
 
 
 def shell(step, title, body, lang, todo, next_cmd, head="") -> str:

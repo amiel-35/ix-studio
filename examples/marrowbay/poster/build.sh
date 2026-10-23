@@ -4,7 +4,7 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 S="$HERE/../../../scripts/studio"
-cd .
+cd "$HERE"
 rm -f pick.json image.json image.png image.jpg piece.html piece.png check.json decision.md bans.md [1-5]-*.html
 python3 "$S" brand .
 python3 "$S" brief .

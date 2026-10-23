@@ -3,6 +3,7 @@
 import re
 from pathlib import Path
 
+from checks import text
 from colour import ink_on, rgba
 from compose import fonts_link
 from files import (font_css, ground_hex, image_file, load_brand, load_brief, load_pick, load_variants, picked, read_json,
@@ -66,7 +67,7 @@ def sws(b):
 
 def brand_page(d, lang):
     t, b = tt(lang), load_brand(d)
-    hf, bf = font_css(b["hfont"], "Georgia,serif"), font_css(b["bfont"], "system-ui,sans-serif")
+    hf, bf = e(font_css(b["hfont"], "Georgia,serif")), e(font_css(b["bfont"], "system-ui,sans-serif"))
     logo = (f'<img src="{e(b["logo"])}" alt="" style="max-height:72px;max-width:260px">' if b["logo"] and not b.get("logo_missing")
             else f'<span class="mute">{t["no_logo"]}</span>')
     never = "".join(f'<span class="pill fail">{e(w)}</span> ' for w in b["never"]) or f'<span class="mute">{t["none"]}</span>'
@@ -111,11 +112,11 @@ def mock(b, br, v, headline=None):
     ink = ink_on(g, [b["text"], b["background"], *([b["accent"]] if b["accent"] else [])])
     pos = {"top": "top:5%", "bottom": "bottom:5%", "center": "top:50%;transform:translateY(-50%)"}[v["layout"]]
     cap = "bottom:3%" if v["layout"] == "top" else "top:3%"
-    sub = f"<small style=\"font-family:{font_css(b['bfont'], 'sans-serif')}\">{e(v['subline'])}</small>" if v["subline"] else ""
+    sub = f"<small style=\"font-family:{e(font_css(b['bfont'], 'sans-serif'))}\">{e(v['subline'])}</small>" if v["subline"] else ""
     return (f'<div class="mock" style="aspect-ratio:{w}/{h};background:{b["background"]}">'
             f'<div class="hatch" style="background:repeating-linear-gradient(45deg,{rgba(b["text"], .13)} 0 6px,transparent 6px 12px)"></div>'
             f'<div class="cap" style="{cap};color:{b["text"]}">{e(v["image_prompt"])}</div>'
-            f'<div class="mblk" style="{pos};background:{g};color:{ink}"><b style="font-family:{font_css(b["hfont"], "Georgia,serif")}">{e(headline or v["headline"])}</b>{sub}</div></div>')
+            f'<div class="mblk" style="{pos};background:{g};color:{ink}"><b style="font-family:{e(font_css(b["hfont"], "Georgia,serif"))}">{e(headline or v["headline"])}</b>{sub}</div></div>')
 
 
 def diverge_page(d, lang):
@@ -156,12 +157,13 @@ def view(d, w, h, small=False):
 
 
 def piece_page(d, lang):
-    t, b, br, vs = tt(lang), load_brand(d), load_brief(d), load_variants(d)
-    v, headline = picked(d, vs)
-    if not v:
-        raise StudioError("no pick.json: pick a variant first")
+    t, b, br = tt(lang), load_brand(d), load_brief(d)
     if not (Path(d) / "piece.html").exists():
         raise StudioError("no piece.html: run compose first")
+    if load_pick(d):
+        v, headline = picked(d, load_variants(d))
+    else:  # the hand path: no variants, the headline is read back from piece.html
+        v, headline = {"id": "hand", "mandate": "", "image_prompt": ""}, text((Path(d) / "piece.html").read_text(encoding="utf-8"), "hl") or ""
     w, h = br["size"]
     im = read_json(Path(d) / "image.json", {})
     ph = [t["no_image"]] if not image_file(d) else []

@@ -23,6 +23,7 @@ GENERIC_FONTS = ("serif", "sans-serif", "monospace", "cursive", "fantasy", "syst
 BRAND_KEYS = ("name", "background", "text", "accent", "extra colours", "headline font", "body font", "logo", "voice", "never", "notes")
 BRIEF_KEYS = ("objective", "audience", "message", "format", "fixed", "cta", "language")
 VARIANT_KEYS = ("mandate", "default", "headline", "image_prompt", "layout", "ground", "why")
+FONT = re.compile(r"[\w .'-]+")
 HEX = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})")
 
 
@@ -75,10 +76,13 @@ def load_brand(d) -> dict:
     for k, v in [(k, kv.get(k)) for k in ("background", "text", "accent")] + [("extra colours", x) for x in extras]:
         if v and not HEX.fullmatch(v):
             raise StudioError(f"brand.md: {k} must be a hex colour like #1e2a24, got {v!r}")
+    for k in ("headline font", "body font"):
+        if kv.get(k) and not FONT.fullmatch(kv[k]):
+            raise StudioError(f"brand.md: {k} must be a font name (letters, digits, spaces, . ' -), got {kv[k]!r}")
     b = {"name": kv["name"], "background": hex6(kv["background"]), "text": hex6(kv["text"]),
          "accent": hex6(kv["accent"]) if kv.get("accent") else "", "extras": [hex6(x) for x in extras],
          "hfont": kv.get("headline font", ""), "bfont": kv.get("body font", ""), "logo": kv.get("logo", ""),
-         "voice": kv.get("voice", ""), "never": [x.strip() for x in kv.get("never", "").split(";") if x.strip()],
+         "voice": kv.get("voice", ""), "never": [x.strip() for x in kv.get("never", "").replace(",", ";").split(";") if x.strip()],
          "notes": kv.get("notes", ""), "other": {k: v for k, v in kv.items() if k not in BRAND_KEYS}}
     if b["logo"] and not (Path(d) / b["logo"]).exists():
         b["logo_missing"] = True
