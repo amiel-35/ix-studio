@@ -307,7 +307,7 @@ class Formats(unittest.TestCase):
 class Layouts(unittest.TestCase):
     def test_each_layout_with_and_without_image(self):
         for fmt in ("poster-3x2", "post-4x5"):
-            for lay in ("side", "stack", "ground", "overlay-top", "overlay-bottom"):
+            for lay in ("side", "stack", "ground", "overlay-top", "overlay-bottom", "full"):
                 for img in (False, True):
                     d = prep(logo_position="top-left")
                     kv(d, "brief.md", format=fmt)
@@ -323,8 +323,8 @@ class Layouts(unittest.TestCase):
                     self.assertEqual(results(d)["palette"]["status"], "pass", (fmt, lay, img))
                     for c in ("hl", "sub", "cta", "blk", "logo"):
                         self.assertIn(c, h)
-                    if lay.startswith("overlay"):
-                        self.assertIn("linear-gradient", h)
+                    if lay.startswith("overlay") or lay == "full":
+                        self.assertIn("radial-gradient" if lay == "full" else "linear-gradient", h)
                         self.assertEqual(results(d)["contrast"]["status"], "warn")
                         self.assertIn("the image under it decides", results(d)["contrast"]["say"])
 
@@ -410,6 +410,46 @@ class Logo(unittest.TestCase):
         d = prep(logo=None)
         run("compose", d)
         self.assertIn('class="sig"', (d / "piece.html").read_text())
+
+
+class FullLayout(unittest.TestCase):
+    """A campaign poster: the photo fills the frame, the text sits over it centred, logo and slogan centred at the bottom."""
+
+    def test_full_centred_upper_and_real_logo_ratio(self):
+        d = prep(logo_position="bottom-center", headline_case="upper")
+        (d / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 163 35'/>")
+        kv(d, "brand.md", logo="logo.svg")
+        run("brand", d)
+        sized(d, 0)
+        run("compose", d, "--layout", "full", "--headline", "One thing. Not the other.")
+        run("check", d)
+        h = (d / "piece.html").read_text()
+        self.assertIn('<body data-layout="full">', h)
+        self.assertEqual(h.count('class="ln"'), 2)
+        self.assertIn(".hl{text-transform:uppercase}", h)
+        self.assertRegex(h, r"\.blk~\.slogan\{position:absolute;left:0;right:0;[^}]*text-align:center")
+        lw = int(re.search(r"\.logo\{position:absolute;left:(\d+)px", h).group(1))
+        w = int(re.search(r"body\{width:(\d+)px", h).group(1))
+        lh = int(re.search(r"\.logo\{[^}]*height:(\d+)px", h).group(1))
+        self.assertEqual(lw, (w - round(lh * 163 / 35)) // 2)  # centred, at the logo's real width
+        self.assertNotIn("border:3px", re.search(r"\.cta\{align-self:center[^}]*\}", h).group(0))
+        self.assertEqual(results(d)["palette"]["status"], "pass")
+        self.assertEqual(results(d)["contrast"]["status"], "warn")
+        self.assertEqual(slogan_el(d), SLOGAN)
+
+    def test_logo_ratio_and_bad_case(self):
+        sys.path.insert(0, str(ST))
+        from files import logo_ratio
+        d = piece()
+        (d / "a.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg' width='300' height='100'/>")
+        (d / "b.svg").write_text("<svg viewBox='0 0 163 35'/>")
+        self.assertAlmostEqual(logo_ratio(d / "a.svg"), 3.0)
+        self.assertAlmostEqual(logo_ratio(d / "b.svg"), 163 / 35)
+        self.assertIsNone(logo_ratio(d / "missing.svg"))
+        kv(d, "brand.md", headline_case="shouting")
+        r = run("brand", d, ok=False)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("headline case", r.stderr)
 
 
 class HeadlineColour(unittest.TestCase):

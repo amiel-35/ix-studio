@@ -69,7 +69,7 @@ def run(d, brand):
     bg = css_to_hex(RGB.search(bgv.group(1)).group(0) if bgv and RGB.search(bgv.group(1)) else bgv.group(1)) if bgv else None
     if fg and bg:
         c = contrast(fg, bg)
-        if lay.startswith("overlay"):
+        if lay.startswith("overlay") or lay == "full":
             add("contrast", False, f"headline over the image with a light gradient of {bg}: contrast with {bg} is {c:.1f}:1; the image under it decides, look at piece.png", "warn")
         else:
             add("contrast", c >= 3, f"headline {fg} on {bg}: contrast {c:.1f}:1 (large text needs 3:1)")

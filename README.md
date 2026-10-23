@@ -52,8 +52,8 @@ variants, the attractor, you choose).
 
 `brand.md`, one `key: value` per line: `name`, `background`, `text` (required); `accent`, `extra colours`
 (comma-separated), `headline colour` (hex); `headline font`, `body font`; `logo` (a file, or `placeholder`),
-`logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`); `slogan` (exact words, set next to the
-logo); `voice`; `never` (exact words or characters, `;`-separated); `never show` (what the image must not show);
+`logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`, `bottom-center`: logo centred, slogan under it);
+`headline case` (`as written` or `upper`); `slogan` (exact words, set next to the logo); `voice`; `never` (exact words or characters, `;`-separated); `never show` (what the image must not show);
 `notes`. A value ending in `(to confirm)` is used, and the check warns that the piece relies on it.
 
 `brief.md`: `objective`, `audience`, `message` (required); `format`; `fixed`; `cta`; `language`.

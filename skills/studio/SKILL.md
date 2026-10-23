@@ -27,7 +27,8 @@ each step, give the path of the page to open and the one question it asks.
 1. **Brand, minimal.** `<dir>/brand.md`, about ten `key: value` lines: `name`, `background`, `text`, `accent`
    (hex), `extra colours` (a comma-separated list of hex: `extra colours: #E8C547, #7A8B6F`), `headline colour`
    (hex), `headline font`, `body font`, `logo` (a file path, or `placeholder` when the logo exists but was not given:
-   the piece shows a dashed square), `logo position` (`bottom-right` default, `bottom-left`, `top-right`, `top-left`),
+   the piece shows a dashed square), `logo position` (`bottom-right` default, `bottom-left`, `top-right`, `top-left`, `bottom-center`: the logo centred at
+   the bottom, the slogan under it in spaced letters), `headline case` (`as written` default, or `upper`),
    `voice`, `slogan` (the brand's tagline or signature line, exact words: the piece sets it next to the logo),
    `never` (the exact words or characters that must not appear in the copy, `;`-separated, e.g.
    `never: detox; superfood; —`; prose there shows up as "not verifiable"), `never show` (what the image must not
@@ -54,12 +55,14 @@ each step, give the path of the page to open and the one question it asks.
    in parallel, blind** (each sees the brand, the brief, `bans.md` if any, and its own mandate only). Each writes
    `variants/<id>.json`: `mandate`, `default` (an object `{"headline": "...", "image": "..."}`: what it would have made by default, written
    down, then set aside), `headline`, `subline`, `image_prompt` (what the image shows, no text in it), `layout`
-   (`side|stack|ground|overlay-top|overlay-bottom`), `ground` (`background|text|accent`), `why`, optionally `fit` (`contain`, the default: the whole image shows; `cover`: it may be cropped). The brand does not
+   (`side|stack|ground|overlay-top|overlay-bottom|full`), `ground` (`background|text|accent`), `why`, optionally `fit` (`contain`, the default: the whole image shows; `cover`: it may be cropped). The brand does not
    diverge: the idea does. **Pick a layout that does not cover the subject of the image.** `side` (image and a flat
    brand panel next to each other; stacks in a portrait or square piece), `stack` (image above, panel below) and
    `ground` (flat brand colour, the image a framed inset) never overlap the image; use `overlay-top` or
-   `overlay-bottom` only when the image prompt leaves that edge calm. Each mandate chooses its own layout: the
-   stances should not all share one (`diverge` warns when they do). Before returning, each subagent rereads its own
+   `overlay-bottom` only when the image prompt leaves that edge calm. `full` is the campaign poster: the photo fills
+   the frame, the headline sits centred in its upper part (one sentence per line), the subline and the CTA centred
+   above the logo; use it when the brief's `fixed` asks for the campaign's look, and then every mandate keeps it.
+   Otherwise each mandate chooses its own layout: the stances should not all share one (`diverge` warns when they do). Before returning, each subagent rereads its own
    headline and subline in the piece's language as a reader would, looking for any second reading (sexual, vulgar,
    ridiculous, hurtful), slang included; if it finds one, it rewrites the line. No word list: a human eye.
    Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."] [--subline "..."]`.

@@ -17,14 +17,15 @@ class StudioError(Exception):
 
 FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1920), "poster-a3": (1240, 1754),
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
-LAYOUTS = ("side", "stack", "ground", "overlay-top", "overlay-bottom")
+LAYOUTS = ("side", "stack", "ground", "overlay-top", "overlay-bottom", "full")
 LAYOUT_ALIASES = {"top": "overlay-top", "bottom": "overlay-bottom", "center": "ground"}
-LOGO_POSITIONS = ("bottom-right", "bottom-left", "top-right", "top-left")
+LOGO_POSITIONS = ("bottom-right", "bottom-left", "top-right", "top-left", "bottom-center")
+HEADLINE_CASES = ("as written", "upper")
 GROUNDS = ("background", "text", "accent")
 GENERIC_FONTS = ("serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui", "ui-serif", "ui-sans-serif",
                  "georgia", "times new roman", "arial", "helvetica", "inherit")
 BRAND_KEYS = ("name", "background", "text", "accent", "extra colours", "headline font", "body font", "logo", "logo position",
-              "headline colour", "voice", "never", "never show", "notes", "slogan")
+              "headline colour", "headline case", "voice", "never", "never show", "notes", "slogan")
 BRIEF_KEYS = ("objective", "audience", "message", "format", "fixed", "cta", "language")
 VARIANT_KEYS = ("mandate", "default", "headline", "image_prompt", "layout", "ground", "why")
 FONT = re.compile(r"[\w .'-]+")
@@ -74,6 +75,24 @@ def _need(kv, name, keys):
         raise StudioError(f"{name}: missing {', '.join(miss)} (write it as `{miss[0]}: ...`)")
 
 
+def logo_ratio(path):
+    """Width / height of a PNG or SVG logo, or None when it cannot be read (the piece then assumes 3:1)."""
+    try:
+        data = Path(path).read_bytes()[:65536]
+    except OSError:
+        return None
+    w = h = 0.0
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) >= 24:
+        w, h = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    else:
+        t = data.decode("utf-8", "ignore")
+        m = re.search(r"""viewBox=["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)""", t)
+        m = m or re.search(r"""<svg[^>]*?\swidth=["']([\d.]+)(?:px)?["'][^>]*?\sheight=["']([\d.]+)(?:px)?["']""", t)
+        if m:
+            w, h = float(m.group(1)), float(m.group(2))
+    return min(8.0, max(0.5, w / h)) if w and h else None
+
+
 def load_brand(d) -> dict:
     kv = _kv_file(d, "brand.md", "write about ten `key: value` lines, or run `brand --from-dossier <brandkit dir>`")
     unconfirmed = {}
@@ -92,15 +111,20 @@ def load_brand(d) -> dict:
     pos = kv.get("logo position", "bottom-right").lower()
     if pos not in LOGO_POSITIONS:
         raise StudioError(f"brand.md: logo position must be one of {', '.join(LOGO_POSITIONS)}, got {pos!r}")
+    case = kv.get("headline case", "as written").lower()
+    if case not in HEADLINE_CASES:
+        raise StudioError(f"brand.md: headline case must be one of {', '.join(HEADLINE_CASES)}, got {case!r}")
     holder = kv.get("logo", "").lower() == "placeholder"
     b = {"name": kv["name"], "background": hex6(kv["background"]), "text": hex6(kv["text"]),
          "accent": hex6(kv["accent"]) if kv.get("accent") else "", "extras": [hex6(x) for x in extras],
          "hfont": kv.get("headline font", ""), "bfont": kv.get("body font", ""), "logo": "" if holder else kv.get("logo", ""),
-         "logo_placeholder": holder, "logo_position": pos, "headline_colour": hex6(kv["headline colour"]) if kv.get("headline colour") else "",
+         "logo_placeholder": holder, "logo_position": pos, "upper": case == "upper", "headline_colour": hex6(kv["headline colour"]) if kv.get("headline colour") else "",
          "never_show": [x.strip() for x in kv.get("never show", "").split(";") if x.strip()], "voice": kv.get("voice", ""), "never": [x.strip() for x in kv.get("never", "").replace(",", ";").split(";") if x.strip()],
          "notes": kv.get("notes", ""), "slogan": " ".join(kv.get("slogan", "").split()), "unconfirmed": unconfirmed, "other": {k: v for k, v in kv.items() if k not in BRAND_KEYS}}
     if b["logo"] and not (Path(d) / b["logo"]).exists():
         b["logo_missing"] = True
+    elif b["logo"]:
+        b["logo_ratio"] = logo_ratio(Path(d) / b["logo"])
     return b
 
 

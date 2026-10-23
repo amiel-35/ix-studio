@@ -20,6 +20,8 @@ from ui import cli
 
 BASE = "No text, no letters, no words, no logos, no watermark."
 CALM = "Leave the {where} ~40% of the frame calm and uncluttered, the headline sits there."
+FULL = ("The text sits over the image, centred: keep the upper half of the frame and its bottom fifth soft and uncluttered "
+        "(a blurred background, plain surfaces, no busy detail), the subject in the middle of the frame.")
 BESIDE = "The text sits beside the image, not on it: let the subject fill the frame, centred, the whole subject inside the frame with a margin, nothing important at the edges."
 OR_MODEL = "google/gemini-2.5-flash-image"
 RATIOS = ((1, 1), (2, 3), (3, 2), (3, 4), (4, 3), (4, 5), (5, 4), (9, 16), (16, 9), (21, 9))
@@ -51,6 +53,8 @@ def zone(brief, variant):
 
 
 def calm(layout) -> str:
+    if layout == "full":
+        return FULL
     where = {"overlay-top": "top", "top": "top", "overlay-bottom": "bottom", "bottom": "bottom"}.get(layout)
     return CALM.format(where=where) if where else BESIDE
 

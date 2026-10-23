@@ -125,8 +125,8 @@ def mock(b, br, v, headline=None):
     ink = ink_on(g, [b["text"], b["background"], *([b["accent"]] if b["accent"] else [])])
     lay, ir, tr, solid = areas(v["layout"], w, h)
     box = lambda r: f"left:{r[0] / w:.1%};top:{r[1] / h:.1%};width:{r[2] / w:.1%};height:{r[3] / h:.1%}"
-    over = lay.startswith("overlay")
-    fill = (f"linear-gradient({'to bottom' if lay == 'overlay-top' else 'to top'},{rgba(g, .55)},{rgba(g, 0)})" if over else g)
+    over = lay.startswith("overlay") or lay == "full"
+    fill = rgba(g, .3) if lay == "full" else (f"linear-gradient({'to bottom' if lay == 'overlay-top' else 'to top'},{rgba(g, .55)},{rgba(g, 0)})" if over else g)
     fs = 8 * min(1, tr[2] / w * 1.3)
     sub = f"<small style=\"font-family:{e(font_css(b['bfont'], 'sans-serif'))}\">{e(v['subline'])}</small>" if v["subline"] else ""
     return (f'<div class="mock" style="aspect-ratio:{w}/{h};background:{g if lay == "ground" else b["background"]}">'

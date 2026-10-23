@@ -53,8 +53,8 @@ variantes en aveugle, l'attracteur, tu choisis).
 
 `brand.md`, une ligne `clé: valeur` par entrée : `name`, `background`, `text` (obligatoires) ; `accent`,
 `extra colours` (séparées par des virgules), `headline colour` (hex) ; `headline font`, `body font` ; `logo` (un
-fichier, ou `placeholder`), `logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`) ; `slogan` (mots
-exacts, posé près du logo) ; `voice` ; `never` (mots ou caractères exacts, séparés par `;`) ; `never show` (ce que
+fichier, ou `placeholder`), `logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`, `bottom-center` : logo centré, slogan
+dessous) ; `headline case` (`as written` ou `upper`) ; `slogan` (mots exacts, posé près du logo) ; `voice` ; `never` (mots ou caractères exacts, séparés par `;`) ; `never show` (ce que
 l'image ne doit pas montrer) ; `notes`. Une valeur suivie de `(à confirmer)` est utilisée, et le contrôle signale que
 la pièce s'appuie dessus.
 
