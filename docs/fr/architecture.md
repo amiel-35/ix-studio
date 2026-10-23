@@ -22,12 +22,12 @@ flowchart LR
 | Module | Possède | Statut |
 |---|---|---|
 | M0 Dossier de marque | le format du dossier, la provenance, la priorité, les trois adaptateurs d'entrée, la revue, les versions, les exports | disponible : skill `brand-dossier`, outil `brandkit` |
-| M1 Brief | nettoyer la demande des solutions qui s'y sont glissées ; le contenu et le format du projet | prévu |
+| M1 Brief | nettoyer la demande des solutions qui s'y sont glissées ; le contenu et le format du projet | première version pour les pubs fixes : `scripts/studio` |
 | M2 Divergence | mandats, variantes en aveugle, l'attracteur, le choix de l'utilisateur | [design-divergent](https://github.com/amiel-35/ix-design-divergent), son propre dépôt, référencé |
 | M3 Traitement | de la direction au plan d'exécution, par famille | prévu |
-| M4 Exécution | adaptateurs vers des exécutants tiers : ce que chacun reçoit (direction + dossier), ce qu'on lui retire (ses propres lignes de goût) | prévu |
-| M5 Contrôles | la pièce est-elle conforme ; le design system de la marque utilisé comme filtre | prévu |
-| M6 Mémoire | interdits issus des refus, préférences, ce qui a été observé, ce qui a été vérifié | prévu |
+| M4 Exécution | adaptateurs vers des exécutants tiers : ce que chacun reçoit (direction + dossier), ce qu'on lui retire (ses propres lignes de goût) | première version pour les pubs fixes : `scripts/studio` |
+| M5 Contrôles | la pièce est-elle conforme ; le design system de la marque utilisé comme filtre | première version pour les pubs fixes : `scripts/studio` |
+| M6 Mémoire | interdits issus des refus, préférences, ce qui a été observé, ce qui a été vérifié | première version : `bans.md` écrit sur « refaire » |
 
 Le plugin possède le dossier, le brief, le contrat de divergence, les contrôles, la mémoire et les contrats entre
 eux ; le traitement et l'exécution sont des adaptateurs interchangeables. Une marque sans assez de matière passe

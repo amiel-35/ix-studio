@@ -1,112 +1,93 @@
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-8f8a7c"></a>
   <img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-plugin-D97757">
-  <img alt="Part" src="https://img.shields.io/badge/part%201-brand%20dossier-3d9a8b">
   <img alt="Status" src="https://img.shields.io/badge/status-experimental-e07a3f">
 </p>
 
-<p align="center">
-  <a href="#démarrage-rapide"><b>Démarrage rapide</b></a> ·
-  <a href="#à-quoi-ça-ressemble"><b>À quoi ça ressemble</b></a> ·
-  <a href="#documentation"><b>Documentation</b></a> ·
-  <a href="README.md"><b>English</b></a>
-</p>
-
----
+<p align="center"><a href="README.md"><b>English</b></a></p>
 
 # studio
 
-Demande à un modèle « un visuel pour cette marque » et il lui donnera une palette, une typo et un ton. Les siens.
-
-**studio** est un plugin Claude Code pour le travail créatif sur n'importe quelle marque, même une dont tu ne sais
-rien. Il part de là où tout brief créatif devrait partir : écrire ce qu'on sait vraiment de la marque, d'où vient
-chaque élément, et ce que personne n'a encore dit. Cette première version, c'est cette partie, le **dossier de
-marque**. Le reste du studio (brief, divergence, exécution, contrôles) le lit.
-
-## Ce qu'il fait
-
-- **Rassemble** ce que dit un skill de design system, ce que montrent le site, les fichiers et les vidéos de la
-  marque, ce qui ressort d'une recherche d'images sur le web, et ce que tu écris.
-- **Garde la provenance de chaque valeur** : saisie, skill, déduite, créée ; la page et la date, le fichier, la
-  version du skill ; pour tout ce qui est déduit, ses preuves et un niveau de confiance.
-- **Ne devine jamais.** Une valeur manquante, c'est « À DEMANDER », dans le dossier comme dans les exports. Pas de
-  palette par défaut, pas de police « provisoire », pas de baseline écrite à la place de la marque.
-- **Fusionne avec une priorité fixe** (skill, puis saisi, puis déduit) et **garde les conflits** là où tu peux les
-  voir.
-- **Nomme plusieurs looks au lieu de les moyenner** (l'identité actuelle, une ancienne, une campagne) et demande
-  lequel est le look maître.
-- **Montre une seule revue**, en page à regarder : chaque look avec ses pastilles, ses polices, ses logos et ses
-  captures, et les images trouvées sur le web en liens, avec l'appartenance qu'il propose, que tu confirmes ou corriges.
-- **Exporte** `brand.md` et `MOTION.md` au format de
-  [brand-intake](https://github.com/charlie947/motion-graphics-skills), pour que les skills qui les lisent
-  fonctionnent tels quels.
-
-## À quoi ça ressemble
-
-Une marque fictive, Marrowbay Ferments, construite à partir d'un skill de design system, de son site, d'une
-recherche d'images sur le web et d'un court entretien ([tout l'exemple](examples/marrowbay)). Un extrait de la
-revue :
+Un plugin Claude Code qui fait **une pub en une session** : une affiche ou un post pour une marque, de dix lignes
+sur la marque à une pièce que tu gardes ou que tu renvoies. Chaque étape est une page qu'on regarde et où l'on tranche.
 
 ```
-## Colours
-- **Conflict** `colours` (look brand): kept hex: #C8553D, role: accent, name: Brick [skill: marrowbay-ds@1.2.0] over hex: #E07A2F, role: accent, share: 0.04 [inferred: https://marrowbay.example (2026-10-23)]
-- Inferred, to confirm `colours[old-identity:background]`: hex #2F5D3A · role background (confidence low; proof ev-d5fff827)
-
-## Looks
-**Several looks were found. Which one is the master look? Nothing is averaged meanwhile.**
-- `summer-2026`: Summer 2026 campaign (campaign), proof ev-16125880
-- `old-identity`: Identity before 2021 (old_identity), proof ev-d5fff827
-- `brand`: Brand identity (brand)
-
-## Visuals and pages: are they the brand's?
-- `ev-9aee9706` web_image https://pins.example/kombucha-moodboard-44: **uncertain** · moodboard with a Marrowbay bottle among others
-- `ev-b0cba8e4` web_image https://social.example/marrowbayferments/p/123: **official** · post on the brand's own account: bottles on a market stall
+marque (10 lignes) → brief → divergence → pièce → contrôle → tu tranches
 ```
 
-Le fondateur a répondu que le post sur les réseaux était celui d'un revendeur, pas le sien : ce qui reposait
-uniquement dessus est sorti du dossier. Et voici ce que reçoit un module en aval quand il demande un champ que
-personne n'a rempli :
+<p align="center"><img src="examples/marrowbay/poster/piece.png" width="320" alt="Une affiche pour une marque fictive de kombucha"></p>
 
-```bash
-$ python3 scripts/brandkit get examples/marrowbay/brand audience.situation
-{"path": "audience.situation", "status": "ask", "missing": true,
- "say": "no value: ask the user or stop. Never fill it in."}
-```
-
-## Démarrage rapide
+## Installer
 
 ```bash
 claude plugin marketplace add amiel-35/ix-studio
 claude plugin install studio@ix-studio
 ```
 
-Ou en simple clone, si tu veux le lire et le modifier sur place : clone le dépôt où tu veux et pointe Claude Code
-dessus avec `claude --plugin-dir <clone>`.
+Prérequis : Claude Code et Python 3.10+. En option : Chrome ou Chromium (pour `piece.png`), un générateur d'images
+(plus bas).
 
-Ensuite, dans Claude Code : « monte le dossier de marque pour <marque> », avec ce que tu as (un site, un dossier, le
-nom d'un skill de design system). Ou appelle `/studio` et il t'orientera.
+## Utiliser
 
-Prérequis : Python 3.10+ ; pour l'inférence depuis un site, Node 22+ et un Chrome installé (ou Chromium, Edge,
-Brave) ; pour les vidéos et les couleurs des images, ffmpeg.
+Dans Claude Code, dans n'importe quel dossier :
 
-Depuis un clone, sans installer : `python3 scripts/brandkit --help`, et `sh examples/marrowbay/build.sh` pour
-reconstruire l'exemple.
+> /studio une affiche pour Marrowbay Ferments, un petit fabricant de kombucha : donner envie aux citadins d'y goûter
 
-## Documentation
+Claude écrit avec toi les lignes de marque et le brief, ouvre une page par étape et te dit la seule question que
+chaque page pose. Tout ce qui concerne la pièce vit dans `poster/` :
 
-- [Le dossier de marque](docs/fr/dossier-de-marque.md) : objectif, règles, adaptateurs, modèle de données, cas
-  limites, critères d'acceptation.
-- [Architecture](docs/fr/architecture.md) : les modules du studio et les contrats entre eux.
-- [Le skill](skills/brand-dossier/SKILL.md) et ses références : format des sources, chaque adaptateur, la recherche
-  d'images sur le web.
-- [Travaux tiers](THIRD_PARTY.md) : ce qui vient de huashu-motion et de brand-intake, sous leurs licences.
+| Étape | Tu donnes ou Claude écrit | Page | Ta décision |
+|---|---|---|---|
+| 1 Marque | `brand.md` : nom, couleurs, typos, logo, ton, interdits (tes mots, un skill de design system ou un dossier de marque) | `1-brand.html` | est-ce la marque ? |
+| 2 Brief | `brief.md` : objectif, cible, message, format | `2-brief.html` | est-ce le travail ? |
+| 3 Divergence | `variants/*.json` : variantes en aveugle, une par mandat, chacune avec le défaut qu'elle a écarté | `3-divergence.html` | en choisir une |
+| 4 Pièce | l'image (générée, ou la tienne), l'accroche posée en HTML | `4-piece.html`, `piece.png` | |
+| 5 Contrôle | palette, typo, contraste, mots interdits, plus les notes d'un juge qui ne bloquent jamais | `5-check.html` | garder, ou refaire |
 
-## Statut
+Pour une pub, l'unité est le couple **accroche + image** : l'accroche d'abord, l'image lui répond. Le modèle d'image
+n'écrit jamais de texte. La divergence suit la méthode de
+[design-divergent](https://github.com/amiel-35/ix-design-divergent) (des mandats qui regardent chacun ailleurs, des
+variantes en aveugle, l'attracteur, tu choisis).
 
-Expérimental. Partie 1 sur 5. La divergence est le plugin séparé
-[design-divergent](https://github.com/amiel-35/ix-design-divergent) ; le traitement, l'exécution, les contrôles et
-la mémoire sont prévus.
+## Les deux fichiers qu'on peut écrire à la main
 
-## Licence
+`brand.md`, une ligne `clé: valeur` par entrée : `name`, `background`, `text` (obligatoires) ; `accent`,
+`extra colours` (séparées par des virgules), `headline colour` (hex) ; `headline font`, `body font` ; `logo` (un
+fichier, ou `placeholder`), `logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`) ; `slogan` (mots
+exacts, posé près du logo) ; `voice` ; `never` (mots ou caractères exacts, séparés par `;`) ; `never show` (ce que
+l'image ne doit pas montrer) ; `notes`. Une valeur suivie de `(à confirmer)` est utilisée, et le contrôle signale que
+la pièce s'appuie dessus.
 
-MIT. Voir [LICENSE](LICENSE) et [THIRD_PARTY.md](THIRD_PARTY.md).
+`brief.md` : `objective`, `audience`, `message` (obligatoires) ; `format` ; `fixed` ; `cta` ; `language`.
+
+Formats : `post-4x5` (1080×1350, par défaut), `post-1x1` (1080×1080), `story` (1080×1920), `poster-a3` (1240×1754),
+`poster-3x2` (1800×1200), `linkedin` (1200×627), ou une taille libre comme `1600x900` (largeur x hauteur, 200 à 4000 px de côté).
+
+## Images
+
+| Moteur | Comment | Quand |
+|---|---|---|
+| ta clé | `export OPENAI_API_KEY=...` (modèle : `STUDIO_IMAGE_MODEL`, par défaut `gpt-image-1`) | partout |
+| ton forfait | le [CLI Codex](https://github.com/openai/codex), installé et connecté | sur ta machine ; vérifie que les conditions de ton forfait couvrent cet usage |
+| ton fichier | dépose `image.png` dans le dossier de la pièce | toujours |
+| aucun | rien à installer | la pièce est composée sur un fond de marque uni, et la page le dit |
+
+## Sans Claude
+
+Chaque étape est une commande ; écris son fichier d'entrée à la main et lance-la seule, ou rejoue tout l'exemple :
+
+```bash
+python3 scripts/studio status poster        # où tu en es, et la commande suivante
+sh examples/marrowbay/poster/build.sh       # l'exemple fictif, de bout en bout, sans générateur
+python3 -m unittest discover -s tests       # les tests, dont le flux de bout en bout
+```
+
+## Aller plus loin
+
+Le **dossier de marque** riche (provenance de chaque valeur, inférence depuis un site, conflits, versions) est
+toujours là, et facultatif : skill `brand-dossier`, puis `python3 scripts/studio brand poster --from-dossier brand`
+pour démarrer une pièce depuis lui (valeurs confirmées seulement ; `--include-unconfirmed` prend aussi les
+autres, marquées à confirmer). Voir [le dossier de marque](docs/fr/dossier-de-marque.md) et
+[l'architecture](docs/fr/architecture.md).
+
+Expérimental. MIT, voir [LICENSE](LICENSE) et [THIRD_PARTY.md](THIRD_PARTY.md). Marrowbay Ferments est fictive.

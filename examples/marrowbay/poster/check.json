@@ -1,0 +1,91 @@
+{
+  "at": "2026-10-23",
+  "variant": "v2",
+  "headline": "It's tea that got a little wild.",
+  "summary": {
+    "pass": 10,
+    "warn": 1,
+    "fail": 0,
+    "judge": 5,
+    "major": 0
+  },
+  "results": [
+    {
+      "id": "palette",
+      "status": "pass",
+      "say": "every colour is a brand colour"
+    },
+    {
+      "id": "fonts",
+      "status": "pass",
+      "say": "every font is a brand font"
+    },
+    {
+      "id": "contrast",
+      "status": "pass",
+      "say": "headline #c8553d on #f4efe6: contrast 3.8:1 (large text needs 3:1)"
+    },
+    {
+      "id": "headline colour",
+      "status": "pass",
+      "say": "headline is #c8553d, the brand's headline colour"
+    },
+    {
+      "id": "length",
+      "status": "pass",
+      "say": "headline is 7 word(s)"
+    },
+    {
+      "id": "never",
+      "status": "pass",
+      "say": "none of the brand's never-words appears"
+    },
+    {
+      "id": "hierarchy",
+      "status": "pass",
+      "say": "headline 69px, subline 46px"
+    },
+    {
+      "id": "cta",
+      "status": "pass",
+      "say": "the call to action does not repeat the subline"
+    },
+    {
+      "id": "image",
+      "status": "pass",
+      "say": "a generated or provided image is used"
+    },
+    {
+      "id": "logo",
+      "status": "warn",
+      "say": "logo placeholder: drop the logo file in and set `logo: <path>`"
+    },
+    {
+      "id": "slogan",
+      "status": "pass",
+      "say": "the slogan is the brand's exact words"
+    }
+  ],
+  "judge": [
+    {
+      "level": "minor",
+      "say": "The cup on the right is cut by the edge of the text panel: shift the crop or move the cup left in the still life."
+    },
+    {
+      "level": "minor",
+      "say": "The headline fills only the top of the panel's middle band and the panel feels empty below the call to action; a larger headline would use the space."
+    },
+    {
+      "level": "minor",
+      "say": "The logo placeholder is a dashed square in the corner: fine as a stand-in, but the piece is not final until the real logo is dropped in."
+    },
+    {
+      "level": "note",
+      "say": "The image answers the headline: one jar of amber tea, no people, daylight, and the panel does not cover any of it."
+    },
+    {
+      "level": "note",
+      "say": "No second reading in the headline or the subline: \"got a little wild\" stays on the tea, \"Poured anywhere\" was chosen over \"Drunk anywhere\", which a fermented drink cannot afford."
+    }
+  ]
+}

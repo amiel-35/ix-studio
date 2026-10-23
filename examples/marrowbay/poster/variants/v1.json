@@ -1,0 +1,13 @@
+{
+  "mandate": "Taste first: promise the flavour in three beats, so a sceptic can imagine the mouthful.",
+  "default": {
+    "headline": "Discover the taste of Marrowbay",
+    "image": "A smiling person holding a glass of kombucha in a bright kitchen"
+  },
+  "headline": "Sour, then sweet, then gone.",
+  "subline": "Small-batch kombucha. Pour one.",
+  "image_prompt": "Macro close-up of kombucha being poured into a plain glass on raw wood, bubbles rising, soft daylight from the left, shallow depth of field",
+  "layout": "stack",
+  "ground": "background",
+  "why": "A sceptic does not need a reason, they need a taste. Three short beats make the mouthful imaginable, and the pour shows it is a drink, not a potion."
+}

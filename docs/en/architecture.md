@@ -21,12 +21,12 @@ flowchart LR
 | Module | Owns | Status |
 |---|---|---|
 | M0 Brand dossier | the dossier format, provenance, priority, the three input adapters, the review, versions, exports | available: skill `brand-dossier`, tool `brandkit` |
-| M1 Brief | cleaning the request of solutions drawn into it; the project's content and format | planned |
+| M1 Brief | cleaning the request of solutions drawn into it; the project's content and format | first cut for still ads: `scripts/studio` |
 | M2 Divergence | mandates, blind variants, the attractor, the user's pick | [design-divergent](https://github.com/amiel-35/ix-design-divergent), its own repository, referenced |
 | M3 Treatment | from a direction to an execution plan, per family | planned |
-| M4 Execution | adapters to third-party executors: what each receives (direction + dossier), what is taken away (its own taste lines) | planned |
-| M5 Checks | is the piece conformant; the brand's design system used as a filter | planned |
-| M6 Memory | bans from refusals, preferences, what was observed, what was verified | planned |
+| M4 Execution | adapters to third-party executors: what each receives (direction + dossier), what is taken away (its own taste lines) | first cut for still ads: `scripts/studio` |
+| M5 Checks | is the piece conformant; the brand's design system used as a filter | first cut for still ads: `scripts/studio` |
+| M6 Memory | bans from refusals, preferences, what was observed, what was verified | first cut: `bans.md` written on "again" |
 
 The plugin owns the dossier, the brief, the divergence contract, the checks, the memory and the contracts between
 them; treatment and execution are pluggable adapters. A brand without enough material goes through the identity

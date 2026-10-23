@@ -1,7 +1,7 @@
 {
   "name": "studio",
-  "description": "A creative studio for any brand, even one you know nothing about: a brand dossier where every value says where it came from and nothing is guessed, then (later parts) divergence, execution and checks across films, stills, screens and identity.",
-  "version": "0.1.0",
+  "description": "A creative studio for any brand: an ad (poster or social post) in one session, from ten lines about the brand to a piece you keep, with one page per step. Optional rich brand dossier with provenance on every value.",
+  "version": "0.2.0",
   "author": {
     "name": "Amiel Lavon"
   },
