@@ -1,0 +1,53 @@
+{
+  "adapter": "typed",
+  "at": "2026-10-23",
+  "origin": "interview with the founder (2026-10-23)",
+  "label": "interview",
+  "evidence": [],
+  "values": [
+    {
+      "path": "identity.one_liner",
+      "value": "Small-batch kombucha brewed in a harbour town, sold at markets and in 40 shops."
+    },
+    {
+      "path": "identity.offer",
+      "value": "The tasting box: six flavours, delivered monthly"
+    },
+    {
+      "path": "identity.links",
+      "value": [
+        "https://marrowbay.example/tasting-box"
+      ]
+    },
+    {
+      "path": "audience.who",
+      "value": "People who gave up soda and want something with a bit of bite"
+    },
+    {
+      "path": "voice.traits",
+      "value": [
+        "warm",
+        "playful",
+        "calm"
+      ]
+    },
+    {
+      "path": "promise.tagline",
+      "value": "Brewed slowly. Drunk quickly."
+    },
+    {
+      "path": "imagery.dont",
+      "value": [
+        "stock photos of smiling people holding a glass"
+      ]
+    },
+    {
+      "path": "references",
+      "item": {
+        "url": "https://films.example/slow-bread",
+        "grammar": "the pace and the daylight, not the bread"
+      },
+      "look": null
+    }
+  ]
+}

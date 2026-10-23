@@ -1,0 +1,17 @@
+{
+  "adapter": "skill",
+  "skill": {"name": "marrowbay-ds", "version": "1.2.0", "read": "SKILL.md, then tokens/brand.json as the skill prescribes"},
+  "label": "design system skill",
+  "evidence": [
+    {"id": "tokens", "kind": "skill", "where": "marrowbay-ds/tokens/brand.json"}
+  ],
+  "values": [
+    {"path": "colours", "item": {"hex": "#F4EFE6", "role": "background", "name": "Oat"}, "evidence": ["tokens"]},
+    {"path": "colours", "item": {"hex": "#1E2A24", "role": "text", "name": "Pine"}, "evidence": ["tokens"]},
+    {"path": "colours", "item": {"hex": "#C8553D", "role": "accent", "name": "Brick"}, "evidence": ["tokens"]},
+    {"path": "typography", "item": {"family": "Fraunces", "role": "headings", "files": ["fonts/Fraunces-VariableFont.ttf"], "licence": "SIL Open Font License 1.1", "sizes": "40 / 28 / 22 px", "weights": "600"}, "evidence": ["tokens"]},
+    {"path": "typography", "item": {"family": "Inter", "role": "body", "files": ["fonts/Inter-VariableFont.ttf"], "licence": "SIL Open Font License 1.1", "sizes": "17 / 15 px"}, "evidence": ["tokens"]},
+    {"path": "logo", "item": {"file": "assets/marrowbay-wordmark.svg", "format": "svg", "variant": "wordmark", "background": "light"}, "evidence": ["tokens"]},
+    {"path": "logo", "item": {"file": "assets/marrowbay-wordmark-reversed.svg", "format": "svg", "variant": "wordmark reversed", "background": "dark"}, "evidence": ["tokens"]}
+  ]
+}

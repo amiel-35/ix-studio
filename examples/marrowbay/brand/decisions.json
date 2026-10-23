@@ -1,0 +1,34 @@
+[
+  {
+    "action": "master",
+    "look": "brand",
+    "at": "2026-10-23"
+  },
+  {
+    "action": "ownership",
+    "evidence": "ev-d5fff827",
+    "ownership": "official",
+    "reason": "yes, that was our label until 2021",
+    "at": "2026-10-23"
+  },
+  {
+    "action": "ownership",
+    "evidence": "ev-b0cba8e4",
+    "ownership": "uncertain",
+    "reason": "not ours, a reseller's account",
+    "at": "2026-10-23"
+  },
+  {
+    "action": "confirm",
+    "path": "imagery.style",
+    "fp": "814d0c8a3b",
+    "at": "2026-10-23"
+  },
+  {
+    "action": "reject",
+    "path": "voice.register",
+    "reason": "not dry. Warm and plain, yes; dry, no.",
+    "fp": "3a7e6b06ff",
+    "at": "2026-10-23"
+  }
+]

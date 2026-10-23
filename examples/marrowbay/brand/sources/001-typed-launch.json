@@ -1,0 +1,13 @@
+{
+  "adapter": "typed",
+  "at": "2026-10-23",
+  "origin": "launch (name given by the user)",
+  "label": "launch",
+  "evidence": [],
+  "values": [
+    {
+      "path": "identity.name",
+      "value": "Marrowbay Ferments"
+    }
+  ]
+}

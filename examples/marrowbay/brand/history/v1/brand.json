@@ -1,0 +1,1025 @@
+{
+  "schema": "ix-studio/brand@1",
+  "identity": {
+    "name": {
+      "value": "Marrowbay Ferments",
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "launch (name given by the user)",
+        "at": "2026-10-23"
+      }
+    },
+    "one_liner": {
+      "value": "Small-batch kombucha brewed in a harbour town, sold at markets and in 40 shops.",
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    },
+    "offer": {
+      "value": "The tasting box: six flavours, delivered monthly",
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    },
+    "links": {
+      "value": [
+        "https://marrowbay.example/tasting-box"
+      ],
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    }
+  },
+  "audience": {
+    "who": {
+      "value": "People who gave up soda and want something with a bit of bite",
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    },
+    "situation": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave audience.situation (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    }
+  },
+  "promise": {
+    "tagline": {
+      "value": "Brewed slowly. Drunk quickly.",
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    },
+    "signature_line": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave promise.signature_line (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "key_messages": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave promise.key_messages (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    }
+  },
+  "voice": {
+    "register": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave voice.register (5 sources consulted)",
+        "at": "2026-10-23"
+      },
+      "discarded": [
+        {
+          "value": "Warm, plain, a little dry. Short sentences.",
+          "source": {
+            "type": "inferred",
+            "origin": "https://marrowbay.example (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "status": "rejected",
+          "confidence": "low",
+          "evidence": [
+            "ev-70a9cea5"
+          ],
+          "reason": "not dry. Warm and plain, yes; dry, no."
+        }
+      ]
+    },
+    "address": {
+      "value": "you, first person plural for the brand (we brew)",
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "medium",
+      "evidence": [
+        "ev-70a9cea5"
+      ],
+      "rank": "text"
+    },
+    "traits": {
+      "value": [
+        "warm",
+        "playful",
+        "calm"
+      ],
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    },
+    "banned_words": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave voice.banned_words (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "samples": {
+      "value": [
+        "Brewed slowly. Drunk quickly."
+      ],
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "medium",
+      "evidence": [
+        "ev-16125880"
+      ],
+      "rank": "text",
+      "note": "headline of the campaign poster"
+    }
+  },
+  "colours": {
+    "items": [
+      {
+        "look": "brand",
+        "fp": "24d81ca1e4",
+        "hex": {
+          "value": "#F4EFE6",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "role": {
+          "value": "background",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "name": {
+          "value": "Oat",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "look": "brand",
+        "fp": "25d2c2655f",
+        "hex": {
+          "value": "#1E2A24",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "role": {
+          "value": "text",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "name": {
+          "value": "Pine",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "look": "brand",
+        "fp": "9f6e9de2d3",
+        "hex": {
+          "value": "#C8553D",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "role": {
+          "value": "accent",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "name": {
+          "value": "Brick",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "look": "old-identity",
+        "fp": "10355a3e50",
+        "hex": {
+          "value": "#2F5D3A",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "low",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        },
+        "role": {
+          "value": "background",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "low",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        }
+      },
+      {
+        "look": "old-identity",
+        "fp": "f8b077465d",
+        "hex": {
+          "value": "#C9A227",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "low",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        },
+        "role": {
+          "value": "accent",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "low",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        }
+      },
+      {
+        "look": "summer-2026",
+        "fp": "8b8063d7d5",
+        "hex": {
+          "value": "#F28C28",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "low",
+          "evidence": [
+            "ev-16125880"
+          ],
+          "rank": "web_image"
+        },
+        "role": {
+          "value": "accent",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "low",
+          "evidence": [
+            "ev-16125880"
+          ],
+          "rank": "web_image"
+        }
+      }
+    ],
+    "discarded": [
+      {
+        "value": {
+          "hex": "#F5F0E7",
+          "role": "background",
+          "share": 0.58
+        },
+        "source": {
+          "type": "inferred",
+          "origin": "https://marrowbay.example (2026-10-23)",
+          "at": "2026-10-23"
+        },
+        "status": "overridden",
+        "confidence": "high",
+        "evidence": [
+          "ev-70a9cea5",
+          "ev-2c3a9a41"
+        ],
+        "look": "brand"
+      },
+      {
+        "value": {
+          "hex": "#E07A2F",
+          "role": "accent",
+          "share": 0.04
+        },
+        "source": {
+          "type": "inferred",
+          "origin": "https://marrowbay.example (2026-10-23)",
+          "at": "2026-10-23"
+        },
+        "status": "overridden",
+        "confidence": "medium",
+        "evidence": [
+          "ev-70a9cea5",
+          "ev-2c3a9a41"
+        ],
+        "conflict": true,
+        "look": "brand"
+      }
+    ],
+    "status": "to_confirm"
+  },
+  "typography": {
+    "items": [
+      {
+        "look": "brand",
+        "fp": "3e395fc4fa",
+        "family": {
+          "value": "Fraunces",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "role": {
+          "value": "headings",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "files": {
+          "value": [
+            "fonts/Fraunces-VariableFont.ttf"
+          ],
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "licence": {
+          "value": "SIL Open Font License 1.1",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "sizes": {
+          "value": "40 / 28 / 22 px",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "weights": {
+          "value": "600",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "look": "brand",
+        "fp": "f3936742dc",
+        "family": {
+          "value": "Inter",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "role": {
+          "value": "body",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "files": {
+          "value": [
+            "fonts/Inter-VariableFont.ttf"
+          ],
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "licence": {
+          "value": "SIL Open Font License 1.1",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "sizes": {
+          "value": "17 / 15 px",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      }
+    ],
+    "discarded": [
+      {
+        "value": {
+          "family": "Helvetica Neue",
+          "role": "body"
+        },
+        "source": {
+          "type": "inferred",
+          "origin": "https://marrowbay.example (2026-10-23)",
+          "at": "2026-10-23"
+        },
+        "status": "overridden",
+        "confidence": "medium",
+        "evidence": [
+          "ev-70a9cea5"
+        ],
+        "conflict": true,
+        "look": "brand"
+      }
+    ],
+    "status": "confirmed"
+  },
+  "logo": {
+    "items": [
+      {
+        "look": "brand",
+        "fp": "2baf1e4aab",
+        "file": {
+          "value": "assets/marrowbay-wordmark.svg",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "format": {
+          "value": "svg",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "variant": {
+          "value": "wordmark",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "background": {
+          "value": "light",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "look": "brand",
+        "fp": "bbbc39a38c",
+        "file": {
+          "value": "assets/marrowbay-wordmark-reversed.svg",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "format": {
+          "value": "svg",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "variant": {
+          "value": "wordmark reversed",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        },
+        "background": {
+          "value": "dark",
+          "status": "confirmed",
+          "source": {
+            "type": "skill",
+            "origin": "marrowbay-ds@1.2.0",
+            "at": "2026-10-23"
+          }
+        }
+      }
+    ],
+    "status": "confirmed"
+  },
+  "imagery": {
+    "style": {
+      "value": "Daylight still lifes on raw wood, glass and steam; no people's faces",
+      "status": "confirmed",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "medium",
+      "evidence": [
+        "ev-70a9cea5",
+        "ev-2c3a9a41"
+      ],
+      "rank": "rendered",
+      "confirmed": {
+        "by": "user",
+        "at": "2026-10-23"
+      }
+    },
+    "do": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave imagery.do (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "dont": {
+      "value": [
+        "stock photos of smiling people holding a glass"
+      ],
+      "status": "confirmed",
+      "source": {
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    }
+  },
+  "motion": {
+    "entrances": {
+      "value": "Slow push-ins and cross-dissolves; no slide or bounce",
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "low",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "rank": "rendered"
+    },
+    "holds": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave motion.holds (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "exits": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave motion.exits (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "easing": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave motion.easing (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "tempo": {
+      "value": "Slow: 11 cuts in 45 s, about 4 s per shot",
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "medium",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "rank": "measured"
+    },
+    "never": {
+      "value": [
+        "fast cuts under one second",
+        "bouncy or elastic easing"
+      ],
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "low",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "rank": "rendered",
+      "note": "inferred from absence in one film: low confidence (R7)"
+    },
+    "frame_rate": {
+      "value": "24 fps",
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "medium",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "rank": "measured"
+    },
+    "texture": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave motion.texture (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    },
+    "example": {
+      "value": null,
+      "status": "ask",
+      "source": {
+        "type": "none",
+        "origin": "no source gave motion.example (5 sources consulted)",
+        "at": "2026-10-23"
+      }
+    }
+  },
+  "bans": {
+    "items": [],
+    "status": "reserved",
+    "source": {
+      "type": "none",
+      "origin": "reserved: filled from the user's refusals (part 5, memory)",
+      "at": "2026-10-23"
+    }
+  },
+  "references": {
+    "items": [
+      {
+        "fp": "085ce3e6cc",
+        "url": {
+          "value": "https://films.example/slow-bread",
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "interview with the founder (2026-10-23)",
+            "at": "2026-10-23"
+          }
+        },
+        "grammar": {
+          "value": "the pace and the daylight, not the bread",
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "interview with the founder (2026-10-23)",
+            "at": "2026-10-23"
+          }
+        }
+      }
+    ],
+    "status": "confirmed"
+  },
+  "looks": {
+    "items": [
+      {
+        "id": "summer-2026",
+        "fp": "3e750a592a",
+        "name": {
+          "value": "Summer 2026 campaign",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "ev-16125880"
+          ],
+          "rank": "web_image"
+        },
+        "kind": {
+          "value": "campaign",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "ev-16125880"
+          ],
+          "rank": "web_image"
+        },
+        "summary": {
+          "value": "hand-drawn suns, saturated orange",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "ev-16125880"
+          ],
+          "rank": "web_image"
+        },
+        "evidence": [
+          "ev-16125880"
+        ],
+        "master": {
+          "value": false,
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "review: master look chosen by the user",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "id": "old-identity",
+        "fp": "3f46ff101a",
+        "name": {
+          "value": "Identity before 2021",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        },
+        "kind": {
+          "value": "old_identity",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        },
+        "summary": {
+          "value": "green and gold label, serif monogram",
+          "status": "to_confirm",
+          "source": {
+            "type": "inferred",
+            "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+            "at": "2026-10-23"
+          },
+          "confidence": "medium",
+          "evidence": [
+            "ev-d5fff827"
+          ],
+          "rank": "web_image"
+        },
+        "evidence": [
+          "ev-d5fff827"
+        ],
+        "master": {
+          "value": false,
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "review: master look chosen by the user",
+            "at": "2026-10-23"
+          }
+        }
+      },
+      {
+        "id": "brand",
+        "name": {
+          "value": "Brand identity",
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "implied by values without a look, from launch (name given by the user)",
+            "at": "2026-10-23"
+          }
+        },
+        "kind": {
+          "value": "brand",
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "implied by values without a look, from launch (name given by the user)",
+            "at": "2026-10-23"
+          }
+        },
+        "master": {
+          "value": true,
+          "status": "confirmed",
+          "source": {
+            "type": "typed",
+            "origin": "review: master look chosen by the user",
+            "at": "2026-10-23"
+          }
+        }
+      }
+    ],
+    "status": "to_confirm"
+  },
+  "signature": {
+    "value": null,
+    "status": "reserved",
+    "source": {
+      "type": "none",
+      "origin": "reserved (out of scope: made once, then entered as an asset)",
+      "at": "2026-10-23"
+    }
+  },
+  "meta": {
+    "version": 1,
+    "validated_at": "2026-10-23",
+    "draft": false,
+    "generated_at": "2026-10-23",
+    "language": {
+      "value": "en",
+      "status": "to_confirm",
+      "source": {
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      "confidence": "high",
+      "evidence": [
+        "ev-70a9cea5"
+      ],
+      "rank": "rendered"
+    },
+    "sources": [
+      {
+        "file": "001-typed-launch.json",
+        "type": "typed",
+        "origin": "launch (name given by the user)",
+        "at": "2026-10-23"
+      },
+      {
+        "file": "002-skill-design-system-skill.json",
+        "type": "skill",
+        "origin": "marrowbay-ds@1.2.0",
+        "at": "2026-10-23"
+      },
+      {
+        "file": "003-inferred-site-marrowbay-example.json",
+        "type": "inferred",
+        "origin": "https://marrowbay.example (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      {
+        "file": "004-inferred-web-image-search.json",
+        "type": "inferred",
+        "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+        "at": "2026-10-23"
+      },
+      {
+        "file": "005-typed-interview.json",
+        "type": "typed",
+        "origin": "interview with the founder (2026-10-23)",
+        "at": "2026-10-23"
+      }
+    ],
+    "to_create": [],
+    "validated_by": "example"
+  }
+}

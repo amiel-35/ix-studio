@@ -1,0 +1,15 @@
+{
+  "name": "ix-studio",
+  "description": "A creative studio for any brand. Part 1: the brand dossier, with provenance on every value and nothing guessed.",
+  "owner": {
+    "name": "Amiel Lavon",
+    "url": "https://github.com/amiel-35"
+  },
+  "plugins": [
+    {
+      "name": "studio",
+      "source": "./",
+      "description": "A creative studio for any brand. Part 1: the brand dossier. Skill, typed and inferred sources merged with a fixed priority, conflicts kept, one review, numbered versions, exports in the brand-intake format."
+    }
+  ]
+}

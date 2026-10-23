@@ -1,0 +1,8 @@
+# Personal settings, private names, run logs: never published
+local.md
+# Dossiers of real brands live in their own projects, never here (only examples/ is published)
+/brand/
+**/brand/collect/
+__pycache__/
+*.pyc
+.DS_Store

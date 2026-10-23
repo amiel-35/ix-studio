@@ -1,0 +1,20 @@
+{
+  "adapter": "inferred",
+  "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+  "label": "web image search",
+  "evidence": [
+    {"id": "insta", "kind": "web_image", "where": "https://social.example/marrowbayferments/p/123", "ownership": "official", "note": "post on the brand's own account: bottles on a market stall"},
+    {"id": "press", "kind": "web_image", "where": "https://foodpress.example/2026/05/marrowbay-summer-campaign.jpg", "page": "https://foodpress.example/2026/05/marrowbay-summer", "ownership": "official_relayed", "note": "summer campaign poster, article names the brand and its agency", "look": "summer-2026"},
+    {"id": "archive", "kind": "web_image", "where": "https://archive.example/2019/marrowbay-label-green.png", "page": "https://archive.example/2019/marrowbay", "ownership": "probable", "note": "2019 bottle label, green and gold, older logo", "look": "old-identity"},
+    {"id": "fan", "kind": "web_image", "where": "https://pins.example/kombucha-moodboard-44", "ownership": "uncertain", "note": "moodboard with a Marrowbay bottle among others"}
+  ],
+  "values": [
+    {"path": "looks", "item": {"id": "summer-2026", "name": "Summer 2026 campaign", "kind": "campaign", "summary": "hand-drawn suns, saturated orange"}, "confidence": "medium", "rank": "web_image", "evidence": ["press"]},
+    {"path": "looks", "item": {"id": "old-identity", "name": "Identity before 2021", "kind": "old_identity", "summary": "green and gold label, serif monogram"}, "confidence": "medium", "rank": "web_image", "evidence": ["archive"]},
+    {"path": "colours", "look": "summer-2026", "item": {"hex": "#F28C28", "role": "accent"}, "confidence": "low", "rank": "web_image", "evidence": ["press"]},
+    {"path": "colours", "look": "old-identity", "item": {"hex": "#2F5D3A", "role": "background"}, "confidence": "low", "rank": "web_image", "evidence": ["archive"]},
+    {"path": "colours", "look": "old-identity", "item": {"hex": "#C9A227", "role": "accent"}, "confidence": "low", "rank": "web_image", "evidence": ["archive"]},
+    {"path": "voice.samples", "value": ["Brewed slowly. Drunk quickly."], "confidence": "medium", "rank": "text", "evidence": ["press"], "note": "headline of the campaign poster"},
+    {"path": "imagery.do", "value": ["market stalls", "hands at work"], "confidence": "low", "rank": "web_image", "evidence": ["insta", "fan"]}
+  ]
+}

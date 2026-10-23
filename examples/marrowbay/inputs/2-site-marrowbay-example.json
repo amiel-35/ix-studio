@@ -1,0 +1,25 @@
+{
+  "adapter": "inferred",
+  "origin": "https://marrowbay.example (2026-10-23)",
+  "label": "site marrowbay.example",
+  "evidence": [
+    {"id": "home", "kind": "page", "where": "https://marrowbay.example/", "ownership": "official", "ownership_given_by_user": true, "title": "Marrowbay Ferments, small-batch kombucha"},
+    {"id": "shot1", "kind": "file", "where": "collect/web-marrowbay/screen-01.png", "page": "https://marrowbay.example/", "note": "screenshot y=0"},
+    {"id": "film", "kind": "video", "where": "https://marrowbay.example/media/brewing.mp4", "ownership": "official", "ownership_given_by_user": true, "note": "45 s brewing film on the home page"}
+  ],
+  "values": [
+    {"path": "colours", "item": {"hex": "#F5F0E7", "role": "background", "share": 0.58}, "confidence": "high", "rank": "declared_used", "evidence": ["home", "shot1"]},
+    {"path": "colours", "item": {"hex": "#E07A2F", "role": "accent", "share": 0.04}, "confidence": "medium", "rank": "rendered", "evidence": ["home", "shot1"], "note": "buttons on the shop page"},
+    {"path": "typography", "item": {"family": "Helvetica Neue", "role": "body"}, "confidence": "medium", "rank": "rendered", "evidence": ["home"]},
+    {"path": "voice.register", "value": "Warm, plain, a little dry. Short sentences.", "confidence": "low", "rank": "text", "evidence": ["home"], "note": "read on 6 paragraphs only"},
+    {"path": "voice.address", "value": "you, first person plural for the brand (we brew)", "confidence": "medium", "rank": "text", "evidence": ["home"]},
+    {"path": "imagery.style", "value": "Daylight still lifes on raw wood, glass and steam; no people's faces", "confidence": "medium", "rank": "rendered", "evidence": ["home", "shot1"]},
+    {"path": "motion.tempo", "value": "Slow: 11 cuts in 45 s, about 4 s per shot", "confidence": "medium", "rank": "measured", "evidence": ["film"]},
+    {"path": "motion.frame_rate", "value": "24 fps", "confidence": "medium", "rank": "measured", "evidence": ["film"]},
+    {"path": "motion.entrances", "value": "Slow push-ins and cross-dissolves; no slide or bounce", "confidence": "low", "rank": "rendered", "evidence": ["film"]},
+    {"path": "motion.never", "value": ["fast cuts under one second", "bouncy or elastic easing"], "confidence": "low", "rank": "rendered", "evidence": ["film"], "note": "inferred from absence in one film: low confidence (R7)"},
+    {"path": "meta.language", "value": "en", "confidence": "high", "rank": "rendered", "evidence": ["home"]}
+  ],
+  "ignored": [{"what": "12 CSS colour variables of the shop theme (e.g. --wp--preset--color--vivid-red)", "why": "declared, painted on nothing visible (R3)"}],
+  "not_found": ["no tagline on the site that reads as one: left to the interview"]
+}

@@ -1,0 +1,148 @@
+{
+  "adapter": "inferred",
+  "at": "2026-10-23",
+  "origin": "web image search \"Marrowbay Ferments\" (2026-10-23)",
+  "label": "web image search",
+  "evidence": [
+    {
+      "id": "ev-b0cba8e4",
+      "kind": "web_image",
+      "where": "https://social.example/marrowbayferments/p/123",
+      "at": "2026-10-23",
+      "ownership": "official",
+      "ownership_given_by_user": false,
+      "kept": false,
+      "note": "post on the brand's own account: bottles on a market stall"
+    },
+    {
+      "id": "ev-16125880",
+      "kind": "web_image",
+      "where": "https://foodpress.example/2026/05/marrowbay-summer-campaign.jpg",
+      "at": "2026-10-23",
+      "ownership": "official_relayed",
+      "ownership_given_by_user": false,
+      "kept": false,
+      "page": "https://foodpress.example/2026/05/marrowbay-summer",
+      "note": "summer campaign poster, article names the brand and its agency",
+      "look": "summer-2026"
+    },
+    {
+      "id": "ev-d5fff827",
+      "kind": "web_image",
+      "where": "https://archive.example/2019/marrowbay-label-green.png",
+      "at": "2026-10-23",
+      "ownership": "probable",
+      "ownership_given_by_user": false,
+      "kept": false,
+      "page": "https://archive.example/2019/marrowbay",
+      "note": "2019 bottle label, green and gold, older logo",
+      "look": "old-identity"
+    },
+    {
+      "id": "ev-9aee9706",
+      "kind": "web_image",
+      "where": "https://pins.example/kombucha-moodboard-44",
+      "at": "2026-10-23",
+      "ownership": "uncertain",
+      "ownership_given_by_user": false,
+      "kept": false,
+      "note": "moodboard with a Marrowbay bottle among others"
+    }
+  ],
+  "values": [
+    {
+      "path": "looks",
+      "item": {
+        "id": "summer-2026",
+        "name": "Summer 2026 campaign",
+        "kind": "campaign",
+        "summary": "hand-drawn suns, saturated orange"
+      },
+      "look": null,
+      "evidence": [
+        "ev-16125880"
+      ],
+      "confidence": "medium",
+      "rank": "web_image"
+    },
+    {
+      "path": "looks",
+      "item": {
+        "id": "old-identity",
+        "name": "Identity before 2021",
+        "kind": "old_identity",
+        "summary": "green and gold label, serif monogram"
+      },
+      "look": null,
+      "evidence": [
+        "ev-d5fff827"
+      ],
+      "confidence": "medium",
+      "rank": "web_image"
+    },
+    {
+      "path": "colours",
+      "item": {
+        "hex": "#F28C28",
+        "role": "accent"
+      },
+      "look": "summer-2026",
+      "evidence": [
+        "ev-16125880"
+      ],
+      "confidence": "low",
+      "rank": "web_image"
+    },
+    {
+      "path": "colours",
+      "item": {
+        "hex": "#2F5D3A",
+        "role": "background"
+      },
+      "look": "old-identity",
+      "evidence": [
+        "ev-d5fff827"
+      ],
+      "confidence": "low",
+      "rank": "web_image"
+    },
+    {
+      "path": "colours",
+      "item": {
+        "hex": "#C9A227",
+        "role": "accent"
+      },
+      "look": "old-identity",
+      "evidence": [
+        "ev-d5fff827"
+      ],
+      "confidence": "low",
+      "rank": "web_image"
+    },
+    {
+      "path": "voice.samples",
+      "value": [
+        "Brewed slowly. Drunk quickly."
+      ],
+      "evidence": [
+        "ev-16125880"
+      ],
+      "confidence": "medium",
+      "rank": "text",
+      "note": "headline of the campaign poster"
+    },
+    {
+      "path": "imagery.do",
+      "value": [
+        "market stalls",
+        "hands at work"
+      ],
+      "evidence": [
+        "ev-b0cba8e4",
+        "ev-9aee9706"
+      ],
+      "confidence": "low",
+      "rank": "web_image"
+    }
+  ]
+}

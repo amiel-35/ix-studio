@@ -1,0 +1,170 @@
+{
+  "adapter": "inferred",
+  "at": "2026-10-23",
+  "origin": "https://marrowbay.example (2026-10-23)",
+  "label": "site marrowbay.example",
+  "not_found": [
+    "no tagline on the site that reads as one: left to the interview"
+  ],
+  "ignored": [
+    {
+      "what": "12 CSS colour variables of the shop theme (e.g. --wp--preset--color--vivid-red)",
+      "why": "declared, painted on nothing visible (R3)"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-70a9cea5",
+      "kind": "page",
+      "where": "https://marrowbay.example/",
+      "at": "2026-10-23",
+      "ownership": "official",
+      "ownership_given_by_user": true,
+      "kept": false,
+      "title": "Marrowbay Ferments, small-batch kombucha"
+    },
+    {
+      "id": "ev-2c3a9a41",
+      "kind": "file",
+      "where": "collect/web-marrowbay/screen-01.png",
+      "at": "2026-10-23",
+      "kept": true,
+      "page": "https://marrowbay.example/",
+      "note": "screenshot y=0"
+    },
+    {
+      "id": "ev-b947a083",
+      "kind": "video",
+      "where": "https://marrowbay.example/media/brewing.mp4",
+      "at": "2026-10-23",
+      "ownership": "official",
+      "ownership_given_by_user": true,
+      "kept": false,
+      "note": "45 s brewing film on the home page"
+    }
+  ],
+  "values": [
+    {
+      "path": "colours",
+      "item": {
+        "hex": "#F5F0E7",
+        "role": "background",
+        "share": 0.58
+      },
+      "look": null,
+      "evidence": [
+        "ev-70a9cea5",
+        "ev-2c3a9a41"
+      ],
+      "confidence": "high",
+      "rank": "declared_used"
+    },
+    {
+      "path": "colours",
+      "item": {
+        "hex": "#E07A2F",
+        "role": "accent",
+        "share": 0.04
+      },
+      "look": null,
+      "evidence": [
+        "ev-70a9cea5",
+        "ev-2c3a9a41"
+      ],
+      "confidence": "medium",
+      "rank": "rendered",
+      "note": "buttons on the shop page"
+    },
+    {
+      "path": "typography",
+      "item": {
+        "family": "Helvetica Neue",
+        "role": "body"
+      },
+      "look": null,
+      "evidence": [
+        "ev-70a9cea5"
+      ],
+      "confidence": "medium",
+      "rank": "rendered"
+    },
+    {
+      "path": "voice.register",
+      "value": "Warm, plain, a little dry. Short sentences.",
+      "evidence": [
+        "ev-70a9cea5"
+      ],
+      "confidence": "low",
+      "rank": "text",
+      "note": "read on 6 paragraphs only"
+    },
+    {
+      "path": "voice.address",
+      "value": "you, first person plural for the brand (we brew)",
+      "evidence": [
+        "ev-70a9cea5"
+      ],
+      "confidence": "medium",
+      "rank": "text"
+    },
+    {
+      "path": "imagery.style",
+      "value": "Daylight still lifes on raw wood, glass and steam; no people's faces",
+      "evidence": [
+        "ev-70a9cea5",
+        "ev-2c3a9a41"
+      ],
+      "confidence": "medium",
+      "rank": "rendered"
+    },
+    {
+      "path": "motion.tempo",
+      "value": "Slow: 11 cuts in 45 s, about 4 s per shot",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "confidence": "medium",
+      "rank": "measured"
+    },
+    {
+      "path": "motion.frame_rate",
+      "value": "24 fps",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "confidence": "medium",
+      "rank": "measured"
+    },
+    {
+      "path": "motion.entrances",
+      "value": "Slow push-ins and cross-dissolves; no slide or bounce",
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "confidence": "low",
+      "rank": "rendered"
+    },
+    {
+      "path": "motion.never",
+      "value": [
+        "fast cuts under one second",
+        "bouncy or elastic easing"
+      ],
+      "evidence": [
+        "ev-b947a083"
+      ],
+      "confidence": "low",
+      "rank": "rendered",
+      "note": "inferred from absence in one film: low confidence (R7)"
+    },
+    {
+      "path": "meta.language",
+      "value": "en",
+      "evidence": [
+        "ev-70a9cea5"
+      ],
+      "confidence": "high",
+      "rank": "rendered"
+    }
+  ]
+}
