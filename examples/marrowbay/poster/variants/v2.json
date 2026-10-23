@@ -1,0 +1,13 @@
+{
+  "mandate": "Say what it is: strip the mystery and describe kombucha in the plainest, friendliest words.",
+  "default": {
+    "headline": "Kombucha, made with care",
+    "image": "A glass bottle with a label on a white background"
+  },
+  "headline": "It's tea that got a little wild.",
+  "subline": "Brewed in a harbour town. Drunk anywhere.",
+  "image_prompt": "A single glass jar of amber tea on a raw wooden table beside a teacup and a loose tea bag tag, steam, window daylight, calm and uncluttered",
+  "layout": "top",
+  "ground": "background",
+  "why": "The fear is a fad. Tea is a word everyone already trusts, and 'a little wild' turns the fermentation into a character instead of a warning."
+}

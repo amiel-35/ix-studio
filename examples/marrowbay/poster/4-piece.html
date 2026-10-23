@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>studio · piece</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces&family=Inter&display=swap"><style>
+:root{--bg:#f7f5f1;--card:#fff;--ink:#1c1b1a;--mute:#6d6a65;--line:#e4e0d9;--accent:#8a5a3c;--soft:#f0ebe3;
+--ok:#2f7a4b;--warn:#a8741a;--fail:#b3341f;--s1:8px;--s2:16px;--s3:24px;--s4:32px;--r:10px;
+--font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root{--bg:#171615;--card:#211f1e;--ink:#ece9e4;--mute:#a09b94;--line:#35322f;
+--accent:#d49a76;--soft:#2a2725;--ok:#69c28a;--warn:#e0b04f;--fail:#f0816d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--font)}
+main{max-width:1000px;margin:0 auto;padding:var(--s3) var(--s2) var(--s4)}
+header.top{display:flex;gap:var(--s1);flex-wrap:wrap;align-items:baseline;color:var(--mute);font-size:13px;margin-bottom:var(--s2)}
+header.top b{color:var(--ink);font-size:18px}
+h1{font-size:24px;margin:0 0 var(--s1)}h2{font-size:18px;margin:var(--s3) 0 var(--s1)}
+h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:var(--s2) 0 var(--s1)}
+.todo{border:1px solid var(--line);border-left:4px solid var(--accent);background:var(--card);border-radius:var(--r);padding:var(--s1) var(--s2);margin:var(--s2) 0}
+.todo ul{margin:4px 0 0;padding-left:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--s2);margin:var(--s2) 0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:var(--s2)}
+.cols{display:flex;gap:var(--s3);flex-wrap:wrap;align-items:flex-start}.cols>*{flex:1 1 300px;min-width:0}
+.cols>.small{flex:0 1 300px}
+.mute{color:var(--mute)}.pass{color:var(--ok)}.warn{color:var(--warn)}.fail{color:var(--fail)}
+.pill{font-size:11px;padding:1px 8px;border-radius:99px;background:var(--soft);border:1px solid var(--line);white-space:nowrap}
+.pill.pass{border-color:var(--ok)}.pill.warn{border-color:var(--warn)}.pill.fail{border-color:var(--fail)}
+.sws{display:flex;flex-wrap:wrap;gap:var(--s2)}.sw{width:110px;font-size:12px}
+.chip{height:56px;border-radius:6px;border:1px solid var(--line)}
+code,pre{font:12px/1.5 ui-monospace,Menlo,monospace}pre{background:var(--soft);border-radius:6px;padding:var(--s1);overflow-x:auto;white-space:pre-wrap;margin:var(--s1) 0}
+table{border-collapse:collapse;width:100%}td,th{border-top:1px solid var(--line);padding:6px;text-align:left;vertical-align:top}
+.mock{position:relative;container-type:inline-size;border:1px solid var(--line);border-radius:6px;overflow:hidden;width:100%}
+.mock .hatch{position:absolute;inset:0}.mock .cap{position:absolute;left:5%;right:5%;font-size:4.2cqw;line-height:1.25;opacity:.8;overflow:hidden;max-height:30%}
+.mock .mblk{position:absolute;left:5%;right:5%;padding:5cqw}.mock .mblk b{display:block;font-size:8cqw;line-height:1.05}.mock .mblk small{display:block;font-size:4cqw;margin-top:2cqw}
+.picked{outline:3px solid var(--accent)}
+.view{position:relative;width:100%;max-width:340px;border:1px solid var(--line);overflow:hidden}.view img,.view iframe{display:block;width:100%;border:0}
+.view iframe{position:absolute;left:0;top:0;transform-origin:0 0}
+nav.pn,footer{display:flex;justify-content:space-between;gap:var(--s2);flex-wrap:wrap;margin-top:var(--s3);color:var(--mute);font-size:13px}
+footer{border-top:1px solid var(--line);padding-top:var(--s2);display:block}
+a{color:var(--accent)}
+</style></head><body><main>
+<header class="top"><span>studio</span><span>·</span><span>step 4 of 5</span><span>·</span><b>piece</b><span class="mute">v2</span></header>
+<div class="todo"><b>What to look at, what to answer</b><ul><li>Read the headline first, then see if the image answers it.</li><li>Answer: go to the check, or change the pick and recompose.</li></ul></div>
+<div class="cols"><div class="small"><div class="view"><img src="piece.png" alt=""></div><p><a href="piece.html">piece.html</a> · 1080×1350</p></div><div>
+<h1>It&#x27;s tea that got a little wild.</h1><p class="mute">v2 · Say what it is: strip the mystery and describe kombucha in the plainest, friendliest words.</p>
+<h3>Image prompt</h3><pre>A single glass jar of amber tea on a raw wooden table beside a teacup and a loose tea bag tag, steam, window daylight, calm and uncluttered. Format 1080x1350 (post-4x5). Mood from the brand palette: background #f4efe6, text #1e2a24, accent #c8553d. Voice of the brand: warm, plain, a little playful; we brew, you drink; short sentences. Do not show: gut health; detox; superfood; miracle. No text, no letters, no words, no logos, no watermark. Leave calm, uncluttered space where the headline sits (top of the frame).</pre>
+<h3>Image engine</h3><p>none: No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI (your ChatGPT plan), then rerun `studio image`. The piece is composed on a flat brand ground meanwhile.</p>
+<h3>Placeholder</h3><ul><li>no generated image: flat brand ground</li><li>no logo file: the name is set in type</li></ul></div></div>
+<nav class="pn"><a href="3-divergence.html">← previous: 3 divergence</a><a href="5-check.html">next: 5 check →</a></nav>
+<footer>Next command: <code>python3 scripts/studio check .</code></footer>
+</main><script>document.querySelectorAll('.view[data-w]').forEach(function(v){var f=v.querySelector('iframe');if(!f)return;
+function fit(){var s=v.clientWidth/v.dataset.w;f.style.transform='scale('+s+')';v.style.height=(v.dataset.h*s)+'px'}fit();addEventListener('resize',fit)});</script></body></html>

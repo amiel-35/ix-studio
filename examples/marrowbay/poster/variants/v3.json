@@ -1,0 +1,13 @@
+{
+  "mandate": "The place: sell the harbour and the slow weeks, so the drink feels made by neighbours.",
+  "default": {
+    "headline": "Handcrafted in small batches",
+    "image": "Rows of bottles in a modern brewery"
+  },
+  "headline": "Fourteen days in a harbour town.",
+  "subline": "",
+  "image_prompt": "Wooden crates of glass bottles on a stone quay at early morning, mooring ropes, pale light on the water, no people",
+  "layout": "bottom",
+  "ground": "accent",
+  "why": "Time and place are things a factory drink cannot claim. The number makes the slowness concrete, and the quay is ours."
+}

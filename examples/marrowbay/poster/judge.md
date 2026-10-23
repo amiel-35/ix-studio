@@ -1,0 +1,3 @@
+- [major] The headline asks the reader to do nothing; the call to action is the only verb on the page.
+- [minor] The accent colour is used only on the shape: the piece feels more oat than brick.
+- The image prompt answers the headline well: one jar, no people, daylight.

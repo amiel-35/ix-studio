@@ -1,0 +1,13 @@
+{
+  "mandate": "The dare: pick a small fight with the fizzy aisle, from the point of view of someone who gave up soda.",
+  "default": {
+    "headline": "A better alternative to soda",
+    "image": "A refreshing glass with ice and lemon slices"
+  },
+  "headline": "For when water is too polite and soda is too much.",
+  "subline": "",
+  "image_prompt": "One glass bottle alone on a bare kitchen counter at dusk, lit only by an open fridge, long shadow, quiet and a little funny",
+  "layout": "center",
+  "ground": "text",
+  "why": "Our audience gave up soda and misses the bite. Naming the gap between water and soda speaks to that moment directly, with a wink."
+}

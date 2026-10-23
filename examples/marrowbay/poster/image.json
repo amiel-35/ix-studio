@@ -1,0 +1,6 @@
+{
+  "engine": "none",
+  "prompt": "A single glass jar of amber tea on a raw wooden table beside a teacup and a loose tea bag tag, steam, window daylight, calm and uncluttered. Format 1080x1350 (post-4x5). Mood from the brand palette: background #f4efe6, text #1e2a24, accent #c8553d. Voice of the brand: warm, plain, a little playful; we brew, you drink; short sentences. Do not show: gut health; detox; superfood; miracle. No text, no letters, no words, no logos, no watermark. Leave calm, uncluttered space where the headline sits (top of the frame).",
+  "model": "",
+  "message": "No image generator available: set OPENAI_API_KEY (your key) or install and log in to the Codex CLI (your ChatGPT plan), then rerun `studio image`. The piece is composed on a flat brand ground meanwhile."
+}

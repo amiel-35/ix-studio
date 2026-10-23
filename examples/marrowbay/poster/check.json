@@ -1,0 +1,62 @@
+{
+  "at": "2026-10-23",
+  "variant": "v2",
+  "headline": "It's tea that got a little wild.",
+  "summary": {
+    "pass": 5,
+    "warn": 2,
+    "fail": 0,
+    "judge": 3
+  },
+  "results": [
+    {
+      "id": "palette",
+      "status": "pass",
+      "say": "every colour is a brand colour"
+    },
+    {
+      "id": "fonts",
+      "status": "pass",
+      "say": "every font is a brand font"
+    },
+    {
+      "id": "contrast",
+      "status": "pass",
+      "say": "headline #1e2a24 on #f4efe6: contrast 13.0:1 (large text needs 3:1)"
+    },
+    {
+      "id": "length",
+      "status": "pass",
+      "say": "headline is 7 word(s)"
+    },
+    {
+      "id": "never",
+      "status": "pass",
+      "say": "none of the brand's never-words appears"
+    },
+    {
+      "id": "image",
+      "status": "warn",
+      "say": "placeholder: no generated image"
+    },
+    {
+      "id": "logo",
+      "status": "warn",
+      "say": "no logo file: the brand name is set in type instead"
+    }
+  ],
+  "judge": [
+    {
+      "level": "major",
+      "say": "The headline asks the reader to do nothing; the call to action is the only verb on the page."
+    },
+    {
+      "level": "minor",
+      "say": "The accent colour is used only on the shape: the piece feels more oat than brick."
+    },
+    {
+      "level": "note",
+      "say": "The image prompt answers the headline well: one jar, no people, daylight."
+    }
+  ]
+}
