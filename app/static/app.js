@@ -796,6 +796,16 @@
       h("span", { className: "main" }, h("span", { className: "nom" }, taskTitle(t)), meta && h("span", { className: "meta" }, meta)));
   }
 
+  /* what waits across the studio, without the wall: the next task of each project and of each brand (the oldest), the others behind "et n autres" */
+  function nextPerOwner(tasks) {
+    const groups = [];
+    tasks.forEach((t) => {
+      const key = owner(t), g = groups.find((x) => x.key === key);
+      if (g) g.rest.push(t); else groups.push({ key, first: t, rest: [] });
+    });
+    return groups;
+  }
+
   /* ---------- 1. the studio: what waits everywhere, then the brands ---------- */
   function StudioCol({ ctx }) {
     const { tasks, brands, jobs, loaded } = ctx.data, { sel } = ctx;
@@ -811,7 +821,9 @@
         h("ul", null, ctx.machine.missing.map((m) => h("li", { key: m.key, className: "small" }, h("strong", null, m.label), " : ", m.say)))),
       h(Where, null, "Ce qui t'attend"),
       !loaded ? h("p", { className: "vide" }, "Un instant.") : tasks.length === 0 ? h("p", { className: "vide" }, jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend.")
-        : tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 0, t, place: true })),
+        : nextPerOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(TaskRow, { ctx, col: 0, t: g.first, place: true }),
+          g.rest.length > 0 && h("button", { type: "button", className: "linkbtn small autres", onClick: () => (g.first.scope === "brand" ? ctx.selectBrand(g.first.brand) : ctx.selectProject(g.first.project, null, g.first.brand)),
+            "aria-label": plural(g.rest.length, "autre tâche", "autres tâches") + " pour " + (g.first.scope === "brand" ? g.first.brand_name : g.first.project_name) + " : ouvrir" }, "et " + plural(g.rest.length, "autre", "autres")))),
       h("div", { className: "groupe split" }, h("span", null, "Marques"), h(Plus, { label: "Nouvelle marque", onClick: ctx.newBrand })),
       loaded && brands.length === 0 && h("p", { className: "vide" }, "Aucune marque. Le « + » en crée une."),
       brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
