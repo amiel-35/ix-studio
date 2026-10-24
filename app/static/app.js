@@ -618,15 +618,19 @@
   function Prompt({ ctx, pid, id }) {
     const [st, setSt] = useState(null);
     const [prompt, setPrompt] = useState(null);
-    useEffect(() => { Promise.all([api.piece(pid, id), api.project(pid)]).then(([pc, p]) => { setSt({ pc, p }); setPrompt(pc.prompt); }).catch(ctx.fail); }, [pid, id]);
-    useCmds(ctx, []);
-    if (!st || prompt === null) return h("div", { className: "task" }, h(Wait, null));
+    const [words, setWords] = useState(null); // the headline and the subline, which can be corrected before the image
+    const [edit, setEdit] = useState(false);
+    useEffect(() => { Promise.all([api.piece(pid, id), api.project(pid)]).then(([pc, p]) => { setSt({ pc, p }); setPrompt(pc.prompt); setWords({ headline: pc.headline, subline: pc.subline || "" }); }).catch(ctx.fail); }, [pid, id]);
+    useCmds(ctx, st ? [{ id: "words", label: edit ? "Fermer la correction du titre" : "Corriger le titre et la sous-ligne", run: () => setEdit(!edit) }] : []);
+    if (!st || prompt === null || !words) return h("div", { className: "task" }, h(Wait, null));
     const { pc, p } = st;
+    const wordsChanged = words.headline.trim() !== pc.headline || words.subline.trim() !== (pc.subline || "");
     const waits = (x) => !x.image && !p.jobs.some((j) => j.kind === "image" && j.piece === x.id);
     const mine = p.pieces.filter((x) => x.variant === pc.variant && waits(x)); // the pieces this prompt is for
     const more = p.pieces.filter((x) => x.variant !== pc.variant && waits(x)).length; // the pieces of the other variants that wait too
     const several = mine.length > 1, formats = mine.map((x) => fmtWord(x.format)).join(", ");
     const draw = (all) => ctx.act(async (snap) => {
+      if (wordsChanged) { await api.saveVariantText(pid, pc.variant, words.headline.trim(), words.subline.trim()); ctx.log(pid, "toi", "Mots corrigés pour " + pc.variant, words.headline.trim() + (words.subline.trim() ? " / " + words.subline.trim() : "")); }
       await api.saveVariantPrompt(pid, pc.variant, prompt);
       const r = await api.drawImages(pid, all ? undefined : pc.variant);
       ctx.log(pid, "toi", (all ? "Toutes les images lancées : " : "Images lancées pour " + pc.variant + " : ") + plural(r.jobs.length, "pièce", "pièces"), "Prompt relu : " + prompt);
@@ -634,13 +638,18 @@
         { before: snap, any: false, sibling: all ? undefined : (t) => t.kind === "prompt" && t.variant !== pc.variant });
     });
     return h("div", { className: "task" },
-      h(Eyebrow, null, several ? pc.variant + " · " + formats : pc.label + " · " + pc.size[0] + " × " + pc.size[1]), h(Head, null, pc.headline),
+      h(Eyebrow, null, several ? pc.variant + " · " + formats : pc.label + " · " + pc.size[0] + " × " + pc.size[1]), h(Head, null, words.headline || pc.headline),
+      !edit && words.subline && h("p", { className: "lead muted" }, words.subline),
+      h("p", { className: "small" }, h("button", { type: "button", className: "linkbtn", "aria-expanded": edit, onClick: () => setEdit(!edit), "aria-label": edit ? "Fermer la correction du titre" : "Corriger le titre et la sous-ligne" }, edit ? "Fermer" : "Corriger le titre")),
+      edit && h("div", { className: "sec" },
+        h("div", { className: "field" }, h("label", { htmlFor: "w-head" }, "Titre"), h("input", { id: "w-head", type: "text", autoFocus: true, value: words.headline, onChange: (e) => setWords({ ...words, headline: e.target.value }) })),
+        h("div", { className: "field" }, h("label", { htmlFor: "w-sub" }, "Sous-ligne (facultative)"), h("input", { id: "w-sub", type: "text", value: words.subline, onChange: (e) => setWords({ ...words, subline: e.target.value }) }))),
       pc.bans && pc.bans.length > 0 && h("p", { className: "small" }, "Tu avais refusé : " + pc.bans.join(" ; ") + ". Le studio le retient."),
       h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image" + (several ? ", le même pour " + formats : "")),
         h("textarea", { id: "prompt", className: "mono", value: prompt, onChange: (e) => setPrompt(e.target.value) })),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: () => draw(false), "aria-label": "Lancer " + (several ? "les images de " + pc.variant : "l'image de " + pc.label) }, several ? "Dessiner les " + mine.length + " images" : "Dessiner l'image"),
-        more > 0 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: () => draw(true), "aria-label": "Lancer les " + (mine.length + more) + " images du projet, sans relire les autres prompts" }, "Dessiner toutes les images")),
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(false), "aria-label": "Lancer " + (several ? "les images de " + pc.variant : "l'image de " + pc.label) }, several ? "Dessiner les " + mine.length + " images" : "Dessiner l'image"),
+        more > 0 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(true), "aria-label": "Lancer les " + (mine.length + more) + " images du projet, sans relire les autres prompts" }, "Dessiner toutes les images")),
       more > 0 && h("p", { className: "small muted" }, "« Toutes » lance aussi les " + plural(more, "pièce", "pièces") + " des autres variantes, avec leur prompt tel qu'il est."));
   }
 

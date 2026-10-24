@@ -672,6 +672,26 @@ class StubBackend:
                 pc["prompt"] = prompt
             return copy.deepcopy(todo)
 
+    def put_variant_text(self, pid, vid, headline, subline=None):
+        """The words of a variant corrected, for its formats: the headline (required), the subline (`""` removes it; None leaves it)."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            headline = one_line(headline)[:200]
+            if not headline:
+                raise ValueError("headline: give the headline")
+            mine = [pc for pc in p["pieces"] if pc["variant"] == vid]
+            if not mine:
+                raise NotFound(f"no variant {vid} in the series")
+            todo = [pc for pc in mine if not pc["composed"]]
+            if not todo:
+                raise Conflict("every piece of this variant is composed: send one back (redo its image) to change its words")
+            for pc in todo:
+                pc["headline"] = headline
+                if subline is not None:
+                    pc["subline"] = one_line(subline)[:300]
+            return copy.deepcopy(todo)
+
     def draw_images(self, pid, variant=None):
         """Draw every image that is missing (those of one variant when `variant` is given): one job per piece."""
         with self.lock:

@@ -67,6 +67,7 @@
     piece: (p, i) => call("GET", P(p) + "/pieces/" + encodeURIComponent(i)),
     savePrompt: (p, i, prompt) => call("PUT", P(p) + "/pieces/" + encodeURIComponent(i) + "/prompt", { prompt }),
     saveVariantPrompt: (p, v, prompt) => call("PUT", P(p) + "/variants/" + encodeURIComponent(v) + "/prompt", { prompt }), // the prompt of a variant, shared by its formats
+    saveVariantText: (p, v, headline, subline) => call("PUT", P(p) + "/variants/" + encodeURIComponent(v) + "/text", { headline, subline }), // the words of a variant, corrected before it is composed
     drawImages: (p, variant) => call("POST", P(p) + "/images", variant ? { variant } : {}), // every image that is missing (those of one variant): answers {jobs}
     composeAll: (p) => call("POST", P(p) + "/compose"), // every piece that has its image: answers {composed, failed}
     drawImage: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/image"),

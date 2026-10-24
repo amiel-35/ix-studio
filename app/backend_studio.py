@@ -673,8 +673,10 @@ class StudioBackend:
             check = {"pass": s.get("pass", 0), "warn": s.get("warn", 0), "fail": s.get("fail", 0), "major": s.get("major", 0), "notes": notes}
         decision = e.get("decision")
         status = "composed" if composed else "image" if img else "again" if e.get("bans") else "picked"
+        pk = read_json(d / "pick.json", {}) or {}  # what the person corrected of the words of the variant, for this piece
         return {"id": e["id"], "label": e["label"], "variant": e["variant"], "format": e["format"], "size": list(FORMATS[e["format"]]),
-                "headline": v.get("headline", ""), "subline": v.get("subline", ""), "prompt": v.get("image_prompt", ""),
+                "headline": pk.get("headline") or v.get("headline", ""), "subline": pk["subline"] if "subline" in pk else v.get("subline", ""),
+                "prompt": v.get("image_prompt", ""),
                 "image": self._url(pid, f"{rel}/{img}", d / img) if img else None,
                 "composed": self._url(pid, f"{rel}/piece.png", png) if composed else None, "check": check, "decision": decision,
                 "status": status, "bans": list(e.get("bans", []))}
@@ -1497,6 +1499,25 @@ class StudioBackend:
                 write_json(f, v)
             return [self._piece_view(pid, e) for e in todo]
 
+    def put_variant_text(self, pid, vid, headline, subline=None):
+        """The words of a variant corrected, for its formats: the headline (required) and the subline (`""` removes it; None leaves it as it is),
+        written in each of its pieces that is not composed yet by `studio pick --headline --subline`."""
+        with self._op(pid):
+            p = self._load(pid)
+            headline = one_line(headline)[:200]
+            if not headline:
+                raise ValueError("headline: give the headline")
+            mine = [e for e in p["pieces"] if e["variant"] == vid]
+            if not mine:
+                raise NotFound(f"no variant {vid} in the series")
+            todo = [e for e in mine if not self._piece_view(pid, e)["composed"]]
+            if not todo:
+                raise Conflict("every piece of this variant is composed: send one back (redo its image) to change its words")
+            for e in todo:
+                sub = one_line(subline)[:300] if subline is not None else self._piece_view(pid, e)["subline"]
+                self._studio(self._cmd_log(pid), "pick", self._piece_dir(pid) / e["dir"], vid, "--headline", headline, "--subline", sub)
+            return [self._piece_view(pid, e) for e in todo]
+
     # ---------- 6. the image ----------
     def image(self, pid, i):
         with self._op(pid):
@@ -1577,9 +1598,10 @@ class StudioBackend:
             if verdict == "again" and not (words or "").strip():
                 raise ValueError("say what is wrong: it is remembered for the next round")
             d, log = self._piece_dir(pid) / e["dir"], self._cmd_log(pid)
+            pick = read_json(d / "pick.json", {}) or {}
             self._studio(log, "decide", d, verdict, words or "")
             if verdict == "again":
-                self._reopen(d, e["variant"])
+                self._reopen(d, e["variant"], {k: pick[k] for k in ("headline", "subline") if k in pick})  # the words the person corrected stay
                 with open(self._piece_dir(pid) / "bans.md", "a", encoding="utf-8") as f:
                     f.write(f'- {time.strftime("%Y-%m-%d")} {e["id"]}: {one_line(words)}\n')
 
@@ -1594,14 +1616,14 @@ class StudioBackend:
             return self._piece_view(pid, self._entry(self._load(pid), i))
 
     @staticmethod
-    def _reopen(d: Path, vid: str):
+    def _reopen(d: Path, vid: str, words=None):
         """`studio decide again` clears the pick and archives the variants for a new round. A piece of a series goes back to its
         prompt instead: the variants come back from the round it archived, and the pick with them."""
         rounds = sorted((x for x in (d / "variants").glob("round-*") if x.is_dir()), key=lambda x: int(x.name.split("-")[1]) if x.name.split("-")[1].isdigit() else 0)
         if rounds:
             for f in rounds[-1].glob("*.json"):
                 shutil.copy2(f, d / "variants" / f.name)
-        write_json(d / "pick.json", {"variant": vid, "at": time.strftime("%Y-%m-%d")})
+        write_json(d / "pick.json", {"variant": vid, "at": time.strftime("%Y-%m-%d"), **(words or {})})
 
     # ---------- taking the pieces out of the studio ----------
     def download_piece(self, pid, i):

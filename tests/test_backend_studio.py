@@ -1132,6 +1132,36 @@ class Pieces(Base):
         self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-post-4x5/image"))
         self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": "Trop tard."}, code=409)  # both have their image: redo one to change its prompt
 
+    def test_the_words_of_a_variant_can_be_corrected_until_it_is_composed(self):
+        pid, _ = self.picked(("v1", "v3"))
+        self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "  "}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/variants/v9/text", {"headline": "x"}, code=404)
+        self.fake.calls.clear()
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Acide,\npuis doux.", "subline": "Servez-vous."})
+        self.assertEqual([(x["id"], x["headline"], x["subline"]) for x in r], [("v1-post-4x5", "Acide, puis doux.", "Servez-vous."), ("v1-story", "Acide, puis doux.", "Servez-vous.")])
+        pick = self.fake.where("pick")[0]["argv"]
+        self.assertEqual(pick[2:3] + pick[4:], ["pick", "v1", "--headline", "Acide, puis doux.", "--subline", "Servez-vous."])  # the studio's own command, which keeps them in pick.json
+        pj = json.loads((self.pdir(pid) / "piece" / "pieces" / "v1-story" / "pick.json").read_text())
+        self.assertEqual((pj["variant"], pj["headline"], pj["subline"]), ("v1", "Acide, puis doux.", "Servez-vous."))
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v3-story")["headline"], "Titre de v3")  # the other variant stays
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/variants")[0]["headline"], "Titre de v1")  # the variant as the agent wrote it stays too
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Acide, puis doux, puis rien."})  # the subline left out stays
+        self.assertEqual((r[0]["headline"], r[0]["subline"]), ("Acide, puis doux, puis rien.", "Servez-vous."))
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Acide.", "subline": ""})  # an empty one takes it off
+        self.assertEqual((r[0]["headline"], r[0]["subline"]), ("Acide.", ""))
+        self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-story/image"))
+        self.call("POST", f"/api/projects/{pid}/pieces/v1-story/compose")
+        self.assertIn("Acide.", (self.pdir(pid) / "piece" / "pieces" / "v1-story" / "piece.html").read_text())  # the piece is composed with the corrected words
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Doux."})  # only the piece that is not composed yet
+        self.assertEqual([x["id"] for x in r], ["v1-post-4x5"])
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v1-story")["headline"], "Acide.")
+        d = self.call("POST", f"/api/projects/{pid}/pieces/v1-story/decide", {"verdict": "again", "words": "trop sombre"})
+        self.assertEqual(d["headline"], "Acide.")  # sent back, it keeps the words the person corrected
+        for pc in ("v3-post-4x5", "v3-story"):
+            self.wait(self.call("POST", f"/api/projects/{pid}/pieces/{pc}/image"))
+            self.call("POST", f"/api/projects/{pid}/pieces/{pc}/compose")
+        self.call("PUT", f"/api/projects/{pid}/variants/v3/text", {"headline": "Trop tard."}, code=409)  # every piece of the variant is composed
+
     def test_all_the_images_are_drawn_at_once_and_all_the_pieces_composed(self):
         pid, _ = self.picked(("v1", "v3"))
         self.call("POST", f"/api/projects/{pid}/images", {"variant": "v9"}, code=400)

@@ -59,6 +59,7 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/diverge", lambda b, m, d: b.diverge(m["p"])),
     ("GET", rf"/api/projects/{P}/variants", lambda b, m, d: b.variants(m["p"])),
     ("PUT", rf"/api/projects/{P}/variants/(?P<v>[\w-]+)/prompt", lambda b, m, d: b.put_variant_prompt(m["p"], m["v"], d.get("prompt"))),
+    ("PUT", rf"/api/projects/{P}/variants/(?P<v>[\w-]+)/text", lambda b, m, d: b.put_variant_text(m["p"], m["v"], d.get("headline"), d.get("subline"))),
     ("POST", rf"/api/projects/{P}/pick", lambda b, m, d: b.pick(m["p"], d.get("variants", []))),
     ("POST", rf"/api/projects/{P}/images", lambda b, m, d: b.draw_images(m["p"], d.get("variant"))),
     ("POST", rf"/api/projects/{P}/compose", lambda b, m, d: b.compose_all(m["p"])),

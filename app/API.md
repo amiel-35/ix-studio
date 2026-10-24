@@ -71,7 +71,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   proposes the instructions), `diverge` or `image`; `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
-- **piece**: `{id, variant, format, size, status, image, prompt, composed, check, decision}`.
+- **piece**: `{id, label, variant, format, size, status, image, prompt, headline, subline, composed, check, decision, bans}`. `headline` and `subline` are the words in effect: those of the variant, or the ones the person corrected (`PUT /variants/{v}/text`).
 
 ## Routes
 
@@ -102,6 +102,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `GET /api/projects/{p}/variants` | the variants |
 | `POST /api/projects/{p}/pick` `{variants: [ids]}` | the kept variants: one piece per variant and per format |
 | `PUT /api/projects/{p}/variants/{v}/prompt` `{prompt}` | **the prompt of a variant, shared by its formats**: written in each of its pieces that still waits for its image (those with an image keep theirs, and the one that is being drawn too). Answers those pieces. 400 for an empty prompt, 404 for a variant that is not in the series, 409 when every piece of the variant has its image (redo one of them to change its prompt) |
+| `PUT /api/projects/{p}/variants/{v}/text` `{headline, subline?}` | **the words of a variant corrected, before the piece is composed** (what is generated is shown and can be corrected): the headline (required, one line) and the subline (`""` takes it off, left out leaves it as it is), written in each piece of the variant that is not composed yet. Answers those pieces (their `headline` and `subline` are the corrected ones). 400 for an empty headline, 404 for a variant that is not in the series, 409 when every piece of the variant is composed (send one back to change its words) |
 | `POST /api/projects/{p}/images` `{variant?}` | **draw every image that is missing**, or those of one `variant`: one job per piece (`{jobs: [job]}`), as many as run together as the studio allows. 400 for a variant that is not in the series, 409 when every piece has its image or is being drawn |
 | `POST /api/projects/{p}/compose` | **compose and check every piece that has its image and is not composed**, one after the other: `{composed: [ids], failed: [{piece, error}]}` (a piece that fails does not stop the others; when none can, the reason of the first is the 400). 409 when none waits to be composed |
 | `GET /api/projects/{p}/pieces/{i}` | a piece |
@@ -141,6 +142,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `diverge` | one `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools=Read,Write --permission-mode=acceptEdits --permission-prompts=none` per mandate, in parallel, each in its own folder `<piece>/work/<id>/`; then `studio diverge <piece>` |
 | `pick` | `studio pick <piece> <ids>` |
 | `pieces/{i}/image`, `POST images` | `studio image <piece>/pieces/<…> --engine auto --force` (`STUDIO_IMAGE_ENGINE` changes the engine). `images` starts one job per missing image; at most four run at the same time, the others say "en attente d'une place" |
+| `variants/{v}/text` | `studio pick <piece>/pieces/<…> <v> --headline <h> --subline <s>` for each piece of the variant that is not composed (it keeps the words in the `pick.json` of the piece; both are always given, since the command rewrites the file); a piece sent back (`again`) keeps its corrected words |
 | `variants/{v}/prompt` | for each piece of the variant that waits for its image, the `image_prompt` of its own `variants/<v>.json` is rewritten (no command) |
 | `pieces/{i}/compose`, `POST compose` | `studio compose <piece>/pieces/<…>`, `studio check <piece>/pieces/<…>` (`compose` for every piece in turn) |
 | `pieces/{i}/decide` | `studio decide <piece>/pieces/<…> keep|again "<words>"` |

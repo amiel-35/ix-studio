@@ -425,6 +425,26 @@ class Api(unittest.TestCase):
         self.assertEqual([x["id"] for x in r], ["v1-post-4x5"])
         self.assertEqual([x["variant"] for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == pid and x["kind"] == "prompt"], ["v1", "v3"])
 
+    def test_the_words_of_a_variant_can_be_corrected_until_it_is_composed(self):
+        pid = self.a_series("Les Mots")
+        self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "  "}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/variants/v9/text", {"headline": "x"}, code=404)
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Acide,\npuis doux.", "subline": "Servez-vous."})
+        self.assertEqual([(x["id"], x["headline"], x["subline"]) for x in r], [("v1-post-4x5", "Acide, puis doux.", "Servez-vous."), ("v1-story", "Acide, puis doux.", "Servez-vous.")])
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v3-story")["headline"], "Quatorze jours dans une ville de port.")  # the other variant stays
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Acide, puis doux, puis rien."})  # the subline left out stays
+        self.assertEqual((r[0]["headline"], r[0]["subline"]), ("Acide, puis doux, puis rien.", "Servez-vous."))
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Acide.", "subline": ""})  # an empty one takes it off
+        self.assertEqual((r[0]["headline"], r[0]["subline"]), ("Acide.", ""))
+        self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-story/image"))
+        self.call("POST", f"/api/projects/{pid}/pieces/v1-story/compose")
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Doux."})  # only the piece that is not composed yet
+        self.assertEqual([x["id"] for x in r], ["v1-post-4x5"])
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v1-story")["headline"], "Acide.")
+        self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-post-4x5/image"))
+        self.call("POST", f"/api/projects/{pid}/pieces/v1-post-4x5/compose")
+        self.call("PUT", f"/api/projects/{pid}/variants/v1/text", {"headline": "Trop tard."}, code=409)
+
     def test_all_the_images_are_drawn_at_once_and_all_the_pieces_composed(self):
         pid = self.a_series("Par Lot")
         self.call("POST", f"/api/projects/{pid}/images", {"variant": "v9"}, code=400)
