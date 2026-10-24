@@ -55,11 +55,13 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   the site), its tasks are the brand's (sort, brief, confirm: they are in `GET /api/tasks`, not in the project's `waiting`), and step 2 (`brief`)
   is `todo`. No neutral stand-in values: nothing is produced from a brand nobody has looked at.
 - **ask**: what waits for the person on a project, `{step, piece, kind, title, question}`. `kind` names the task (`brief`, `mandates`,
-  `diverge-launch`, `diverge-pick`, `prompt`, `compose`, `decide`, and `job-failed`); `title` is its short name for a list.
+  `diverge-launch`, `diverge-pick`, `prompt`, `compose`, `decide`, and `job-failed`); `title` is its short name for a list. **A `prompt` is
+  one task per variant, not per piece**: its formats share the prompt of the image. It also carries `variant` (the variant's id) and `pieces`
+  (the ids of the variant's pieces that still wait for their image); `piece` is the first of them (the task's id stays the same as long as it waits).
   `job-failed` stands in for the task the failed job belonged to: `question` is the reason in one line, and running the step again (same route as
   before) makes it go away. Its `step` and `piece` say what to run again.
 - **task**: an ask seen across the studio, in two scopes.
-  - `scope: "project"`: `{id, scope, project, project_name, brand, brand_name, step, piece, piece_label, kind, title, question, since}`. `id` is
+  - `scope: "project"`: `{id, scope, project, project_name, brand, brand_name, step, piece, piece_label, kind, title, question, since}` (a `prompt` task adds `variant` and `pieces`, and its `piece_label` is the variant's id). `id` is
     `project:step:piece`: it stays the same as long as the task waits.
   - `scope: "brand"`: `{id, scope, brand, brand_name, project: null, kind, title, question, since}`. `kind` is `brand-sort` (sort the visuals and choose
     the logo), `brand-brief` (write the brief of the brand; or, once it is written, find the logo, or choose the colours), `brand-confirm` (confirm what was deduced: the question lists the values) or `job-failed`
@@ -99,6 +101,9 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/projects/{p}/diverge` | write the variants: a job |
 | `GET /api/projects/{p}/variants` | the variants |
 | `POST /api/projects/{p}/pick` `{variants: [ids]}` | the kept variants: one piece per variant and per format |
+| `PUT /api/projects/{p}/variants/{v}/prompt` `{prompt}` | **the prompt of a variant, shared by its formats**: written in each of its pieces that still waits for its image (those with an image keep theirs, and the one that is being drawn too). Answers those pieces. 400 for an empty prompt, 404 for a variant that is not in the series, 409 when every piece of the variant has its image (redo one of them to change its prompt) |
+| `POST /api/projects/{p}/images` `{variant?}` | **draw every image that is missing**, or those of one `variant`: one job per piece (`{jobs: [job]}`), as many as run together as the studio allows. 400 for a variant that is not in the series, 409 when every piece has its image or is being drawn |
+| `POST /api/projects/{p}/compose` | **compose and check every piece that has its image and is not composed**, one after the other: `{composed: [ids], failed: [{piece, error}]}` (a piece that fails does not stop the others; when none can, the reason of the first is the 400). 409 when none waits to be composed |
 | `GET /api/projects/{p}/pieces/{i}` | a piece |
 | `PUT /api/projects/{p}/pieces/{i}/prompt` `{prompt}` | the image prompt, corrected before the image |
 | `POST /api/projects/{p}/pieces/{i}/image` | draw the image: a job |
@@ -135,8 +140,9 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `mandates` job | `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools ""`: the proposal, or a default one when the call fails |
 | `diverge` | one `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools=Read,Write --permission-mode=acceptEdits --permission-prompts=none` per mandate, in parallel, each in its own folder `<piece>/work/<id>/`; then `studio diverge <piece>` |
 | `pick` | `studio pick <piece> <ids>` |
-| `pieces/{i}/image` | `studio image <piece>/pieces/<…> --engine auto --force` (`STUDIO_IMAGE_ENGINE` changes the engine) |
-| `pieces/{i}/compose` | `studio compose <piece>/pieces/<…>`, `studio check <piece>/pieces/<…>` |
+| `pieces/{i}/image`, `POST images` | `studio image <piece>/pieces/<…> --engine auto --force` (`STUDIO_IMAGE_ENGINE` changes the engine). `images` starts one job per missing image; at most four run at the same time, the others say "en attente d'une place" |
+| `variants/{v}/prompt` | for each piece of the variant that waits for its image, the `image_prompt` of its own `variants/<v>.json` is rewritten (no command) |
+| `pieces/{i}/compose`, `POST compose` | `studio compose <piece>/pieces/<…>`, `studio check <piece>/pieces/<…>` (`compose` for every piece in turn) |
 | `pieces/{i}/decide` | `studio decide <piece>/pieces/<…> keep|again "<words>"` |
 
 **A home in the old format** (`<home>/<p>/project.json` with a `brand_name` and its own `brand/` dossier) is opened into this layout when the backend

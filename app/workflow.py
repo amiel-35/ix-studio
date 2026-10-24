@@ -159,20 +159,28 @@ def project_view(s: dict, now: float) -> dict:
             step("image", "done", "studio")
         else:
             step("image", "waiting", "person")
+        prompts = {}  # one prompt task per variant: its formats share the prompt, and the image of each is drawn from it
         for pc in pcs:
             if not pc["image"] and not job_of("image", pc["id"]):
                 f = failed_of(s, "image", pc["id"])
                 if f:
                     retry("image", pc["id"], f"Relancer l'image de {pc['label']}", f)
                 else:
-                    asks.append({"step": "image", "piece": pc["id"], "kind": "prompt", "title": f"Relire le prompt de {pc['label']}",
-                                 "question": f"Relire le prompt de l'image de {pc['label']}, puis la lancer."})
+                    vid = pc.get("variant") or pc["id"]
+                    if vid not in prompts:
+                        prompts[vid] = {"step": "image", "piece": pc["id"], "variant": vid, "pieces": [], "kind": "prompt"}
+                        asks.append(prompts[vid])  # where its first piece stands in the list
+                    prompts[vid]["pieces"].append(pc["id"])
             elif pc["image"] and not pc["composed"]:
                 asks.append({"step": "piece", "piece": pc["id"], "kind": "compose", "title": f"Composer et vérifier {pc['label']}",
                              "question": f"Composer et vérifier {pc['label']}."})
             elif pc["composed"] and not pc["decision"]:
                 asks.append({"step": "decide", "piece": pc["id"], "kind": "decide", "title": f"Décider de {pc['label']}",
                              "question": f"Garder {pc['label']}, ou recommencer en disant pourquoi."})
+        for vid, a in prompts.items():
+            n = len(a["pieces"])
+            a["title"] = f"Relire le prompt de {vid}" + (f" ({n} formats)" if n > 1 else "")
+            a["question"] = f"Relire le prompt de l'image de {vid}" + (f", le même pour ses {n} formats" if n > 1 else "") + ", puis la lancer."
         step("piece", "done" if all(pc["composed"] for pc in pcs) else "waiting" if any(pc["image"] for pc in pcs) else "todo", "person")
         step("check", st["piece"]["status"], "studio", at=since.get("piece"))
         step("decide", "done" if all(pc["decision"] for pc in pcs) else "waiting" if any(pc["composed"] for pc in pcs) else "todo", "person")
@@ -342,10 +350,13 @@ def tasks_payload(entries: list, jobs: list, now: float, brands: list = ()) -> d
                          "pieces": len(s["pieces"]), "waiting": len(v["waiting"])})
         for a in v["waiting"]:
             pc = next((x for x in s["pieces"] if x["id"] == a["piece"]), None) if a["piece"] else None
-            tasks.append({"id": f"{s['id']}:{a['step']}:{a['piece'] or ''}", "scope": "project", "project": s["id"], "project_name": s["name"],
-                          "brand": s["brand"], "brand_name": s.get("brand_name", ""), "step": a["step"], "piece": a["piece"],
-                          "piece_label": pc["label"] if pc else None, "kind": a["kind"], "title": a["title"],
-                          "question": a["question"], "since": s.get("since", {}).get(a["step"])})
+            t = {"id": f"{s['id']}:{a['step']}:{a['piece'] or ''}", "scope": "project", "project": s["id"], "project_name": s["name"],
+                 "brand": s["brand"], "brand_name": s.get("brand_name", ""), "step": a["step"], "piece": a["piece"],
+                 "piece_label": a.get("variant") or (pc["label"] if pc else None), "kind": a["kind"], "title": a["title"],
+                 "question": a["question"], "since": s.get("since", {}).get(a["step"])}
+            if a.get("variant"):  # a prompt: the task of a variant, for the pieces of it that wait for their image
+                t.update(variant=a["variant"], pieces=a["pieces"])
+            tasks.append(t)
     tasks.sort(key=lambda t: (t["since"] is None, t["since"] or 0))
     return {"tasks": tasks, "jobs": jobs, "projects": projects, "brands": brand_lines, "now": now}
 

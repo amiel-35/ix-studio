@@ -48,6 +48,7 @@ COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
 DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
+IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
                   "relire chaque ligne pour y traquer un double sens ; l'image ne contient aucun texte.")
 DEFAULT_MANDATES = ["La chose elle-même, vue de près", "Démonter une idée reçue", "Le point de vue de celui qui l'achète",
@@ -181,6 +182,7 @@ class StudioBackend:
         self._state = threading.RLock()  # short: reading and writing project.json and marque.json
         self._locks = {}  # one lock per project (and per brand) for the long operations that rewrite files (keep, pick, compose, decide)
         self._log_lock = threading.Lock()
+        self._drawing = threading.BoundedSemaphore(IMAGE_PARALLEL)  # the images drawn at the same time, whatever the number asked for
         self._jobs = {}  # job id -> ("brand", id) or ("project", id)
         self._pidx = {}  # project id -> brand id
         self._migrate()
@@ -1471,6 +1473,30 @@ class StudioBackend:
             write_json(f, v)
             return self._piece_view(pid, e)
 
+    def _has_image(self, pid, e) -> bool:
+        return any((self._piece_dir(pid) / e["dir"] / n).exists() for n in ("image.png", "image.jpg"))
+
+    def put_variant_prompt(self, pid, vid, prompt):
+        """The prompt of a variant, shared by its formats: written in the variant file of each of its pieces that still waits for its image."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not (prompt or "").strip():
+                raise ValueError("the prompt is empty")
+            mine = [e for e in p["pieces"] if e["variant"] == vid]
+            if not mine:
+                raise NotFound(f"no variant {vid} in the series")
+            todo = [e for e in mine if not self._has_image(pid, e) and not self._running(p, "image", e["id"])]
+            if not todo:
+                raise Conflict("every piece of this variant has its image: redo one of them to change its prompt")
+            for e in todo:
+                f = self._piece_dir(pid) / e["dir"] / "variants" / f"{vid}.json"
+                v = read_json(f)
+                if not isinstance(v, dict):
+                    raise NotFound(f"no variant for {e['id']}")
+                v["image_prompt"] = str(prompt)
+                write_json(f, v)
+            return [self._piece_view(pid, e) for e in todo]
+
     # ---------- 6. the image ----------
     def image(self, pid, i):
         with self._op(pid):
@@ -1484,11 +1510,23 @@ class StudioBackend:
             self._mutate(pid, lambda q: self._entry(q, i).update(decision=None))
             return self._spawn(pid, "image", i, lambda jid: self._image_body(pid, jid, i))
 
+    def draw_images(self, pid, variant=None):
+        """Draw every image that is missing (those of one variant when `variant` is given): one job per piece."""
+        p = self._load(pid)
+        if variant and not any(e["variant"] == variant for e in p["pieces"]):
+            raise ValueError(f"variant: no {variant} in the series")
+        todo = [e["id"] for e in p["pieces"] if (not variant or e["variant"] == variant) and not self._has_image(pid, e) and not self._running(p, "image", e["id"])]
+        if not todo:
+            raise Conflict("every piece has its image, or is being drawn")
+        return {"jobs": [self.image(pid, i) for i in todo]}
+
     def _image_body(self, pid, jid, i):
         e = self._entry(self._load(pid), i)
         d, log = self._piece_dir(pid) / e["dir"], self._joblog(pid, jid)
-        self._phase(pid, jid, "le modèle d'image dessine")
-        res = self._studio(log, "image", d, "--engine", self.image_engine, "--force")
+        self._phase(pid, jid, "en attente d'une place")
+        with self._drawing:  # a few images at a time: a whole series is drawn on request, not all at once
+            self._phase(pid, jid, "le modèle d'image dessine")
+            res = self._studio(log, "image", d, "--engine", self.image_engine, "--force")
         if not any((d / n).exists() for n in ("image.png", "image.jpg")):
             line = next((x for x in reversed(res.out.splitlines()) if x.startswith("image:")), "")
             raise ToolError(one_line(line.removeprefix("image:"))[:300] or "no image was drawn")
@@ -1508,6 +1546,24 @@ class StudioBackend:
             self._studio(log, "check", d)
             self._mutate(pid, lambda q: self._mark(q, "image", "piece", "decide"))
             return self._piece_view(pid, e)
+
+    def compose_all(self, pid):
+        """Compose and check every piece that has its image and is not composed yet, one after the other. A piece that cannot be composed is
+        told apart (`failed`) and the others go on; when none could, the reason of the first is the answer (400)."""
+        p = self._load(pid)
+        todo = [e["id"] for e in p["pieces"] if self._has_image(pid, e) and not self._piece_view(pid, e)["composed"]]
+        if not todo:
+            raise Conflict("no piece waits to be composed")
+        done, failed = [], []
+        for i in todo:
+            try:
+                self.compose(pid, i)
+                done.append(i)
+            except (ValueError, Conflict) as err:  # a ToolError is a ValueError
+                failed.append({"piece": i, "error": str(err)})
+        if not done:
+            raise ToolError(failed[0]["error"])
+        return {"composed": done, "failed": failed}
 
     def decide(self, pid, i, verdict, words):
         with self._op(pid):

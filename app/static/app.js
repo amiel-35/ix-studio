@@ -267,6 +267,7 @@
         h(Button, { variant: "primary", size: "lg", onClick: () => decide(true), "aria-label": "Garder ce visuel : " + e.note }, "Garder"),
         h(Button, { variant: "secondary", size: "lg", onClick: () => decide(false), "aria-label": "Écarter ce visuel : " + e.note }, "Écarter"),
         left === 0 && h(Button, { variant: "ghost", size: "lg", onClick: () => setStage("end"), "aria-label": "Continuer vers le choix du logo" }, "Continuer")),
+      hasProposals && h("p", { className: "small" }, h("button", { type: "button", className: "linkbtn", onClick: followStudio, "aria-label": "Suivre les propositions du studio pour les " + left + " visuels restants" }, "Suivre les propositions du studio"), " pour les " + plural(left, "visuel restant", "visuels restants") + "."),
       h("p", { className: "keys small muted" }, "Clavier : G garder, E écarter, U annuler, flèches pour naviguer."),
       h("span", { className: "sr", role: "status", "aria-live": "polite" }, said));
   }
@@ -587,8 +588,15 @@
   function Series({ ctx, p, col }) {
     const jobs = p.jobs, n = seriesCount(p.pieces);
     const open = (pc) => ctx.openTask(synth(p, "piece-any", { piece: pc.id, title: pc.label }));
+    const toDraw = p.pieces.filter((x) => !x.image && !jobs.some((j) => j.kind === "image" && j.piece === x.id)).length, toCompose = p.pieces.filter((x) => x.image && !x.composed).length;
+    const hasPrompt = ctx.data.tasks.some((t) => t.scope === "project" && t.project === p.id && t.kind === "prompt"); // an image that failed is a task of its own, not a prompt to read
+    const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(p.id); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(n.decide, "pièce", "pièces") + "."); });
     return h(React.Fragment, null,
       h(Where, null, "La série · " + plural(n.total, "pièce", "pièces")),
+      (toDraw > 1 && hasPrompt || toCompose > 1 || n.decide > 0) && h("div", { className: "take" },
+        toDraw > 1 && hasPrompt && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.drawAll(p.id)), "aria-label": "Lancer les " + toDraw + " images qui manquent, sans relire les prompts" }, "Dessiner toutes les images"),
+        toCompose > 1 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.composeAll(p.id)), "aria-label": "Composer et vérifier les " + toCompose + " pièces qui ont leur image" }, "Composer tout"),
+        n.decide > 0 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(n.decide, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(n.decide, "pièce gardée", "pièces gardées"))),
       h("ul", { className: "serie", "aria-label": "Les pièces de la série" }, p.pieces.map((pc) => {
         const w = STAGE_WORDS[stageOf(pc, jobs)], src = pieceSrc(pc);
         return h("li", { key: pc.id }, h("button", { type: "button", className: "vign", "data-col": col, "data-piece": pc.id, onClick: () => open(pc), "aria-label": pc.label + " : " + w.toLowerCase() },
@@ -606,24 +614,34 @@
     h(Eyebrow, null, pc.label + " · " + pc.size[0] + " × " + pc.size[1]),
     h(Head, null, pc.headline));
 
+  /* the prompt of a variant: its formats share it, and the image of each is drawn from it */
   function Prompt({ ctx, pid, id }) {
-    const [pc] = usePiece(ctx, pid, id);
+    const [st, setSt] = useState(null);
     const [prompt, setPrompt] = useState(null);
-    useEffect(() => { if (pc) setPrompt(pc.prompt); }, [pc && pc.id]);
+    useEffect(() => { Promise.all([api.piece(pid, id), api.project(pid)]).then(([pc, p]) => { setSt({ pc, p }); setPrompt(pc.prompt); }).catch(ctx.fail); }, [pid, id]);
     useCmds(ctx, []);
-    if (!pc || prompt === null) return h("div", { className: "task" }, h(Wait, null));
-    const draw = () => ctx.act(async (snap) => {
-      await api.savePrompt(pid, id, prompt);
-      await api.drawImage(pid, id);
-      ctx.log(pid, "toi", "Image lancée pour " + pc.label, "Prompt relu : " + prompt);
-      await ctx.answered(pid, "Image lancée pour " + pc.label + ".", { before: snap, any: false, sibling: (t) => t.kind === "prompt" && t.piece !== id });
+    if (!st || prompt === null) return h("div", { className: "task" }, h(Wait, null));
+    const { pc, p } = st;
+    const waits = (x) => !x.image && !p.jobs.some((j) => j.kind === "image" && j.piece === x.id);
+    const mine = p.pieces.filter((x) => x.variant === pc.variant && waits(x)); // the pieces this prompt is for
+    const more = p.pieces.filter((x) => x.variant !== pc.variant && waits(x)).length; // the pieces of the other variants that wait too
+    const several = mine.length > 1, formats = mine.map((x) => fmtWord(x.format)).join(", ");
+    const draw = (all) => ctx.act(async (snap) => {
+      await api.saveVariantPrompt(pid, pc.variant, prompt);
+      const r = await api.drawImages(pid, all ? undefined : pc.variant);
+      ctx.log(pid, "toi", (all ? "Toutes les images lancées : " : "Images lancées pour " + pc.variant + " : ") + plural(r.jobs.length, "pièce", "pièces"), "Prompt relu : " + prompt);
+      await ctx.answered(pid, all ? "Toutes les images sont lancées : " + plural(r.jobs.length, "pièce", "pièces") + "." : "Image" + (several ? "s lancées" : " lancée") + " pour " + pc.variant + ".",
+        { before: snap, any: false, sibling: all ? undefined : (t) => t.kind === "prompt" && t.variant !== pc.variant });
     });
-    return h("div", { className: "task" }, h(PieceHead, { pc }),
+    return h("div", { className: "task" },
+      h(Eyebrow, null, several ? pc.variant + " · " + formats : pc.label + " · " + pc.size[0] + " × " + pc.size[1]), h(Head, null, pc.headline),
       pc.bans && pc.bans.length > 0 && h("p", { className: "small" }, "Tu avais refusé : " + pc.bans.join(" ; ") + ". Le studio le retient."),
-      h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image"),
+      h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image" + (several ? ", le même pour " + formats : "")),
         h("textarea", { id: "prompt", className: "mono", value: prompt, onChange: (e) => setPrompt(e.target.value) })),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: draw, "aria-label": "Lancer l'image de " + pc.label }, "Dessiner l'image")));
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: () => draw(false), "aria-label": "Lancer " + (several ? "les images de " + pc.variant : "l'image de " + pc.label) }, several ? "Dessiner les " + mine.length + " images" : "Dessiner l'image"),
+        more > 0 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: () => draw(true), "aria-label": "Lancer les " + (mine.length + more) + " images du projet, sans relire les autres prompts" }, "Dessiner toutes les images")),
+      more > 0 && h("p", { className: "small muted" }, "« Toutes » lance aussi les " + plural(more, "pièce", "pièces") + " des autres variantes, avec leur prompt tel qu'il est."));
   }
 
   function Compose({ ctx, pid, id }) {
@@ -644,6 +662,8 @@
       ctx.log(pid, "toi", "Image refaite pour " + pc.label, "Prompt : " + prompt);
       await ctx.answered(pid, "Nouvelle image lancée pour " + pc.label + ".", { before: snap, any: false, sibling: (t) => t.kind === "compose" && t.piece !== id });
     });
+    const ready = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid && t.kind === "compose").length; // the pieces that have their image and wait to be composed
+    const all = () => ctx.act(async (snap) => { await ctx.composeAll(pid, snap, true); });
     return h("div", { className: "task" }, h(PieceHead, { pc }),
       h("div", { className: "pair" }, h(Frame, { src: pc.image, alt: "Image de " + pc.label, size: pc.size }),
       redo ? h("div", { className: "sec" },
@@ -651,9 +671,11 @@
         h("div", { className: "gestures" },
           h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: again, "aria-label": "Refaire l'image avec ce prompt" }, "Refaire l'image"),
           h(Button, { variant: "ghost", size: "lg", onClick: () => setRedo(false), "aria-label": "Garder cette image" }, "Garder cette image")))
-        : h("div", { className: "gestures" },
-          h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: compose, "aria-label": "Composer la pièce et la vérifier" }, "Composer et vérifier"),
-          h(Button, { variant: "secondary", size: "lg", onClick: () => setRedo(true), "aria-label": "Refaire l'image de " + pc.label }, "Refaire l'image"))));
+        : h("div", { className: "sec" },
+          h("div", { className: "gestures" },
+            h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: compose, "aria-label": "Composer la pièce et la vérifier" }, "Composer et vérifier"),
+            h(Button, { variant: "secondary", size: "lg", onClick: () => setRedo(true), "aria-label": "Refaire l'image de " + pc.label }, "Refaire l'image")),
+          ready > 1 && h("p", { className: "small muted" }, h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: all, "aria-label": "Composer et vérifier les " + ready + " pièces qui ont leur image" }, "Composer tout"), " : les " + ready + " pièces qui ont leur image."))));
   }
 
   function Decide({ ctx, pid, id }) {
@@ -840,8 +862,7 @@
     const tasks = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid);
     const brandTask = ctx.data.tasks.find((t) => t.scope === "brand" && t.brand === p.brand);
     const jobs = ctx.data.jobs.filter((j) => j.project === pid);
-    const sc = seriesCount(p.pieces), keptN = sc.decide;
-    const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(pid); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(keptN, "pièce", "pièces") + "."); });
+    const sc = seriesCount(p.pieces);
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, p.name),
         h("p", { className: "sub" }, done === 7 ? "Terminé" : "Étape " + (nowIdx + 1) + " sur 7 · " + SEVEN[nowIdx].label),
@@ -864,7 +885,6 @@
       })),
       p.brand_stage !== "ready" && h("p", { className: "vide" }, "Le projet attend sa marque" + (p.brand_waiting.length ? " : " + p.brand_waiting.map((x) => taskTitle({ scope: "brand", brand_name: p.brand_name, title: x.title }).toLowerCase()).join(", ") : "") + "."),
       p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
-      keptN > 0 && h("div", { className: "take" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(keptN, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(keptN, "pièce gardée", "pièces gardées"))),
       h(Where, null, "Ce qui attend"),
       tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
   }
@@ -1177,12 +1197,25 @@
       if (next) openTask(next, true); else { setSel((s) => ({ ...s, task: null })); setDive(null); }
     }, [refresh, openTask, snap]);
 
+    /* acting on the whole series: every missing image, every piece ready to compose. Inside a task (`core`), the next one opens; from a column, a line says it */
+    const composeAll = useCallback(async (pid, snap, core) => {
+      const r = await api.composeAll(pid);
+      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : " + r.failed[0].error : "") + ".";
+      log(pid, "studio", "Pièces composées d'un coup : " + r.composed.length, r.failed.map((f) => f.piece + " : " + f.error).join(" ; "));
+      if (core) await answered(pid, text, { before: snap }); else { await refresh(); setRev((x) => x + 1); setNotice(text); }
+    }, [answered, refresh, log]);
+    const drawAll = useCallback(async (pid) => {
+      const r = await api.drawImages(pid);
+      log(pid, "toi", "Toutes les images lancées : " + plural(r.jobs.length, "pièce", "pièces"), "");
+      await refresh(); setRev((x) => x + 1); setNotice("Toutes les images sont lancées : " + plural(r.jobs.length, "pièce", "pièces") + ".");
+    }, [refresh, log]);
+
     const now = () => Date.now() + skew.current;
     const touch = useCallback(() => setRev((x) => x + 1), []);
     const notify = useCallback((text) => setNotice(text), []);
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
-    const ctx = { data, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail,
+    const ctx = { data, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
       selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
@@ -1201,6 +1234,9 @@
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
       if (sel.brand && sel.project) {
+        const mine = data.tasks.filter((t) => t.scope === "project" && t.project === sel.project);
+        if (mine.some((t) => t.kind === "prompt")) cmds.push({ id: "draw-all", group: "Ce projet", label: "Dessiner toutes les images", run: () => act(() => drawAll(sel.project)) });
+        if (mine.filter((t) => t.kind === "compose").length > 1) cmds.push({ id: "compose-all", group: "Ce projet", label: "Composer tout", run: () => act(() => composeAll(sel.project)) });
         cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: showJournal });
         cmds.push({ id: "edit-project", group: "Ce projet", label: "Modifier le projet", run: editProject });
       }

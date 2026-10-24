@@ -1093,7 +1093,7 @@ class Pieces(Base):
                          ([1080, 1920], "story", "Titre de v1", "Une image pour v1, aucun texte.", None, None, "picked"))
         self.assertEqual(sorted(x.name for x in (self.pdir(pid) / "piece" / "pieces").iterdir()), ["v1-post-4x5", "v1-story", "v3-post-4x5", "v3-story"])
         self.assertIn("format: story", (self.pdir(pid) / "piece" / "pieces" / "v1-story" / "brief.md").read_text())
-        self.assertEqual(self.asks(pid).count("prompt"), 4)
+        self.assertEqual(self.asks(pid).count("prompt"), 2)  # one prompt task per variant: its two formats share it
         self.call("POST", f"/api/projects/{pid}/pick", {"variants": ["v9"]}, code=400)
         self.call("POST", f"/api/projects/{pid}/pick", {"variants": []}, code=400)
         self.call("GET", f"/api/projects/{pid}/pieces/nope", code=404)
@@ -1111,6 +1111,57 @@ class Pieces(Base):
         self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v1-post-4x5")["prompt"], "Une image pour v1, aucun texte.")
         self.assertEqual(self.call("GET", f"/api/projects/{pid}/variants")[0]["image_prompt"], "Une image pour v1, aucun texte.")
         self.call("PUT", f"/api/projects/{pid}/pieces/v1-story/prompt", {"prompt": "  "}, code=400)
+
+    def test_a_prompt_is_one_task_per_variant_and_its_formats_share_it(self):
+        pid, _ = self.picked(("v1", "v3"))
+        t = [x for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == pid]
+        self.assertEqual([(x["kind"], x["variant"], x["pieces"], x["piece"], x["piece_label"], x["title"]) for x in t],
+                         [("prompt", "v1", ["v1-post-4x5", "v1-story"], "v1-post-4x5", "v1", "Relire le prompt de v1 (2 formats)"),
+                          ("prompt", "v3", ["v3-post-4x5", "v3-story"], "v3-post-4x5", "v3", "Relire le prompt de v3 (2 formats)")])
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": "Un verre, lumière du jour, aucun texte."})
+        self.assertEqual([x["id"] for x in r], ["v1-post-4x5", "v1-story"])
+        for i in ("v1-post-4x5", "v1-story"):  # written in the variant file of each piece, which is what its image is drawn from
+            self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/{i}")["prompt"], "Un verre, lumière du jour, aucun texte.")
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v3-story")["prompt"], "Une image pour v3, aucun texte.")
+        self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": " "}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/variants/v9/prompt", {"prompt": "x"}, code=404)
+        self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-story/image"))
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": "Un autre."})  # only the piece that still waits for its image
+        self.assertEqual([x["id"] for x in r], ["v1-post-4x5"])
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/v1-story")["prompt"], "Un verre, lumière du jour, aucun texte.")
+        self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-post-4x5/image"))
+        self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": "Trop tard."}, code=409)  # both have their image: redo one to change its prompt
+
+    def test_all_the_images_are_drawn_at_once_and_all_the_pieces_composed(self):
+        pid, _ = self.picked(("v1", "v3"))
+        self.call("POST", f"/api/projects/{pid}/images", {"variant": "v9"}, code=400)
+        self.call("POST", f"/api/projects/{pid}/compose", code=409)  # no image yet
+        jobs = self.call("POST", f"/api/projects/{pid}/images", {"variant": "v1"})["jobs"]
+        self.assertEqual(sorted(j["piece"] for j in jobs), ["v1-post-4x5", "v1-story"])
+        for j in jobs:
+            self.wait(j)
+        self.call("POST", f"/api/projects/{pid}/images", {"variant": "v1"}, code=409)  # drawn already
+        jobs = self.call("POST", f"/api/projects/{pid}/images")["jobs"]  # all the others
+        self.assertEqual(sorted(j["piece"] for j in jobs), ["v3-post-4x5", "v3-story"])
+        for j in jobs:
+            self.wait(j)
+        self.assertEqual(self.asks(pid), ["compose"] * 4)
+        self.fake.calls.clear()
+        r = self.call("POST", f"/api/projects/{pid}/compose")
+        self.assertEqual((sorted(r["composed"]), r["failed"]), (["v1-post-4x5", "v1-story", "v3-post-4x5", "v3-story"], []))
+        self.assertEqual(len(self.fake.where("compose")), 4)
+        self.assertEqual(self.asks(pid), ["decide"] * 4)
+        self.call("POST", f"/api/projects/{pid}/compose", code=409)  # nothing is left to compose
+        self.call("POST", f"/api/projects/{pid}/images", code=409)
+
+    def test_a_piece_that_cannot_be_composed_does_not_stop_the_others(self):
+        pid, _ = self.picked(("v1",), formats="post-4x5, story")
+        for j in self.call("POST", f"/api/projects/{pid}/images")["jobs"]:
+            self.wait(j)
+        self.fake.fake_png = False  # no Chrome: no screenshot, for every piece
+        err = self.call("POST", f"/api/projects/{pid}/compose", code=400)
+        self.assertIn("Chrome", err["error"])  # none could: the reason of the first
+        self.assertEqual(self.asks(pid), ["compose"] * 2)
 
     def test_image_compose_check_decide(self):
         pid, _ = self.picked(("v1",), formats="story")

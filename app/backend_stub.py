@@ -655,6 +655,45 @@ class StubBackend:
             pc["prompt"] = prompt
             return copy.deepcopy(pc)
 
+    def put_variant_prompt(self, pid, vid, prompt):
+        """The prompt of a variant, shared by its formats: written in each of its pieces that still wait for their image."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not (prompt or "").strip():
+                raise ValueError("the prompt is empty")
+            mine = [pc for pc in p["pieces"] if pc["variant"] == vid]
+            if not mine:
+                raise NotFound(f"no variant {vid} in the series")
+            todo = [pc for pc in mine if not pc["image"] and not self._running("image", project=pid, piece=pc["id"])]
+            if not todo:
+                raise Conflict("every piece of this variant has its image: redo one of them to change its prompt")
+            for pc in todo:
+                pc["prompt"] = prompt
+            return copy.deepcopy(todo)
+
+    def draw_images(self, pid, variant=None):
+        """Draw every image that is missing (those of one variant when `variant` is given): one job per piece."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if variant and not any(pc["variant"] == variant for pc in p["pieces"]):
+                raise ValueError(f"variant: no {variant} in the series")
+            todo = [pc["id"] for pc in p["pieces"] if (not variant or pc["variant"] == variant) and not pc["image"] and not self._running("image", project=pid, piece=pc["id"])]
+            if not todo:
+                raise Conflict("every piece has its image, or is being drawn")
+            return {"jobs": [self.image(pid, i) for i in todo]}
+
+    def compose_all(self, pid):
+        """Compose and check every piece that has its image and is not composed yet."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            todo = [pc["id"] for pc in p["pieces"] if pc["image"] and not pc["composed"]]
+            if not todo:
+                raise Conflict("no piece waits to be composed")
+            return {"composed": [self.compose(pid, i)["id"] for i in todo], "failed": []}
+
     def image(self, pid, i):
         with self.lock:
             p = self._p(pid)

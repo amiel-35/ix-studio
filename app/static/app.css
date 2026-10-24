@@ -115,7 +115,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .vf { --ratio: .8; display: block; width: 100%; aspect-ratio: var(--ratio); background: var(--surface-sunken); border: 1px solid var(--border-default); overflow: hidden; }
 .vf img { width: 100%; height: 100%; object-fit: contain; }
 .vf.mini { width: 40px; flex: none; }
-.take { padding: var(--space-3) var(--space-5) var(--space-2); }
+.take { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-5) var(--space-2); }
 .form { padding: var(--space-3) var(--space-5) var(--space-6); gap: var(--space-5); }
 .facts { max-width: 60ch; }
 .fact { display: grid; gap: var(--space-1); padding: var(--space-3) 0; justify-items: start; }

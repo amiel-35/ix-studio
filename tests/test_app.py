@@ -374,7 +374,7 @@ class Api(unittest.TestCase):
         self.assertEqual([v["id"] for v in vs], ["v1", "v2", "v3", "v4"])
         pieces = self.call("POST", f"/api/projects/{pid}/pick", {"variants": ["v1", "v3"]})
         self.assertEqual([p["id"] for p in pieces], ["v1-post-4x5", "v1-story", "v3-post-4x5", "v3-story"])
-        self.assertEqual(self.asks(pid).count("image"), 4)
+        self.assertEqual(self.asks(pid).count("image"), 2)  # one prompt task per variant, not per piece
         pc = "v1-story"
         self.call("POST", f"/api/projects/{pid}/pieces/{pc}/compose", code=409)
         self.call("PUT", f"/api/projects/{pid}/pieces/{pc}/prompt", {"prompt": "Un verre, lumière du jour, aucun texte."})
@@ -394,6 +394,56 @@ class Api(unittest.TestCase):
         self.assertEqual(steps["diverge"], "done")
         row = next(p for p in self.call("GET", f"/api/brands/{bid}")["projects"] if p["id"] == pid)
         self.assertEqual((row["rank"], row["step_label"]), (5, "Les images"))  # the other three pieces still wait for their image
+
+    def a_series(self, name, variants=("v1", "v3"), formats="post-4x5, story"):
+        bid = self.ready_brand(name=name)
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "La série"})["id"]
+        brief = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**brief, "format": formats}})
+        m = self.call("GET", f"/api/projects/{pid}/mandates")
+        self.call("PUT", f"/api/projects/{pid}/mandates", {"items": m["items"], "common": m["common"]})
+        self.wait(self.call("POST", f"/api/projects/{pid}/diverge"))
+        self.call("POST", f"/api/projects/{pid}/pick", {"variants": list(variants)})
+        return pid
+
+    def test_a_prompt_is_one_task_per_variant_and_its_formats_share_it(self):
+        pid = self.a_series("Par Variante")
+        t = [x for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == pid]
+        self.assertEqual([(x["kind"], x["variant"], x["pieces"], x["piece"], x["piece_label"], x["title"]) for x in t],
+                         [("prompt", "v1", ["v1-post-4x5", "v1-story"], "v1-post-4x5", "v1", "Relire le prompt de v1 (2 formats)"),
+                          ("prompt", "v3", ["v3-post-4x5", "v3-story"], "v3-post-4x5", "v3", "Relire le prompt de v3 (2 formats)")])
+        self.assertEqual(t[0]["id"], f"{pid}:image:v1-post-4x5")
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": "Un verre, lumière du jour, aucun texte."})
+        self.assertEqual([x["id"] for x in r], ["v1-post-4x5", "v1-story"])
+        for i in ("v1-post-4x5", "v1-story"):
+            self.assertEqual(self.call("GET", f"/api/projects/{pid}/pieces/{i}")["prompt"], "Un verre, lumière du jour, aucun texte.")
+        self.assertNotEqual(self.call("GET", f"/api/projects/{pid}/pieces/v3-story")["prompt"], "Un verre, lumière du jour, aucun texte.")  # the other variant stays
+        self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": " "}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/variants/v9/prompt", {"prompt": "x"}, code=404)
+        self.wait(self.call("POST", f"/api/projects/{pid}/pieces/v1-story/image"))
+        r = self.call("PUT", f"/api/projects/{pid}/variants/v1/prompt", {"prompt": "Un autre."})  # only the piece that still waits for its image
+        self.assertEqual([x["id"] for x in r], ["v1-post-4x5"])
+        self.assertEqual([x["variant"] for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == pid and x["kind"] == "prompt"], ["v1", "v3"])
+
+    def test_all_the_images_are_drawn_at_once_and_all_the_pieces_composed(self):
+        pid = self.a_series("Par Lot")
+        self.call("POST", f"/api/projects/{pid}/images", {"variant": "v9"}, code=400)
+        jobs = self.call("POST", f"/api/projects/{pid}/images", {"variant": "v1"})["jobs"]
+        self.assertEqual(sorted(j["piece"] for j in jobs), ["v1-post-4x5", "v1-story"])
+        self.call("POST", f"/api/projects/{pid}/images", {"variant": "v1"}, code=409)  # drawn or being drawn
+        jobs = self.call("POST", f"/api/projects/{pid}/images")["jobs"]  # all the others
+        self.assertEqual(sorted(j["piece"] for j in jobs), ["v3-post-4x5", "v3-story"])
+        self.call("POST", f"/api/projects/{pid}/compose", code=409)  # no image yet (the jobs have not ended): nothing to compose
+        for _ in range(100):
+            if not self.call("GET", "/api/tasks")["jobs"] or all(j["project"] != pid for j in self.call("GET", "/api/tasks")["jobs"]):
+                break
+            time.sleep(0.02)
+        self.assertEqual(self.asks(pid), ["piece"] * 4)
+        r = self.call("POST", f"/api/projects/{pid}/compose")
+        self.assertEqual((sorted(r["composed"]), r["failed"]), (["v1-post-4x5", "v1-story", "v3-post-4x5", "v3-story"], []))
+        self.assertEqual(self.asks(pid), ["decide"] * 4)
+        self.call("POST", f"/api/projects/{pid}/compose", code=409)
+        self.call("POST", f"/api/projects/{pid}/images", code=409)
 
     def test_the_pieces_are_taken_out_one_by_one_and_in_a_zip(self):
         import io
