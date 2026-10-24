@@ -6,8 +6,8 @@ from pathlib import Path
 from checks import text
 from colour import ink_on, rgba
 from compose import areas, fonts_link
-from files import (font_css, ground_hex, image_file, load_brand, load_brief, load_pick, load_variants, never_hits, picked, read_json,
-                   StudioError)
+from files import (FORMATS, LAYOUTS, font_css, ground_hex, image_file, layout_of, load_brand, load_brief, load_pick, load_references, load_variants,
+                   never_hits, picked, read_json, StudioError)
 from ui import cli, e, shell, write_page
 
 EN = {
@@ -31,6 +31,19 @@ EN = {
     "not_picked": "no pick yet", "never_show": "Never show", "ph_logo": "logo placeholder: the logo file was not given",
     "sum": "{pass} pass · {warn} warn · {fail} fail · {major} major judge notes", "hcol": "headline",
     "slogan": "Slogan", "to_confirm": "to confirm", "unc_banner": "This piece relies on values to confirm",
+    "layout_b": "Layout, for every variant", "refs": "References kept for this brand", "refs_say": "The variants read them for their grammar (light, framing, rhythm), never to copy them.",
+    "series": "To keep several: a series, one piece each", "open": "open",
+    "form_t": ["Fill in what changes; what is prefilled comes from the brief or the piece you started from.",
+               "Answer: copy the command at the bottom and run it, it writes brief.md and checks it."],
+    "form": "brief form", "form_cmd": "The command that writes brief.md", "copy": "Copy", "copied": "Copied",
+    "free": "each variant chooses", "left_out": "left out (not a still):",
+    "q_objective": "What should the piece do? One aim is easier to hold than two.",
+    "q_audience": "Someone you can picture: who, what they think today, why they have not acted.",
+    "q_message": "The one thing to remember, in one sentence, with no solution drawn in it.",
+    "q_format": "post-4x5, post-1x1, story, poster-a3, poster-3x2, linkedin, or WxH; several, comma-separated, make one piece each. Films are not made here.",
+    "q_layout": "Leave it free for a new piece; impose it (full for a campaign poster) for a declination.",
+    "q_fixed": "What the variants may not touch beyond the brand: the campaign's structure, its light, its words.",
+    "q_cta": "The last line, word for word.", "q_language": "fr, en…",
 }
 FR = {
     "name": "Nom", "voice": "Voix", "never": "Jamais", "notes": "Notes", "logo": "Logo", "no_logo": "pas de logo : le nom est composé en lettres",
@@ -53,6 +66,19 @@ FR = {
     "not_picked": "pas encore de choix", "never_show": "Ne jamais montrer", "ph_logo": "emplacement du logo : le fichier n'a pas été donné",
     "sum": "{pass} réussis, {warn} alertes, {fail} échec, {major} notes majeures du juge", "hcol": "titre",
     "slogan": "Slogan", "to_confirm": "à confirmer", "unc_banner": "Cette pièce s'appuie sur des valeurs à confirmer",
+    "layout_b": "Mise en page, pour toutes les variantes", "refs": "Références gardées pour cette marque", "refs_say": "Les variantes les lisent pour leur grammaire (lumière, cadrage, rythme), jamais pour les copier.",
+    "series": "Pour en garder plusieurs : une série, une pièce chacune", "open": "ouvrir",
+    "form_t": ["Remplis ce qui change ; le pré-rempli vient du brief ou de la pièce de départ.",
+               "Réponse : copie la commande en bas et lance-la, elle écrit brief.md et le vérifie."],
+    "form": "formulaire du brief", "form_cmd": "La commande qui écrit brief.md", "copy": "Copier", "copied": "Copié",
+    "free": "chaque variante choisit", "left_out": "mis de côté (pas une image fixe) :",
+    "q_objective": "Que doit faire la pièce ? Un seul but se tient mieux que deux.",
+    "q_audience": "Quelqu'un qu'on voit : qui, ce qu'il pense aujourd'hui, pourquoi il n'a pas agi.",
+    "q_message": "La seule chose à retenir, en une phrase, sans solution dessinée dedans.",
+    "q_format": "post-4x5, post-1x1, story, poster-a3, poster-3x2, linkedin, ou LxH ; plusieurs, séparés par des virgules, font une pièce chacun. Les films ne se font pas ici.",
+    "q_layout": "Libre pour une pièce neuve ; imposée (full pour une affiche de campagne) pour une déclinaison.",
+    "q_fixed": "Ce que les variantes ne touchent pas, au-delà de la marque : la structure de la campagne, sa lumière, ses mots.",
+    "q_cta": "La dernière ligne, mot pour mot.", "q_language": "fr, en…",
 }
 
 
@@ -102,12 +128,66 @@ def brief_page(d, lang):
     t, b, br = tt(lang), load_brand(d), load_brief(d)
     w, h = br["size"]
     rows = [("objective", br["objective"]), ("audience", br["audience"]), ("message", br["message"]),
-            ("format", f"{br['format']} · {w}×{h}"), ("fixed", br["fixed"]), ("cta", br["cta"]), ("language", br["language"])]
+            ("format", ", ".join(br["formats"]) + f" · {w}×{h}" + (" · " + t["left_out"] + " " + ", ".join(br["moving"]) if br["moving"] else "")), ("layout_b", br["layout"]), ("fixed", br["fixed"]), ("cta", br["cta"]), ("language", br["language"])]
     rows = "".join(f"<tr><td class='mute'>{t[k]}</td><td>{e(v)}</td></tr>" for k, v in rows if v)
     other = "".join(f"<tr><td class='mute'>{e(k)}</td><td>{e(v)}</td></tr>" for k, v in br["other"].items())
     body = f"""<h1>{e(b['name'])}</h1><div class="card"><table>{rows}{other}</table></div>
-<div class="card"><h3>{t['colours']}</h3>{sws(b, t)}</div>"""
+<div class="card"><h3>{t['colours']}</h3>{sws(b, t)}</div>{refs_html(d, t)}"""
     return write_page(d, 2, shell(2, br["objective"], body, lang, t["t2"], "agent writes variants/v1.json … v4.json, then: " + cli(d, "diverge"), fonts_link(b)))
+
+
+def refs_html(d, t):
+    refs = load_references(d)
+    if not refs:
+        return ""
+    cells = []
+    for r in refs:
+        raster = not r["web"] and r["exists"] and r["ref"].lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
+        pic = f'<img src="{e(r["ref"])}" alt="" style="width:100%;max-height:180px;object-fit:contain;background:var(--soft)">' if raster else ""
+        cells.append(f'<div class="card">{pic}<p>{e(r["note"])}</p><a href="{e(r["ref"])}" target="_blank">{t["open"]}</a></div>')
+    return f'<h2>{t["refs"]}</h2><p class="mute">{t["refs_say"]}</p><div class="grid">{"".join(cells)}</div>'
+
+
+FORM_KEYS = ("objective", "audience", "message", "format", "layout", "fixed", "cta", "language")
+
+
+def form_page(d, lang, pre, title="") -> Path:
+    """A page to write brief.md without touching a file: one field per line of the brief, prefilled, and the command
+    that writes it, to copy. No server: the page only builds text."""
+    import json as _json
+    t = tt(lang)
+    out = Path(d) / "brief.md"
+    fields = []
+    for k in FORM_KEYS:
+        v = pre.get(k, "")
+        if k == "layout":
+            opts = "".join(f'<option value="{x}"{" selected" if x == v else ""}>{x or t["free"]}</option>' for x in ("", *LAYOUTS))
+            ctl = f'<select data-k="{k}">{opts}</select>'
+        elif k in ("fixed", "audience"):
+            ctl = f'<textarea data-k="{k}" rows="3">{e(v)}</textarea>'
+        else:
+            lst = f' list="fmts"' if k == "format" else ""
+            ctl = f'<input data-k="{k}" value="{e(v or ("post-4x5" if k == "format" else ""))}"{lst}>'
+        label = t.get("layout_b") if k == "layout" else t.get(k, k)
+        fields.append(f'<label class="card" style="display:block"><b>{e(label)}</b><br><span class="mute">{e(t["q_" + k])}</span><br>{ctl}</label>')
+    extra = {k: v for k, v in pre.items() if k not in FORM_KEYS}
+    fmts = "".join(f'<option value="{x}">' for x in FORMATS)
+    body = f"""<h1>{e(title or t['form'])}</h1>
+<style>.card input,.card textarea,.card select{{width:100%;font:inherit;margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}}</style>
+<datalist id="fmts">{fmts}</datalist>{''.join(fields)}{refs_html(d, t)}
+<h2>{t['form_cmd']}</h2><pre id="cmd"></pre><button id="cp" class="pill" style="font-size:14px;padding:8px 16px;cursor:pointer">{t['copy']}</button>
+<script>
+var OUT={_json.dumps(str(out))},EXTRA={_json.dumps(extra)},AFTER={_json.dumps(cli(d, "brief"))};
+function q(s){{return "'"+s.replace(/'/g,"'\\\\''")+"'"}}
+function build(){{var L=["# Brief"];document.querySelectorAll('[data-k]').forEach(function(el){{var v=el.value.replace(/\\s+/g," ").trim();if(v)L.push("- "+el.dataset.k+": "+v)}});
+Object.keys(EXTRA).forEach(function(k){{L.push("- "+k+": "+EXTRA[k])}});
+document.getElementById('cmd').textContent="cat > "+q(OUT)+" <<'EOF'\\n"+L.join("\\n")+"\\nEOF\\n"+AFTER}}
+document.querySelectorAll('[data-k]').forEach(function(el){{el.addEventListener('input',build)}});build();
+document.getElementById('cp').onclick=function(){{navigator.clipboard.writeText(document.getElementById('cmd').textContent);this.textContent={_json.dumps(t['copied'])}}};
+</script>"""
+    p = Path(d) / "0-brief-form.html"
+    p.write_text(shell(2, t["form"], body, lang, t["form_t"], cli(d, "brief")), encoding="utf-8")
+    return p
 
 
 def words(s):
@@ -125,8 +205,8 @@ def mock(b, br, v, headline=None):
     ink = ink_on(g, [b["text"], b["background"], *([b["accent"]] if b["accent"] else [])])
     lay, ir, tr, solid = areas(v["layout"], w, h)
     box = lambda r: f"left:{r[0] / w:.1%};top:{r[1] / h:.1%};width:{r[2] / w:.1%};height:{r[3] / h:.1%}"
-    over = lay.startswith("overlay")
-    fill = (f"linear-gradient({'to bottom' if lay == 'overlay-top' else 'to top'},{rgba(g, .55)},{rgba(g, 0)})" if over else g)
+    over = lay.startswith("overlay") or lay == "full"
+    fill = rgba(g, .3) if lay == "full" else (f"linear-gradient({'to bottom' if lay == 'overlay-top' else 'to top'},{rgba(g, .55)},{rgba(g, 0)})" if over else g)
     fs = 8 * min(1, tr[2] / w * 1.3)
     sub = f"<small style=\"font-family:{e(font_css(b['bfont'], 'sans-serif'))}\">{e(v['subline'])}</small>" if v["subline"] else ""
     return (f'<div class="mock" style="aspect-ratio:{w}/{h};background:{g if lay == "ground" else b["background"]}">'
@@ -143,6 +223,7 @@ def diverge_page(d, lang):
                   f'<br><code>{x["id"]}</code></div>' for x in vs)
     cards = []
     for x in vs:
+        x = {**x, "layout": layout_of(br, x)}
         flags = []
         close = max(overlap(x["headline"], dh) for dh in defaults)
         if close >= 0.6:
@@ -159,7 +240,8 @@ def diverge_page(d, lang):
 <p class="mute">{t['prompt']}: {e(x['image_prompt'])}</p>
 <h3>{t['pick']}</h3><pre>{e(cli(d, 'pick', x['id']))}</pre></div>""")
     body = f"""<h1>{e(b['name'])}</h1><h2>{t['attractor']}</h2><p class="mute">{t['attractor_say']}</p><div class="grid">{att}</div>
-<h2>{len(vs)} variants</h2><div class="grid">{''.join(cards)}</div>"""
+<h2>{len(vs)} variants</h2><div class="grid">{''.join(cards)}</div>
+<h3>{t['series']}</h3><pre>{e(cli(d, 'pick', *[x['id'] for x in vs]))}</pre>"""
     nxt = cli(d, "image") + "   (then: " + cli(d, "compose") + ")" if pk else cli(d, "pick", vs[0]["id"])
     return write_page(d, 3, shell(3, br["format"], body, lang, t["t3"], nxt, fonts_link(b)))
 

@@ -41,11 +41,14 @@ class Fusion:
             for e in s.get("evidence", []):
                 prev = self.evidence.get(e["id"], {})
                 ev = {**prev, **e}
-                if "ownership" in e:
-                    ev["ownership_proposed"] = prev.get("ownership_proposed", e["ownership"])
+                # a decision applies to every kind of evidence: a file (a screenshot) the user discarded stops feeding too
+                if "ownership" in e or e["id"] in own:
+                    proposed = prev.get("ownership_proposed", e.get("ownership"))
+                    if proposed:
+                        ev["ownership_proposed"] = proposed
                     if e["id"] in own:
                         ev["ownership"] = own[e["id"]]
-                        ev["ownership_status"] = "confirmed" if own[e["id"]] == ev["ownership_proposed"] else "corrected"
+                        ev["ownership_status"] = "confirmed" if own[e["id"]] == proposed or not proposed else "corrected"
                     elif e.get("ownership_given_by_user"):
                         ev["ownership_status"] = "confirmed"
                     else:

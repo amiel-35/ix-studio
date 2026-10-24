@@ -48,18 +48,29 @@ def areas(layout, w, h, lg=None, gap=24, share=.58):
             return lay, (2 * m + tw, top, w - 3 * m - tw, ch), (m, top, tw, ch), [(0, 0, w, h)]
         th = round(.36 * ch)
         return lay, (m, top + th + m, w - 2 * m, ch - th - m), (m, top, w - 2 * m, th), [(0, 0, w, h)]
+    if lay == "full":  # the image fills the frame, the text sits over it, centred
+        return lay, (0, 0, w, h), (0, 0, w, h), []
     bh = round(.42 * h)
     return lay, (0, 0, w, h), (0, 0, w, bh) if lay == "overlay-top" else (0, h - bh, w, bh), []
 
 
 def wrap_lines(text, size, width):
-    lines, cur = 1, 0.0
-    for wd in text.split():
-        n = (len(wd) + 1) * size * .52
-        if cur and cur + n > width + size * .52:
-            lines, cur = lines + 1, 0.0
-        cur += n
-    return lines
+    total = 0
+    for seg in text.split("\n"):  # a line break the writer chose starts a new line
+        lines, cur = 1, 0.0
+        for wd in seg.split():
+            n = (len(wd) + 1) * size * .52
+            if cur and cur + n > width + size * .52:
+                lines, cur = lines + 1, 0.0
+            cur += n
+        total += lines
+    return total
+
+
+def sentences(t):
+    """The headline cut into its lines: the writer's line breaks, else one sentence per line."""
+    parts = t.split("\n") if "\n" in t else re.split(r"(?<=[.!?…])\s+(?=\S)", t)
+    return [p.strip() for p in parts if p.strip()]
 
 
 def headline_size(headline, iw, ih, cap, extra):
@@ -108,10 +119,18 @@ def render(d, brand, brief, variant, headline, alt=True):
     file_logo = bool(brand["logo"]) and not brand.get("logo_missing")
     kind = "file" if file_logo else "placeholder" if brand["logo_placeholder"] else "none"
     pos, lh, lm = brand["logo_position"], round(72 * u), round(40 * u)
-    lw = lh * 3 if kind == "file" else lh
-    lg = None if kind == "none" else (lm if pos.endswith("left") else w - lm - lw, lm if pos.startswith("top") else h - lm - lh, lw, lh)
-    slogan, sl = brand["slogan"], None
-    if slogan and lg:  # beside the logo, on its inner side; the reserved corner grows to cover both
+    lw = round(lh * (brand.get("logo_ratio") or 3)) if kind == "file" else lh
+    centre = pos == "bottom-center"
+    lg = None if kind == "none" else (lm if pos.endswith("left") else (w - lw) // 2 if centre else w - lm - lw, lm if pos.startswith("top") else h - lm - lh, lw, lh)
+    slogan, sl, sc = brand["slogan"], None, None
+    if slogan and lg and centre:  # under the logo, centred, in spaced letters; the reserved band covers both
+        fs, gap = 26 * u, round(14 * u)
+        while len(slogan) * fs * .8 > .9 * w:  # one line, letter-spacing included
+            fs *= .94
+        sh = round(fs * 1.3)
+        sc = (round(fs), sh)
+        lg = (min(lg[0], round(.05 * w)), h - lm - sh - gap - lh, max(lw, round(.9 * w)), lh + gap + sh)
+    elif slogan and lg:  # beside the logo, on its inner side; the reserved corner grows to cover both
         pad, fs = round(10 * u), 26 * u
         while len(slogan) * fs * .56 > .4 * w - 2 * pad:  # one line
             fs *= .94
@@ -122,12 +141,15 @@ def render(d, brand, brief, variant, headline, alt=True):
         sl = (right, off, sw, pad, round(fs))
         lg = (min(x, lg[0]), lg[1], max(x + sw, lg[0] + lg[2]) - min(x, lg[0]), lg[3])
     lay, ir, tr, solid = areas(variant["layout"], w, h, lg, round(24 * u), variant.get("share", .58))
-    over = lay.startswith("overlay")
+    full = lay == "full"
+    over = lay.startswith("overlay") or full
     p = 0 if lay == "ground" else round(56 * u)
     pt = pb = pl = pr = p
+    if full:
+        pt = round(.16 * h)  # the headline sits in the upper part, as on a campaign poster
     if lg and meets(tr, lg) and lay != "ground":
         band = round(24 * u)
-        vt = max(p, lg[1] + lg[3] - tr[1] + band) if lg[1] < h / 2 else max(p, tr[1] + tr[3] - lg[1] + band)
+        vt = max(pt, lg[1] + lg[3] - tr[1] + band) if lg[1] < h / 2 else max(p, tr[1] + tr[3] - lg[1] + band)
         hz = max(p, lg[0] + lg[2] - tr[0] + band) if pos.endswith("left") else max(p, tr[0] + tr[2] - lg[0] + band)
         if tr[2] > 2 * tr[3] and hz * tr[3] <= vt * tr[2]:  # a wide band: keep the logo's corner free on its side if that costs less area than a strip
             pl, pr = (hz, p) if pos.endswith("left") else (p, hz)
@@ -138,10 +160,13 @@ def render(d, brand, brief, variant, headline, alt=True):
     sub_t, cta_t = variant["subline"], brief["cta"]
     iw, ih = tr[2] - pl - pr, tr[3] - pt - pb
     ss, warns = round(34 * u), []
+    lines = sentences(headline) if full else [headline]
+    sized = "\n".join(lines)
+    hw = iw * (.8 if brand.get("upper") else 1)  # capitals run wider than the estimate
 
     def fit(ss):
         extra = (round(24 * u) + wrap_lines(sub_t, ss, min(iw, 34 * ss)) * ss * 1.3 if sub_t else 0) + (round(110 * u) if cta_t else 0) + ((80 + (40 if slogan else 0)) * u if kind == "none" else 0)
-        return headline_size(headline, iw, ih, .11 * math.sqrt(w * h), extra)
+        return headline_size(sized, hw, ih, .11 * math.sqrt(w * h), extra)
     size = fit(ss)
     while sub_t and size < 1.4 * ss and ss > round(24 * u):  # the headline must stay clearly above the subline
         ss = max(round(24 * u), round(ss * .94))
@@ -154,7 +179,9 @@ def render(d, brand, brief, variant, headline, alt=True):
     sg = round(min(26 * u, iw / (len(slogan) * .56))) if slogan else 0  # a slogan never wraps
     shape_c = brand["accent"] if brand["accent"] and brand["accent"] != ground else brand["text"]
     frame = f"border:{max(2, round(4 * u))}px solid {ink};" if lay == "ground" else ""
-    if over:
+    if full:  # no band: a soft halo of the ground behind the text, the photo stays whole
+        block, just = f"radial-gradient(ellipse at 50% 45%,{rgba(ground, .3)} 0%,{rgba(ground, 0)} 70%)", "flex-start"
+    elif over:
         edge = "to bottom" if lay == "overlay-top" else "to top"
         block = f"linear-gradient({edge},{rgba(ground, .55)} 0%,{rgba(ground, .55)} 35%,{rgba(ground, 0)} 100%)"
         just = "flex-start" if lay == "overlay-top" else "flex-end"
@@ -162,19 +189,29 @@ def render(d, brand, brief, variant, headline, alt=True):
         block, just = ground, "center"
     parts = [f'<img class="bg" src="{e(img)}" alt="">' if img else '<div class="shape"></div>']
     cta = f'<p class="cta">{e(cta_t)}</p>' if cta_t else ""
-    sub = f'<p class="sub">{e(fr(sub_t))}</p>' if sub_t else ""
+    if full:
+        sub = f'<p class="sub">{"<br>".join(e(glue(x)) for x in sub_t.split(chr(10)) if x.strip())}</p>' if sub_t else ""
+        hl_html = "".join(f'<span class="ln">{e(glue(x))}</span>' for x in lines)
+    else:
+        sub = f'<p class="sub">{e(fr(sub_t))}</p>' if sub_t else ""
+        hl_html = e(glue(headline))
     said = f'<p class="slogan">{e(fr(slogan))}</p>' if slogan else ""
     sig = f'<div class="sig">{e(brand["name"])}{said}</div>' if kind == "none" else ""
-    parts.append(f'<div class="blk"><h1 class="hl">{e(glue(headline))}</h1>{sub}{cta}{sig}</div>')
+    parts.append(f'<div class="blk"><h1 class="hl">{hl_html}</h1>{sub}{cta}{sig}</div>')
     if kind == "file":
         parts.append(f'<img class="logo" src="{e(brand["logo"])}" alt="{e(brand["name"])}">')
     elif kind == "placeholder":
         parts.append('<div class="logo ph">logo</div>')
-    if sl:
+    if sl or sc:
         parts.append(said)
-    chip = f"background:{ground};padding:{round(10 * u)}px;" if lg and not any(inside(lg, s) for s in solid) else ""
+    chip = f"background:{ground};padding:{round(10 * u)}px;" if lg and not full and not any(inside(lg, s) for s in solid) else ""
     lpos = f"{'left' if pos.endswith('left') else 'right'}:{lm}px;{'top' if pos.startswith('top') else 'bottom'}:{lm}px"
     slogan_css = ""
+    if centre:
+        lpos = f"left:{(w - lw) // 2}px;bottom:{lm + (sc[1] + round(14 * u) if sc else 0)}px"
+    if sc:
+        slogan_css = (f"\n.blk~.slogan{{position:absolute;left:0;right:0;bottom:{lm}px;z-index:2;margin:0;text-align:center;font-size:{sc[0]}px;"
+                      f"letter-spacing:.2em;{'text-transform:uppercase;' if brand.get('upper') else ''}{'background:' + ground + ';' if chip else ''}}}")
     if sl:
         right, off, sw, pad, fs = sl
         slogan_css = (f"\n.blk~.slogan{{position:absolute;{'right' if right else 'left'}:{off}px;{'top' if pos.startswith('top') else 'bottom'}:{lm}px;z-index:2;margin:0;"
@@ -193,6 +230,12 @@ body{{width:{w}px;height:{h}px;position:relative;overflow:hidden;background:{gro
 .slogan{{margin:{round(8 * u)}px 0 0;font-family:{bf};font-size:{sg}px;line-height:1.25;white-space:nowrap;color:{ink}}}{slogan_css}
 .logo{{position:absolute;{lpos};z-index:2;{chip}display:block;height:{lh}px;box-sizing:content-box}}
 .ph{{width:{lh}px;border:2px dashed {ink};display:flex;align-items:center;justify-content:center;font-family:{bf};font-size:{round(20 * u)}px;color:{ink}}}"""
+    if brand.get("upper"):
+        css += "\n.hl{text-transform:uppercase}"
+    if full:
+        css += (f"\n.blk{{align-items:center;text-align:center}}\n.hl .ln{{display:block}}\n.hl .ln+.ln{{margin-top:{round(.35 * size)}px}}"
+                f"\n.hl,.sub,.cta{{text-shadow:0 0 {round(18 * u)}px {rgba(ground, .45)}}}"
+                f"\n.sub{{margin-top:auto;max-width:none}}\n.cta{{align-self:center;border:0;padding:0;margin-top:{round(24 * u)}px;font-size:{ss}px}}")
     return (f'<!doctype html>\n<html lang="{e(brief["language"] or "en")}"><head><meta charset="utf-8">'
             f'<title>{e(brand["name"])}</title>{fonts_link(brand)}\n<style>\n{css}\n</style></head>\n<body data-layout="{lay}">\n' + "\n".join(parts) + "\n</body></html>\n", warns)
 

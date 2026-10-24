@@ -27,7 +27,8 @@ each step, give the path of the page to open and the one question it asks.
 1. **Brand, minimal.** `<dir>/brand.md`, about ten `key: value` lines: `name`, `background`, `text`, `accent`
    (hex), `extra colours` (a comma-separated list of hex: `extra colours: #E8C547, #7A8B6F`), `headline colour`
    (hex), `headline font`, `body font`, `logo` (a file path, or `placeholder` when the logo exists but was not given:
-   the piece shows a dashed square), `logo position` (`bottom-right` default, `bottom-left`, `top-right`, `top-left`),
+   the piece shows a dashed square), `logo position` (`bottom-right` default, `bottom-left`, `top-right`, `top-left`, `bottom-center`: the logo centred at
+   the bottom, the slogan under it in spaced letters), `headline case` (`as written` default, or `upper`),
    `voice`, `slogan` (the brand's tagline or signature line, exact words: the piece sets it next to the logo),
    `never` (the exact words or characters that must not appear in the copy, `;`-separated, e.g.
    `never: detox; superfood; —`; prose there shows up as "not verifiable"), `never show` (what the image must not
@@ -45,24 +46,37 @@ each step, give the path of the page to open and the one question it asks.
    an image prompt, in any mode. Then `python3 "$ST" brand <dir>`.
    The rich dossier (skill `brand-dossier`) stays available but is not required.
 2. **Brief of the piece.** `<dir>/brief.md`: `objective` (awareness, purchase, engagement...), `audience`,
-   `message`, `format` (`post-4x5`, `post-1x1`, `story`, `poster-a3`, `poster-3x2`, `linkedin`, or a free size `WxH` like `1600x900`), optional `fixed`, `cta`, `language`. Clean
-   the message of drawn-in solutions ("a photo of the bottle on a beach" is a solution, not a message). Then
-   `python3 "$ST" brief <dir>`.
+   `message`, `format` (`post-4x5`, `post-1x1`, `story`, `poster-a3`, `poster-3x2`, `linkedin`, or a free size `WxH` like `1600x900`; several, comma-separated, make one piece per format at the pick; a film or a TV spot is
+   left out with a message, the studio makes stills), optional `fixed`, `cta`, `language`. Clean
+   the message of drawn-in solutions ("a photo of the bottle on a beach" is a solution, not a message). Optional
+   `layout`: when set (`full` for a campaign poster), every variant and the piece take it; the idea diverges, the
+   layout does not. Never hand the person a brief they have not read: `python3 "$ST" form <dir>` writes
+   `0-brief-form.html`, the brief as a form, prefilled from `brief.md` when there is one, or from another piece with
+   `--from <piece dir>` (a declination of a campaign: it also takes that piece's brand and references, and the person
+   only changes what changes); the page builds the command that writes `brief.md`. Then `python3 "$ST" brief <dir>`.
+   `references.md` (`- <file or url> | <what it shows>` per line) lists the visuals the person kept for the brand;
+   `brand --from-dossier` writes it from the dossier's kept visuals, and the brief page shows them.
 3. **Divergence.** The method is the one of [design-divergent](https://github.com/amiel-35/ix-design-divergent):
    if that plugin is installed, follow it for the mandates and the attractor; it is the reference. Here, scaled to
    an ad: propose 3 stances that each look somewhere else, plus one rupture; then run **one subagent per mandate,
-   in parallel, blind** (each sees the brand, the brief, `bans.md` if any, and its own mandate only). Each writes
+   in parallel, blind** (each sees the brand, the brief, `bans.md` if any, `references.md` if any, opening the local
+   images, and its own mandate only; the references give the grammar to keep, light included, never a picture to
+   copy). Each writes
    `variants/<id>.json`: `mandate`, `default` (an object `{"headline": "...", "image": "..."}`: what it would have made by default, written
    down, then set aside), `headline`, `subline`, `image_prompt` (what the image shows, no text in it), `layout`
-   (`side|stack|ground|overlay-top|overlay-bottom`), `ground` (`background|text|accent`), `why`, optionally `fit` (`contain`, the default: the whole image shows; `cover`: it may be cropped). The brand does not
+   (`side|stack|ground|overlay-top|overlay-bottom|full`), `ground` (`background|text|accent`), `why`, optionally `fit` (`contain`, the default: the whole image shows; `cover`: it may be cropped). The brand does not
    diverge: the idea does. **Pick a layout that does not cover the subject of the image.** `side` (image and a flat
    brand panel next to each other; stacks in a portrait or square piece), `stack` (image above, panel below) and
    `ground` (flat brand colour, the image a framed inset) never overlap the image; use `overlay-top` or
-   `overlay-bottom` only when the image prompt leaves that edge calm. Each mandate chooses its own layout: the
-   stances should not all share one (`diverge` warns when they do). Before returning, each subagent rereads its own
+   `overlay-bottom` only when the image prompt leaves that edge calm. `full` is the campaign poster: the photo fills
+   the frame, the headline sits centred in its upper part (one sentence per line), the subline and the CTA centred
+   above the logo; use it when the brief's `fixed` asks for the campaign's look, and then every mandate keeps it.
+   Otherwise each mandate chooses its own layout: the stances should not all share one (`diverge` warns when they do). Before returning, each subagent rereads its own
    headline and subline in the piece's language as a reader would, looking for any second reading (sexual, vulgar,
    ridiculous, hurtful), slang included; if it finds one, it rewrites the line. No word list: a human eye.
    Then `python3 "$ST" diverge <dir>` and let the person pick: `python3 "$ST" pick <dir> <id> [--headline "..."] [--subline "..."]`.
+   A campaign is a series: `python3 "$ST" pick <dir> v1 v3 v4` makes one piece per kept variant under
+   `<dir>/pieces/<id>/` (same brand, brief and references), each carried on with its own `image`, `compose`, `check`.
 4. **The piece.** `python3 "$ST" image <dir>` then `python3 "$ST" compose <dir>`. The image comes from an
    executor behind an adapter: the user's key (`OPENAI_API_KEY`), or locally their own plan through the Codex CLI.
    With neither, the piece is composed on a flat brand ground and the page says so: say it too, with how to plug a

@@ -16,6 +16,7 @@ SOURCE_TYPES = ("typed", "skill", "inferred", "created")
 CONFIDENCE = ("high", "medium", "low")
 OWNERSHIP = ("official", "official_relayed", "probable", "uncertain")
 EVIDENCE_KINDS = ("page", "file", "web_image", "video", "skill", "text")
+VISUAL_KINDS = ("page", "file", "web_image", "video")  # what the user can keep or discard in the review
 
 # Priority between source types (R3): skill, then typed; a created value once validated counts as typed.
 TYPE_RANK = {"skill": 0, "typed": 1, "created": 1, "inferred": 2}

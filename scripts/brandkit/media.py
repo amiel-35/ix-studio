@@ -8,8 +8,11 @@ import json
 import shutil
 import subprocess
 import tempfile
+import urllib.error
 import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
 
 from model import today
 
@@ -110,3 +113,60 @@ def sample(image, k=6):
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".svg")
+
+
+class _Metas(HTMLParser):
+    """The <meta> tags of a page's head, as (name or property, content)."""
+
+    def __init__(self):
+        super().__init__()
+        self.metas = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "meta":
+            a = dict(attrs)
+            key = (a.get("property") or a.get("name") or "").lower()
+            if key and a.get("content"):
+                self.metas.append((key, a["content"].strip()))
+
+
+def og_image(url, timeout=4):
+    """The address of the image a page shows when shared (og:image), or None. Read only, nothing is stored."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (ix-studio brandkit)"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            if r.headers.get_content_type().startswith("image/"):
+                return r.geturl()
+            raw = r.read(400_000)
+            base = r.geturl()
+            charset = r.headers.get_content_charset() or "utf-8"
+        p = _Metas()
+        p.feed(raw.decode(charset, "replace"))
+        found = {k: v for k, v in reversed(p.metas)}
+        for key in ("og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src"):
+            if found.get(key):
+                img = urljoin(base, found[key])
+                return img if img.startswith(("http://", "https://")) else None
+    except urllib.error.HTTPError as err:
+        err.close()
+        return None
+    except Exception:  # unreachable, blocked, slow, malformed: no preview, the caller shows a link
+        return None
+    return None
+
+
+def preview_url(ev, timeout=4):
+    """The address of an image that shows a web evidence: itself when it is an image, else its page's og:image."""
+    where = ev.get("where", "")
+    if not where.startswith(("http://", "https://")):
+        return None
+    if urlparse(where).path.lower().endswith(IMAGE_EXT):
+        return where
+    return og_image(where, timeout)
+
+
+def available():
+    return bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))

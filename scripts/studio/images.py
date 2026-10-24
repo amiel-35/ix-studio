@@ -20,6 +20,8 @@ from ui import cli
 
 BASE = "No text, no letters, no words, no logos, no watermark."
 CALM = "Leave the {where} ~40% of the frame calm and uncluttered, the headline sits there."
+FULL = ("The text sits over the image, centred: keep the upper half of the frame and its bottom fifth soft and uncluttered "
+        "(a blurred background, plain surfaces, no busy detail), the subject in the middle of the frame.")
 BESIDE = "The text sits beside the image, not on it: let the subject fill the frame, centred, the whole subject inside the frame with a margin, nothing important at the edges."
 OR_MODEL = "google/gemini-2.5-flash-image"
 RATIOS = ((1, 1), (2, 3), (3, 2), (3, 4), (4, 3), (4, 5), (5, 4), (9, 16), (16, 9), (21, 9))
@@ -36,7 +38,8 @@ def build_prompt(brand, brief, variant) -> str:
     w, h = brief["size"]
     iw, ih = zone(brief, variant)
     parts = [variant["image_prompt"].rstrip(". ") + ".",
-             f"Format {iw}x{ih}, ratio {api_ratio((iw, ih))}, for the image zone of a {w}x{h} {brief['format']} poster.",
+             f"Format {iw}x{ih}, ratio {api_ratio((iw, ih))}, for the image zone of a {w}x{h} {brief['format']} poster"
+             " (this frame wins over any ratio named above: a series may reuse a prompt written for another format).",
              f"Mood from the brand palette: background {brand['background']}, text {brand['text']}"
              + (f", accent {brand['accent']}" if brand["accent"] else "") + ".",
              f"Voice of the brand: {brand['voice']}." if brand["voice"] else "",
@@ -51,6 +54,8 @@ def zone(brief, variant):
 
 
 def calm(layout) -> str:
+    if layout == "full":
+        return FULL
     where = {"overlay-top": "top", "top": "top", "overlay-bottom": "bottom", "bottom": "bottom"}.get(layout)
     return CALM.format(where=where) if where else BESIDE
 

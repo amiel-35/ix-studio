@@ -53,12 +53,15 @@ variantes en aveugle, l'attracteur, tu choisis).
 
 `brand.md`, une ligne `clé: valeur` par entrée : `name`, `background`, `text` (obligatoires) ; `accent`,
 `extra colours` (séparées par des virgules), `headline colour` (hex) ; `headline font`, `body font` ; `logo` (un
-fichier, ou `placeholder`), `logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`) ; `slogan` (mots
-exacts, posé près du logo) ; `voice` ; `never` (mots ou caractères exacts, séparés par `;`) ; `never show` (ce que
+fichier, ou `placeholder`), `logo position` (`bottom-right`, `bottom-left`, `top-right`, `top-left`, `bottom-center` : logo centré, slogan
+dessous) ; `headline case` (`as written` ou `upper`) ; `slogan` (mots exacts, posé près du logo) ; `voice` ; `never` (mots ou caractères exacts, séparés par `;`) ; `never show` (ce que
 l'image ne doit pas montrer) ; `notes`. Une valeur suivie de `(à confirmer)` est utilisée, et le contrôle signale que
 la pièce s'appuie dessus.
 
-`brief.md` : `objective`, `audience`, `message` (obligatoires) ; `format` ; `fixed` ; `cta` ; `language`.
+`brief.md` : `objective`, `audience`, `message` (obligatoires) ; `format` ; `layout` (imposée à toutes les variantes,
+par exemple `full` pour une affiche de campagne) ; `fixed` ; `cta` ; `language`. `studio form <dir> [--from <pièce>]`
+l'écrit par un formulaire pré-rempli ; `references.md` liste les visuels gardés pour la marque ; `studio pick <dir> v1 v3`
+fait une série (et plusieurs formats, séparés par des virgules, une pièce chacun).
 
 Formats : `post-4x5` (1080×1350, par défaut), `post-1x1` (1080×1080), `story` (1080×1920), `poster-a3` (1240×1754),
 `poster-3x2` (1800×1200), `linkedin` (1200×627), ou une taille libre comme `1600x900` (largeur x hauteur, 200 à 4000 px de côté).
