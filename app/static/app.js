@@ -118,7 +118,7 @@
       else await api.drawImage(t.project, t.piece);
       ctx.log(owner(t), "toi", "Relancé : " + taskTitle(t), reason);
       await ctx.answered(owner(t), "C'est relancé.", { before: snap, any: false });
-    });
+    }, "Le studio relance.");
     return h("div", { className: "task" }, h(Head, null, taskTitle(t)),
       h(Callout, { tone: "risk", label: "Ça n'a pas marché" }, reason),
       h("div", { className: "gestures" },
@@ -474,7 +474,7 @@
       ctx.log(pid, "toi", "Brief relu et validé", changed.length ? "Corrigé : " + changed.join(", ") : "Rien à corriger");
       if (r.left_out.length) ctx.log(pid, "studio", "Formats mis de côté : " + r.left_out.join(", "), fields.left_out_note || "");
       await ctx.answered(pid, "Brief validé" + (r.left_out.length ? ". Mis de côté : " + r.left_out.join(", ") : "") + ".", { before: snap });
-    });
+    }, "Le studio prépare les consignes.");
     return h("div", { className: "task" }, h(Head, { sr: true }, "Relis le brief"),
       h("p", { className: "sentence" }, PARTS.map(piece), extra && EXTRA.map(piece), "."),
       h("p", { className: "small muted" }, "Touche un passage pour le corriger.",
@@ -513,7 +513,7 @@
       await api.diverge(pid); // « C'est bon » is the one gesture: the instructions are validated and the four agents start
       ctx.log(pid, "toi", "Divergence lancée", "Quatre agents écrivent chacun leur variante, à l'aveugle");
       await ctx.answered(pid, "Consignes validées : quatre agents écrivent chacun leur variante.", { before: snap, any: false });
-    });
+    }, "Le studio lance la divergence.");
     return h("div", { className: "task" }, h(Head, null, "Voilà ce que les quatre agents vont recevoir"),
       edit ? h("div", { className: "sec" },
         h("div", { className: "field" }, h("label", { htmlFor: "common" }, "La consigne commune"), h("textarea", { id: "common", value: m.common, onChange: (e) => setM({ ...m, common: e.target.value }) })),
@@ -535,7 +535,7 @@
       await api.diverge(pid);
       ctx.log(pid, "toi", "Divergence lancée", "Quatre agents écrivent chacun leur variante, à l'aveugle");
       await ctx.answered(pid, "Divergence lancée : quatre agents écrivent chacun leur variante.", { before: snap });
-    });
+    }, "Le studio lance la divergence.");
     return h("div", { className: "task" }, h(Head, null, "Lance la divergence"),
       h("p", { className: "lead" }, "Quatre agents écrivent chacun une variante, sans voir celles des autres. Tu choisis ensuite."),
       h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: launch, "aria-label": "Lancer la divergence" }, "Lancer")));
@@ -559,7 +559,7 @@
       ctx.log(pid, "toi", "Série choisie : " + plural(chosen.length, "variante", "variantes") + ", " + plural(pcs.length, "pièce", "pièces"),
         chosen.map((id) => { const v = variants.find((x) => x.id === id); return v.mandate + " : " + v.headline; }).join(" ; "));
       await ctx.answered(pid, "Série créée : " + plural(pcs.length, "pièce", "pièces") + " à faire.", { before: snap });
-    });
+    }, "Le studio prépare la série.");
     return h("div", { className: "task" }, h(Head, null, readOnly ? "Les variantes de la série" : "Quelle variante, ou lesquelles ?"),
       !readOnly && h("p", { className: "lead muted" }, "Chaque variante gardée devient une pièce par format."),
       h("ul", { className: "variants", "aria-label": "Variantes" }, variants.map((v) => {
@@ -594,12 +594,12 @@
     const open = (pc) => ctx.openTask(synth(p, "piece-any", { piece: pc.id, title: pc.label }));
     const toDraw = p.pieces.filter((x) => !x.image && !jobs.some((j) => j.kind === "image" && j.piece === x.id)).length, toCompose = p.pieces.filter((x) => x.image && !x.composed).length;
     const hasPrompt = ctx.data.tasks.some((t) => t.scope === "project" && t.project === p.id && t.kind === "prompt"); // an image that failed is a task of its own, not a prompt to read
-    const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(p.id); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(n.decide, "pièce", "pièces") + "."); });
+    const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(p.id); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(n.decide, "pièce", "pièces") + "."); }, "Le studio prépare le zip.");
     return h(React.Fragment, null,
       h(Where, null, "La série · " + plural(n.total, "pièce", "pièces")),
       (toDraw > 1 && hasPrompt || toCompose > 1 || n.decide > 0) && h("div", { className: "take" },
-        toDraw > 1 && hasPrompt && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.drawAll(p.id)), "aria-label": "Lancer les " + toDraw + " images qui manquent, sans relire les prompts" }, "Dessiner toutes les images"),
-        toCompose > 1 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.composeAll(p.id)), "aria-label": "Composer et vérifier les " + toCompose + " pièces qui ont leur image" }, "Composer tout"),
+        toDraw > 1 && hasPrompt && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.drawAll(p.id), "Le studio lance toutes les images."), "aria-label": "Lancer les " + toDraw + " images qui manquent, sans relire les prompts" }, "Dessiner toutes les images"),
+        toCompose > 1 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.composeAll(p.id), "Le studio compose les pièces, une par une."), "aria-label": "Composer et vérifier les " + toCompose + " pièces qui ont leur image" }, "Composer tout"),
         n.decide > 0 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(n.decide, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(n.decide, "pièce gardée", "pièces gardées"))),
       h("ul", { className: "serie", "aria-label": "Les pièces de la série" }, p.pieces.map((pc) => {
         const w = STAGE_WORDS[stageOf(pc, jobs)], src = pieceSrc(pc);
@@ -640,7 +640,7 @@
       ctx.log(pid, "toi", (all ? "Toutes les images lancées : " : "Images lancées pour " + pc.variant + " : ") + plural(r.jobs.length, "pièce", "pièces"), "Prompt relu : " + prompt);
       await ctx.answered(pid, all ? "Toutes les images sont lancées : " + plural(r.jobs.length, "pièce", "pièces") + "." : "Image" + (several ? "s lancées" : " lancée") + " pour " + pc.variant + ".",
         { before: snap, any: false, sibling: all ? undefined : (t) => t.kind === "prompt" && t.variant !== pc.variant });
-    });
+    }, "Le studio lance les images.");
     return h("div", { className: "task" },
       h(Eyebrow, null, several ? pc.variant + " · " + formats : pc.label + " · " + pc.size[0] + " × " + pc.size[1]), h(Head, null, words.headline || pc.headline),
       !edit && words.subline && h("p", { className: "lead muted" }, words.subline),
@@ -668,15 +668,15 @@
       const r = await api.compose(pid, id);
       ctx.log(pid, "studio", "Pièce composée : " + pc.label, r.check.pass + " réussis, " + r.check.warn + " alertes, " + r.check.fail + " échecs");
       await ctx.answered(pid, "Pièce composée et vérifiée : " + r.check.pass + " contrôles réussis, " + plural(r.check.warn, "alerte", "alertes") + ".", { before: snap, prefer: (t) => t.piece === id, any: false });
-    });
+    }, "Le studio compose la pièce et la vérifie.");
     const again = () => ctx.act(async (snap) => {
       await api.savePrompt(pid, id, prompt);
       await api.drawImage(pid, id);
       ctx.log(pid, "toi", "Image refaite pour " + pc.label, "Prompt : " + prompt);
       await ctx.answered(pid, "Nouvelle image lancée pour " + pc.label + ".", { before: snap, any: false, sibling: (t) => t.kind === "compose" && t.piece !== id });
-    });
+    }, "Le studio relance l'image.");
     const ready = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid && t.kind === "compose").length; // the pieces that have their image and wait to be composed
-    const all = () => ctx.act(async (snap) => { await ctx.composeAll(pid, snap, true); });
+    const all = () => ctx.act(async (snap) => { await ctx.composeAll(pid, snap, true); }, "Le studio compose les pièces, une par une.");
     return h("div", { className: "task" }, h(PieceHead, { pc }),
       h("div", { className: "pair" }, h(Frame, { src: pc.image, alt: "Image de " + pc.label, size: pc.size }),
       redo ? h("div", { className: "sec" },
@@ -702,7 +702,7 @@
       await ctx.answered(pid, verdict === "keep" ? pc.label + " : gardée." : pc.label + " : renvoyée, le studio retient « " + words.trim() + " ».",
         { before: snap, prefer: (t) => t.piece === id, any: false, sibling: verdict === "keep" ? (t) => t.kind === "decide" && t.piece !== id : undefined });
     });
-    const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); });
+    const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le png.");
     useCmds(ctx, pc ? [
       !pc.decision && { id: "keep", label: "Garder " + pc.label, run: () => send("keep") },
       { id: "take", label: "Télécharger " + pc.label + " en png", run: take },
@@ -1025,7 +1025,7 @@
         ctx.close(f.name.trim() + " est enregistrée." + (siteChanged && f.site.trim() ? " Le nouveau site n'est pas lu : « Relire le site » le fait." : ""));
       });
     };
-    const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site de " + b.name + "."); });
+    const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site de " + b.name + "."); }, "Le studio relit le site.");
     return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, "Modifier " + b.name)),
       h("form", { className: "sec form", onSubmit: save },
         h("div", { className: "field" }, h("label", { htmlFor: "eb-name" }, "Nom"), h("input", { id: "eb-name", type: "text", autoFocus: true, value: f.name, onChange: set("name"), autoComplete: "off" })),
@@ -1166,6 +1166,7 @@
     const [notice, setNotice] = useState(null);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [wait, setWait] = useState(null); // the word said while a slow gesture runs
     const [palette, setPalette] = useState(false);
     const [machine, setMachine] = useState({ ok: true, missing: [] }); // what the machine lacks (Chrome, Claude Code, an image engine); said in the studio's column
     const [rev, setRev] = useState(0);
@@ -1241,10 +1242,11 @@
 
     /* an action runs under `busy`; `snap` is the set of tasks before it, to know which ones are new afterwards */
     const snap = useCallback(() => new Set(tasksRef.current.map((t) => t.id)), []);
-    const act = useCallback(async (fn) => {
+    const act = useCallback(async (fn, word) => {
       setBusy(true); setError(null);
       const s = snap();
-      try { return await fn(s); } catch (e) { fail(e); } finally { setBusy(false); }
+      const timer = setTimeout(() => setWait(word || "Un instant."), 1000); // a gesture that takes more than a second says so
+      try { return await fn(s); } catch (e) { fail(e); } finally { clearTimeout(timer); setWait(null); setBusy(false); }
     }, [fail, snap]);
 
     /* an answer settles a task: on to the next one of the same owner if it follows, else back to the columns, with one line that says what was done.
@@ -1298,8 +1300,8 @@
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
       if (sel.brand && sel.project) {
         const mine = data.tasks.filter((t) => t.scope === "project" && t.project === sel.project);
-        if (mine.some((t) => t.kind === "prompt")) cmds.push({ id: "draw-all", group: "Ce projet", label: "Dessiner toutes les images", run: () => act(() => drawAll(sel.project)) });
-        if (mine.filter((t) => t.kind === "compose").length > 1) cmds.push({ id: "compose-all", group: "Ce projet", label: "Composer tout", run: () => act(() => composeAll(sel.project)) });
+        if (mine.some((t) => t.kind === "prompt")) cmds.push({ id: "draw-all", group: "Ce projet", label: "Dessiner toutes les images", run: () => act(() => drawAll(sel.project), "Le studio lance toutes les images.") });
+        if (mine.filter((t) => t.kind === "compose").length > 1) cmds.push({ id: "compose-all", group: "Ce projet", label: "Composer tout", run: () => act(() => composeAll(sel.project), "Le studio compose les pièces, une par une.") });
         cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: showJournal });
         cmds.push({ id: "edit-project", group: "Ce projet", label: "Modifier le projet", run: editProject });
       }
@@ -1372,6 +1374,7 @@
     const deepest = dive ? taskTitle(dive) : sel.project ? projectInfo(sel.project).name : sel.brand ? brandName(sel.brand) : "Studio";
     useEffect(() => { document.title = (n ? "(" + n + ") " : "") + deepest + " · Studio créatif"; }, [n, deepest]);
 
+    const slow = wait && h("p", { className: "working slow", role: "status" }, h("b", { "aria-hidden": "true" }), wait);
     const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
     const pal = palette && h(Palette, { cmds, onClose: () => setPalette(false) });
@@ -1384,7 +1387,7 @@
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
-        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h("p", { className: "ou small muted" }, whereLine(t)), err, h(Core, { ctx, t, key: t._k }))), pal);
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h("p", { className: "ou small muted" }, whereLine(t)), slow, err, h(Core, { ctx, t, key: t._k }))), pal);
     }
 
     /* ----- the columns ----- */
@@ -1398,7 +1401,7 @@
     const shell = (kind, i) => {
       const last = i === cols.length - 1;
       return h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), "data-col": i, "aria-label": labels[kind] },
-        last && err, last && h(Notice, { text: notice }), node(kind));
+        last && slow, last && err, last && h(Notice, { text: notice }), node(kind));
     };
     if (narrow) {
       const i = cols.length - 1;
@@ -1410,7 +1413,7 @@
     const strip = (kind, i) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => popTo(i + 1), "aria-label": "Revenir à : " + labels[kind] }, h("span", null, labels[kind]));
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
       h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => i < fold ? strip(kind, i) : shell(kind, i)),
-        cols.length === 1 && h("div", { className: "rest" }, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. ", h("span", { className: "mono" }, MOD + " K"), " pour tout trouver."))),
+        cols.length === 1 && h("div", { className: "rest" }, slow, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. ", h("span", { className: "mono" }, MOD + " K"), " pour tout trouver."))),
       pal);
   }
 
