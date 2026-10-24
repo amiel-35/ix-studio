@@ -116,7 +116,9 @@
     useEffect(() => { if (focus && ref.current) ref.current.focus({ preventScroll: true }); }, []);
     return h("h1", { ref, tabIndex: -1, className: sr ? "sr" : "head" }, children);
   }
-  const Notice = ({ text }) => text ? h("p", { className: "notice", role: "status" }, h(Badge, { tone: "success" }, "Fait"), h("span", null, text)) : null;
+  /* what was just done, in a line; it may offer the one gesture that follows from it (`action`: {label, run}) */
+  const Notice = ({ text, action, busy }) => text ? h("p", { className: "notice", role: "status" }, h(Badge, { tone: "success" }, "Fait"), h("span", null, text, action && h(React.Fragment, null, " ",
+    h("button", { type: "button", className: "linkbtn", disabled: busy, onClick: action.run, "aria-label": action.label }, action.label)))) : null;
   const Wait = ({ text }) => h("p", { className: "muted", role: "status" }, text || "Un instant.");
   /* a piece or an image at the ratio it will have; a click opens it full screen (a click, Escape or "Fermer" brings it back) */
   function Frame({ src, alt, size }) {
@@ -1071,9 +1073,14 @@
         await api.updateBrand(bid, { name: f.name.trim(), site: f.site.trim(), description: f.description });
         ctx.log("@" + bid, "toi", "Marque modifiée : " + f.name.trim(), "");
         await ctx.refresh(); ctx.touch();
-        ctx.close(f.name.trim() + " est enregistrée." + (siteChanged && f.site.trim() ? " Le nouveau site n'est pas lu : « Relire le site » le fait." : ""));
+        // a new site is not read by itself: the notice offers it, so that nobody has to remember to come back to this form
+        ctx.close(siteChanged && f.site.trim() ? { text: f.name.trim() + " est enregistrée. Son nouveau site n'est pas encore lu.", action: { label: "Relire le site", run: () => rereadSite(f.name.trim()) } } : f.name.trim() + " est enregistrée.");
       });
     };
+    const rereadSite = (name) => ctx.act(async () => {
+      await api.discover(bid); ctx.log("@" + bid, "toi", "Site relu", "Le studio lit " + (f.site.trim() ? host(f.site.trim()) : "le site"));
+      await ctx.refresh(); ctx.touch(); ctx.notify("Le studio relit le site " + deName(name) + ".");
+    }, "Le studio relit le site.");
     const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site " + deName(b.name) + "."); }, "Le studio relit le site.");
     return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, "Modifier " + b.name)),
       h("form", { className: "sec form", onSubmit: save },
@@ -1274,7 +1281,7 @@
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
     const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
     const showJournal = useCallback(() => move((s) => ({ ...s, detail: { kind: "journal" }, task: null })), [move]);
-    const close = useCallback((text) => move((s) => ({ ...s, panel: null }), typeof text === "string" ? text : null), [move]);
+    const close = useCallback((text) => move((s) => ({ ...s, panel: null }), typeof text === "string" || (text && text.text) ? text : null), [move]);
     const closeDetail = useCallback((text) => move((s) => ({ ...s, detail: null }), typeof text === "string" ? text : null), [move]);
     const popTo = useCallback((n) => { setNotice(null); setSel((s) => { let x = s; while (columnsOf(x).length > n) { const y = popOnce(x); if (y === x) break; x = y; } return x; }); }, []);
 
@@ -1330,7 +1337,7 @@
     /* what was just done is said once, in the core or in the columns, and goes: it is not a state of the screen */
     useEffect(() => {
       if (!notice) return;
-      const t = setTimeout(() => setNotice(null), 9000);
+      const t = setTimeout(() => setNotice(null), notice.action ? 20000 : 9000); // a line that offers a gesture stays a little longer
       return () => clearTimeout(t);
     }, [notice]);
     const cols = columnsOf(sel);
@@ -1429,6 +1436,8 @@
     const deepest = dive ? taskTitle(dive) : sel.project ? projectInfo(sel.project).name : sel.brand ? brandName(sel.brand) : "Studio";
     useEffect(() => { document.title = (n ? "(" + n + ") " : "") + deepest + " · Studio créatif"; }, [n, deepest]);
 
+    const note = notice && typeof notice === "object" ? notice : { text: notice };
+    const noticeEl = h(Notice, { text: note.text, action: note.action, busy });
     const slow = wait && h("p", { className: "working slow", role: "status" }, h("b", { "aria-hidden": "true" }), wait);
     const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
@@ -1442,7 +1451,7 @@
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
-        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h(Notice, { text: notice }), h("p", { className: "ou small muted" }, whereLine(t)), slow, err, h(Core, { ctx, t, key: t._k }))), pal);
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, noticeEl, h("p", { className: "ou small muted" }, whereLine(t)), slow, err, h(Core, { ctx, t, key: t._k }))), pal);
     }
 
     /* ----- the columns ----- */
@@ -1456,7 +1465,7 @@
     const shell = (kind, i) => {
       const last = i === cols.length - 1;
       return h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), "data-col": i, "aria-label": labels[kind] },
-        last && slow, last && err, last && h(Notice, { text: notice }), node(kind));
+        last && slow, last && err, last && noticeEl, node(kind));
     };
     if (narrow) {
       const i = cols.length - 1;
@@ -1468,7 +1477,7 @@
     const strip = (kind, i) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => popTo(i + 1), "aria-label": "Revenir à : " + labels[kind] }, h("span", null, labels[kind]));
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
       h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => i < fold ? strip(kind, i) : shell(kind, i)),
-        cols.length === 1 && h("div", { className: "rest" }, slow, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
+        cols.length === 1 && h("div", { className: "rest" }, slow, err, noticeEl, h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
       pal);
   }
 
