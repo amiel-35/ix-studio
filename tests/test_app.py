@@ -232,10 +232,46 @@ class Api(unittest.TestCase):
         self.assertEqual((b["assets"]["logo"]["state"], b["assets"]["logo"]["source"], [x["note"] for x in b["assets"]["logos"]]),
                          ("confirmed", "choisi par toi", ["Logo déposé, png"]))
         self.assertTrue(b["assets"]["logo"]["preview"].startswith("data:image/png;base64,"))
-        self.assertEqual((b["stage"], b["waiting"]), ("ready", []))
+        self.assertEqual((b["stage"], [(t["kind"], t["title"]) for t in b["waiting"]]), ("to_brief", [("brand-brief", "Choisir les couleurs de la marque")]))  # a logo is not enough
+        r = self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un fonds de cuve", "colours": [{"hex": "#F4EFE6", "role": "background"}, {"hex": "#1e2a24", "role": "text"}]}})
+        self.assertEqual((r["stage"], r["needs"]), ("ready", []))
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}")["waiting"], [])
         svg = self.drop(bid, b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><rect width="4" height="4"/></svg>', "image/svg+xml", "l.svg")
         self.assertEqual(len(svg["assets"]["logos"]), 2)  # the first one stays a candidate; the last one dropped is chosen
         self.assertEqual(svg["assets"]["logo"]["id"], svg["assets"]["logos"][1]["id"])
+
+    def test_a_brand_is_ready_with_a_logo_and_two_colours_chosen_with_the_pickers(self):
+        bid = self.call("POST", "/api/brands", {"name": "Deux Couleurs"})["id"]
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "une cave"}})
+        self.drop(bid, b"\x89PNG\r\n\x1a\n" + b"0" * 8)
+        g = self.call("GET", f"/api/brands/{bid}/brief")
+        self.assertEqual((g["needs"], g["palette"]), (["colours"], {"background": None, "text": None, "accent": None}))
+        for bad in ([{"hex": "#ffffff", "role": "background"}], [{"hex": "#ffffff", "role": "background"}, {"hex": "#ffffff", "role": "text"}],
+                    [{"hex": "ffffff", "role": "background"}, {"hex": "#000000", "role": "text"}], [{"hex": "#ffffff", "role": "background"}, {"hex": "#000000", "role": "title"}],
+                    [{"hex": "#ffffff", "role": "background"}, {"hex": "#000000", "role": "text"}, {"hex": "#ff0000", "role": "text"}]):
+            self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "une cave", "colours": bad}}, code=400)
+        self.assertEqual(self.stage(bid), "to_brief")
+        r = self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"colours": [{"hex": "#ffffff", "role": "background"}, {"hex": "#112233", "role": "text"}, {"hex": "#C8553D", "role": "accent"}]}})
+        self.assertEqual((r["stage"], r["needs"], r["palette"]), ("ready", [], {"background": "#ffffff", "text": "#112233", "accent": "#c8553d"}))
+        b = self.call("GET", f"/api/brands/{bid}")
+        self.assertEqual([(c["hex"], c["role"], c["state"]) for c in b["assets"]["colours"]], [("#ffffff", "background", "confirmed"), ("#112233", "text", "confirmed"), ("#c8553d", "accent", "confirmed")])
+        self.assertEqual(b["identity"]["colours"]["state"], "confirmed")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "Premier"})["id"]
+        self.assertEqual(self.asks(pid), ["brief"])  # the project passes step one
+
+    def test_a_site_that_gave_one_colour_is_not_ready(self):
+        bid = self.read(name="Une Couleur")
+        ev = self.call("GET", f"/api/brands/{bid}")["assets"]["evidence"]
+        r = self.call("POST", f"/api/brands/{bid}/keep", {"kept": [ev[0]["id"]], "logo": "logo-1"})  # one visual kept: one colour measured
+        self.assertEqual(len(r["assets"]["colours"]), 1)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "x"}})
+        self.call("POST", f"/api/brands/{bid}/confirm", {})
+        b = self.call("GET", f"/api/brands/{bid}")
+        self.assertEqual((b["stage"], [t["title"] for t in b["waiting"]]), ("to_brief", ["Choisir les couleurs de la marque"]))
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}/brief")["palette"]["background"], b["assets"]["colours"][0]["hex"])  # the one colour is proposed
+        self.assertEqual(self.asks(self.call("POST", f"/api/brands/{bid}/projects", {"name": "x"})["id"]), [])  # the project waits for its brand
+        r = self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"colours": [{"hex": "#ffffff", "role": "background"}, {"hex": "#112233", "role": "text"}]}})
+        self.assertEqual((r["stage"], r["needs"]), ("ready", []))
 
     def test_a_logo_dropped_is_checked(self):
         bid = self.call("POST", "/api/brands", {"name": "Contrôle Logo"})["id"]

@@ -271,16 +271,37 @@
     { k: "voice", before: ". Sa voix : ", label: "sa voix" },
     { k: "signature", before: ". Sa signature : « ", after: " »", label: "sa signature" },
     { k: "never", before: ". Elle ne dit jamais : ", label: "ce qu'elle ne dit jamais" },
-    { k: "colours", before: ". Ses couleurs : ", label: "ses couleurs" },
+    { k: "colours", before: ". Ses couleurs : ", label: "ses couleurs", palette: true },
   ];
+  const ROLE_WORDS = { background: "Fond", text: "Texte", accent: "Accent" };
+  const ROLES = ["background", "text", "accent"];
+  const SEED = "#808080"; // where the native picker starts when nothing is chosen yet: it is never stored
+
+  /* a colour of the brand as a swatch, chosen with the browser's own picker: the person never types a hexadecimal */
+  function Pick({ role, hex, onChange, onClear }) {
+    return h("div", { className: "pickrow" },
+      h("label", { className: "pick" },
+        h("input", { type: "color", className: "sr", value: hex || SEED, onChange: (e) => onChange(e.target.value.toLowerCase()), "aria-label": "Couleur : " + ROLE_WORDS[role].toLowerCase() + (hex ? "" : " (à choisir)"), "data-role": role }),
+        h("i", { className: "dot", "data-empty": hex ? undefined : "1", style: hex ? { background: hex } : undefined, "aria-hidden": "true" }),
+        h("span", { className: "small" }, ROLE_WORDS[role] + (hex ? "" : " : à choisir"))),
+      onClear && h("button", { type: "button", className: "linkbtn small", onClick: onClear, "aria-label": "Retirer la couleur d'accent" }, "Retirer"));
+  }
+  const Dots = ({ palette }) => {
+    const list = ROLES.filter((r) => palette[r]);
+    return h("span", { className: "dots", role: "img", "aria-label": list.map((r) => ROLE_WORDS[r].toLowerCase() + " " + palette[r]).join(", ") }, list.map((r) => h("i", { key: r, style: { background: palette[r] } })));
+  };
 
   function BrandBrief({ ctx, t }) {
     const bid = t.brand, name = t.brand_name;
     const [data, setData] = useState(null);
     const [fields, setFields] = useState(null);
     const [open, setOpen] = useState(null);
+    const [palette, setPalette] = useState(null); // the colours as the pickers have them; null while they are not touched
     useEffect(() => {
-      api.brandBrief(bid).then((b) => { setData(b); const f = {}; Object.keys(b.fields).forEach((k) => { f[k] = b.fields[k].value || ""; }); setFields(f); }).catch(ctx.fail);
+      api.brandBrief(bid).then((b) => {
+        setData(b); const f = {}; Object.keys(b.fields).forEach((k) => { f[k] = b.fields[k].value || ""; }); setFields(f);
+        if (b.done && b.needs.includes("colours") && !b.needs.includes("logo")) setOpen("colours"); // the one thing missing: the pickers are open
+      }).catch(ctx.fail);
     }, [bid]);
     useEffect(() => {
       if (!open) return;
@@ -290,35 +311,53 @@
     }, [open]);
     useCmds(ctx, []);
     if (!fields) return h("div", { className: "task" }, h(Wait, { text: "Chargement du brief de la marque." }));
-    if (data.done && !t.reopen) return h(NeedLogo, { ctx, bid, name });
+    if (data.done && !t.reopen && !data.needs.includes("colours")) return h(NeedLogo, { ctx, bid, name });
+    if (data.done && !t.reopen && data.needs.includes("logo")) return h(NeedLogo, { ctx, bid, name });
     const set = (k, v) => setFields({ ...fields, [k]: v });
-    const stateOf = (k) => (data.fields[k].state === "deduced" && (fields[k] || "") === data.fields[k].value ? "deduced" : "typed");
+    const pal = palette || data.palette; // what the pickers show: the person's choice, else what the studio proposes from the colours it has
+    const touch = (role, hex) => setPalette({ ...pal, [role]: hex });
+    const stateOf = (k) => (k === "colours" && palette ? "typed" : data.fields[k].state === "deduced" && (fields[k] || "") === data.fields[k].value ? "deduced" : "typed");
     const anyDeduced = BPARTS.some((p) => stateOf(p.k) === "deduced");
+    const hasPal = ROLES.some((r) => pal[r]);
+    const colourWords = (fields.colours || "").trim();
     const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
       role: "button", tabIndex: 0, className: "bit", "aria-expanded": open === p.k, "data-open": open === p.k, "data-state": stateOf(p.k),
-      "aria-label": "Corriger " + p.label + " : " + (fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
+      "aria-label": "Corriger " + p.label + " : " + (p.palette ? (hasPal ? ROLES.filter((r) => pal[r]).map((r) => ROLE_WORDS[r].toLowerCase() + " " + pal[r]).join(", ") : "vide") : fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
       onClick: () => setOpen(open === p.k ? null : p.k),
       onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
-    }, (fields[p.k] || "").trim() || h("span", { className: "blank" }, "à écrire")), p.after || "");
+    }, p.palette ? (hasPal ? h(Dots, { palette: pal }) : colourWords || h("span", { className: "blank" }, "à choisir")) : (fields[p.k] || "").trim() || h("span", { className: "blank" }, "à écrire")), p.after || "");
     const cur = BPARTS.find((p) => p.k === open);
+    const palWrong = palette && !(palette.background && palette.text);
+    const needColours = data.done && data.needs.includes("colours");
     const submit = () => ctx.act(async (snap) => {
-      const changed = BPARTS.filter((p) => (fields[p.k] || "") !== (data.fields[p.k].value || "")).map((p) => p.label);
-      await api.saveBrandBrief(bid, fields);
+      const changed = BPARTS.filter((p) => p.palette ? !!palette : (fields[p.k] || "") !== (data.fields[p.k].value || "")).map((p) => p.label);
+      await api.saveBrandBrief(bid, palette ? { ...fields, colours: ROLES.filter((r) => palette[r]).map((r) => ({ hex: palette[r], role: r })) } : fields);
       ctx.log("@" + bid, "toi", "Brief de la marque validé", changed.length ? "Corrigé : " + changed.join(", ") : "Rien à corriger");
       await ctx.answered("@" + bid, "Brief de " + name + " enregistré.", { before: snap, sibling: (t) => t.kind === "brand-brief" }); // a brand with no logo and no site still asks for one: the same task, said otherwise
     });
-    return h("div", { className: "task" }, h(Head, { sr: true }, "Relis le brief de " + name),
+    return h("div", { className: "task" }, h(Head, { sr: true }, needColours ? "Choisis les couleurs de " + name : "Relis le brief de " + name),
+      needColours && h("p", { className: "lead" }, "Pour composer une pièce, il faut au moins deux couleurs : une pour le fond, une pour le texte."),
       h("p", { className: "sentence" }, name, BPARTS.map(piece), "."),
       h("p", { className: "small muted" }, "Touche un passage pour le corriger." + (anyDeduced ? " Les passages en pointillé sont ce que le studio a déduit : validés tels quels, ils sont confirmés." : "")),
-      cur && h("div", { className: "editor" },
+      cur && cur.palette ? h("div", { className: "editor" },
+        h("span", { className: "small cap", id: "bed-colours" }, "Corriger " + cur.label),
+        h("div", { className: "pickers", role: "group", "aria-labelledby": "bed-colours" },
+          h(Pick, { role: "background", hex: pal.background, onChange: (x) => touch("background", x) }),
+          h(Pick, { role: "text", hex: pal.text, onChange: (x) => touch("text", x) }),
+          pal.accent ? h(Pick, { role: "accent", hex: pal.accent, onChange: (x) => touch("accent", x), onClear: () => touch("accent", null) })
+            : h("button", { type: "button", className: "linkbtn small", onClick: () => touch("accent", SEED), "aria-label": "Ajouter une couleur d'accent" }, "Ajouter un accent")),
+        h("span", { className: "small muted" }, "Touche une pastille pour choisir sa couleur. Le fond et le texte suffisent, l'accent est facultatif."),
+        h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait")))
+      : cur && h("div", { className: "editor" },
         h("label", { htmlFor: "bed", className: "small" }, "Corriger " + cur.label),
         cur.area ? h("textarea", { id: "bed", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value) })
           : h("input", { id: "bed", type: "text", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
         (cur.k === "voice" || cur.k === "never") && h("span", { className: "small muted" }, "Sépare par des virgules."),
         h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !(fields.what || "").trim(), onClick: submit, "aria-label": "Valider le brief de la marque" }, data.done ? "Enregistrer le brief" : "Valider le brief")),
-      !(fields.what || "").trim() && h("p", { className: "small muted", role: "status" }, "Il manque : ce qu'elle est."));
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !(fields.what || "").trim() || palWrong, onClick: submit, "aria-label": "Valider le brief de la marque" }, data.done ? "Enregistrer le brief" : "Valider le brief")),
+      !(fields.what || "").trim() && h("p", { className: "small muted", role: "status" }, "Il manque : ce qu'elle est."),
+      palWrong && h("p", { className: "small muted", role: "status" }, "Il manque : la couleur " + (palette.background ? "du texte" : "du fond") + "."));
   }
 
   /* the brief is done, the brand has no logo and the studio has no site to find one in: drop one, or give the site */
@@ -753,7 +792,8 @@
             : h("p", { className: "small muted" }, "Pas de logo : sans lui, la marque ne peut pas être prête."),
           h("div", null, h(LogoDrop, { ctx, bid, label: logo ? "Changer de logo" : "Déposer un logo", variant: logo ? "ghost" : "secondary", onDone: (r) => ctx.notify("Logo déposé : " + r.name + " a un logo.") }))),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Couleurs"), a.colours.length ? h(Swatches, { colours: a.colours, mini: true }) : h("p", { className: "small muted" }, "Pas encore de couleur."),
-          a.colours.some((c) => c.state === "deduced") && h("span", { className: "small muted" }, "à confirmer")),
+          a.colours.some((c) => c.state === "deduced") && h("span", { className: "small muted" }, "à confirmer"),
+          a.colours.length < 2 && h("span", { className: "small muted" }, "Il en faut deux, une pour le fond et une pour le texte.")),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Visuels gardés" + (a.visuals.length ? " · " + a.visuals.length : "")),
           a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
             : h("p", { className: "small muted" }, b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire."))));

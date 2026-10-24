@@ -154,6 +154,17 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .editor { display: grid; gap: var(--space-3); border-top: 1px solid var(--border-subtle); padding-top: var(--space-4); }
 .editor label { font-weight: var(--fw-semibold); color: var(--text-strong); }
 
+/* colours chosen with the browser's own picker: swatches, never a typed hexadecimal */
+.pickers { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
+.pickrow { display: flex; align-items: center; gap: var(--space-2); }
+.pick { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; padding: var(--space-1); border-radius: var(--radius-md); }
+.pick:hover { background: var(--neutral-100); }
+.pick:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.dot { display: block; width: 40px; height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.dot[data-empty] { background: repeating-linear-gradient(45deg, var(--neutral-200) 0 4px, var(--surface-page) 4px 8px); }
+.dots { display: inline-flex; gap: var(--space-1); vertical-align: middle; }
+.dots i { display: block; width: 22px; height: 22px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+
 /* forms */
 .field { display: grid; gap: var(--space-1); }
 .field > label { font-weight: var(--fw-semibold); color: var(--text-strong); }

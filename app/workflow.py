@@ -204,6 +204,7 @@ def project_summary(view: dict) -> dict:
 #     migrated               the brand came out of several projects of the old format: it is to confirm until the person does
 #     deduced                the keys (FIELDS, `logo`) whose value was deduced and is not confirmed
 #     unsorted               how many visuals wait to be sorted
+#     colours_ok             the brand has the colours a piece needs: at least two, one for the background and one for the text
 #     running                the running discovery job (or None)
 #     failed                 the last discovery failed and was not run again: {error, at} (or None)
 #     since                  {task kind: epoch seconds} when each task came to the person
@@ -240,9 +241,10 @@ def brand_stage(b: dict) -> str:
     discovering   a discovery job runs
     to_sort       the site was read and the visuals are not sorted, or no logo is chosen yet
     new           no site, nothing read, no brief: nothing at all yet
-    to_brief      the brief of the brand is not done (or there is no logo and nothing to sort it from: a site is needed)
+    to_brief      the brief of the brand is not done (or there is no logo and nothing to sort it from: a site is needed, or the
+                  colours are not enough: a background and a text colour)
     to_confirm    values were deduced and not confirmed (or the brand is migrated and the person has not looked)
-    ready         a logo, nothing to confirm
+    ready         a logo, a background and a text colour, nothing to confirm
     """
     if b.get("running"):
         return "discovering"
@@ -252,9 +254,14 @@ def brand_stage(b: dict) -> str:
         return "new" if not b.get("site") and not b.get("discovered") else "to_brief"
     if b.get("deduced") or b.get("migrated"):
         return "to_confirm"
-    if not b.get("logo"):
+    if not b.get("logo") or not b.get("colours_ok"):
         return "to_brief"
     return "ready"
+
+
+def brand_needs(b: dict) -> list:
+    """What a brand still lacks to be ready, beside the brief and the confirmations: `logo`, `colours` (a background and a text colour)."""
+    return [k for k, ok in (("logo", b.get("logo")), ("colours", b.get("colours_ok"))) if not ok]
 
 
 def brand_ready(b: dict) -> bool:
@@ -278,9 +285,12 @@ def brand_asks(b: dict) -> list:
             asks.append({"kind": "brand-sort", "title": "Choisir le logo de la marque",
                          "question": "Aucun logo n'est choisi : en prendre un parmi ceux trouvés, ou relancer la lecture du site."})
     elif stage in ("new", "to_brief"):
-        if b.get("brief_done"):  # nothing left but the logo, and nothing to sort it from
+        if b.get("brief_done") and not b.get("logo"):  # nothing left but the logo, and nothing to sort it from
             asks.append({"kind": "brand-brief", "title": "Trouver le logo de la marque",
-                         "question": "La marque n'a pas de logo : donner l'adresse de son site pour que le studio le cherche."})
+                         "question": "La marque n'a pas de logo : déposer son fichier, ou donner l'adresse de son site pour que le studio le cherche."})
+        elif b.get("brief_done"):  # a logo, and not the two colours a piece needs
+            asks.append({"kind": "brand-brief", "title": "Choisir les couleurs de la marque",
+                         "question": "Il faut au moins deux couleurs : une pour le fond, une pour le texte (un accent en plus, si elle en a un)."})
         else:
             asks.append({"kind": "brand-brief", "title": "Écrire le brief de la marque",
                          "question": "Dire ce qu'elle est, pour qui, sa voix, sa signature et ce qu'elle ne dit jamais. Le studio a pré-rempli ce qu'il a trouvé."})
@@ -328,6 +338,71 @@ def tasks_payload(entries: list, jobs: list, now: float, brands: list = ()) -> d
                           "question": a["question"], "since": s.get("since", {}).get(a["step"])})
     tasks.sort(key=lambda t: (t["since"] is None, t["since"] or 0))
     return {"tasks": tasks, "jobs": jobs, "projects": projects, "brands": brand_lines, "now": now}
+
+
+COLOUR_ROLES = ("background", "text", "accent")
+HEX = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def luminance(h: str) -> float:
+    rgb = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def parse_palette(raw) -> list:
+    """The colours a person chose with the pickers, `[{hex, role}]`, checked: a background and a text colour that differ (an accent is optional),
+    each role once, each colour as #rrggbb. Returns the list in the order background, text, accent, hex in lower case; a ValueError (a 400) says what is wrong."""
+    if not isinstance(raw, list) or not all(isinstance(x, dict) for x in raw):
+        raise ValueError("colours: a list of {hex, role}")
+    by = {}
+    for x in raw:
+        role, h = x.get("role"), str(x.get("hex") or "")
+        if role not in COLOUR_ROLES:
+            raise ValueError(f"colours: a role is one of {', '.join(COLOUR_ROLES)}")
+        if not HEX.fullmatch(h):
+            raise ValueError("colours: a colour is #rrggbb")
+        if role in by:
+            raise ValueError(f"colours: {role} is given twice")
+        by[role] = h.lower()
+    for role in ("background", "text"):
+        if role not in by:
+            raise ValueError("colours: a background and a text colour are needed (an accent is optional)")
+    if by["background"] == by["text"]:
+        raise ValueError("colours: the text colour must differ from the background")
+    return [{"hex": by[r], "role": r} for r in COLOUR_ROLES if r in by]
+
+
+def palette_of(colours) -> dict:
+    """What the studio proposes for the pickers, from the colours a brand has (`[{hex, role}]`): `{background, text, accent}`, each a hex or None.
+    A colour that carries one of the three roles keeps it; of the others, the lightest is the background and the one that reads best on it is the
+    text. An accent is never guessed."""
+    out, rest = {r: None for r in COLOUR_ROLES}, []
+    for c in colours or []:
+        h = str(c.get("hex") or "").lower()
+        if not HEX.fullmatch(h):
+            continue
+        if c.get("role") in COLOUR_ROLES and out[c["role"]] is None:
+            out[c["role"]] = h
+        elif h not in rest:
+            rest.append(h)
+    rest = [h for h in rest if h not in out.values()]
+    if out["background"] is None and rest:
+        if out["text"] is None and len(rest) == 1:
+            only = rest.pop()
+            out["background" if luminance(only) > .5 else "text"] = only
+        else:
+            out["background"] = max(rest, key=luminance)
+            rest.remove(out["background"])
+    if out["text"] is None and rest:
+        ref = out["background"]
+        out["text"] = max(rest, key=lambda h: contrast(h, ref)) if ref else min(rest, key=luminance)
+    return out
 
 
 LOGO_MAX = 2 * 1024 * 1024  # bytes: a logo is a small file

@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import workflow
-from workflow import FORMATS, Conflict, NotFound, normalise_site, one_line, slug  # noqa: F401  (re-exported: the tests import them from here)
+from workflow import FORMATS, Conflict, NotFound, contrast, luminance, normalise_site, one_line, slug  # noqa: F401  (re-exported: the tests import them from here)
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
@@ -94,17 +94,6 @@ def tail(res: Result, n=240) -> str:
 def hex_of(text: str):
     m = re.search(r"#[0-9a-fA-F]{6}\b", text or "")
     return m.group(0).lower() if m else None
-
-
-def luminance(h: str) -> float:
-    rgb = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
-    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
-    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
-
-
-def contrast(a: str, b: str) -> float:
-    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
-    return (la + 0.05) / (lb + 0.05)
 
 
 _FILES = None
@@ -167,6 +156,7 @@ def write_json(path, data):
 FIELD_MAP = {"what": ("identity.one_liner", False), "who": ("audience.who", False), "voice": ("voice.traits", True),
              "signature": ("promise.signature_line", False), "never": ("voice.banned_words", True)}
 # `colours` has no text field in the dossier (its colours are a list of items): what the person says of them is kept in marque.json
+PALETTE_LABEL = "colours: chosen by the person"
 SOURCES = {"typed": "tapé", "inferred": "déduit du site", "skill": "skill de la marque", "created": "créé"}
 
 
@@ -575,7 +565,8 @@ class StudioBackend:
         for it in (doc.get("colours") or {}).get("items", []):
             h = hex_of((it.get("hex") or {}).get("value"))
             if h:
-                out.append({"hex": h, "role": str((it.get("role") or {}).get("value", "")), "status": (it.get("hex") or {}).get("status")})
+                out.append({"hex": h, "role": str((it.get("role") or {}).get("value", "")), "status": (it.get("hex") or {}).get("status"),
+                            "typed": ((it.get("hex") or {}).get("source") or {}).get("type") == "typed"})
         return out
 
     def _colours_of(self, doc) -> list:
@@ -587,7 +578,7 @@ class StudioBackend:
             if c["hex"] not in seen:
                 seen.add(c["hex"])
                 out.append({"hex": c["hex"], "role": c["role"], "state": "confirmed" if c["status"] == "confirmed" else "deduced",
-                            "source": "mesurée sur les visuels gardés" if measured else "lue sur le site"})
+                            "source": "choisie par toi" if c["typed"] else "mesurée sur les visuels gardés" if measured else "lue sur le site"})
         return out[:6]
 
     def _identity(self, b, doc) -> dict:
@@ -627,7 +618,8 @@ class StudioBackend:
         run = self._running(b, "learn")
         last = next((j for j in reversed(b["jobs"]) if j["kind"] == "learn"), None)
         return {"id": b["id"], "name": b["name"], "site": b.get("site", ""), "discovered": b.get("discovered", False), "kept": b.get("kept", False),
-                "logo": logo is not None, "brief_done": b.get("brief_done", False), "migrated": b.get("migrated", False), "deduced": deduced,
+                "logo": logo is not None, "colours_ok": len(self._colours_of(doc)) >= 2, "brief_done": b.get("brief_done", False),
+                "migrated": b.get("migrated", False), "deduced": deduced,
                 "unsorted": unsorted, "since": b.get("since", {}),
                 "running": ({"id": run["id"], "kind": "learn", "piece": None, "start": run["start"], **{k: v for k, v in self._job_public(run, now).items() if k in ("progress", "message")}}
                             if run else None),
@@ -898,7 +890,9 @@ class StudioBackend:
     # ---------- the brief of the brand, and its confirmation ----------
     def _brief_view(self, b):
         doc = self._doc(b["id"])
-        return {"fields": self._identity(b, doc), "done": b.get("brief_done", False), "stage": workflow.brand_stage(self._bstate(b, doc)), "keys": workflow.FIELD_KEYS}
+        bs = self._bstate(b, doc)
+        return {"fields": self._identity(b, doc), "done": b.get("brief_done", False), "stage": workflow.brand_stage(bs), "keys": workflow.FIELD_KEYS,
+                "needs": workflow.brand_needs(bs), "palette": workflow.palette_of(self._colours_of(doc))}
 
     def get_brand_brief(self, bid):
         return self._brief_view(self._loadb(bid))
@@ -909,11 +903,14 @@ class StudioBackend:
         unknown = set(fields) - set(workflow.FIELD_KEYS)
         if unknown:
             raise ValueError(f"brief: unknown field {', '.join(sorted(unknown))}")
+        palette = workflow.parse_palette(fields["colours"]) if isinstance(fields.get("colours"), list) else None  # the pickers; a string is the person's words
         with self._op("brand:" + bid):
             b = self._loadb(bid)
             now = self._identity(b, self._doc(bid))
             todo = {}
             for k in workflow.FIELD_KEYS:
+                if k == "colours" and palette:
+                    continue
                 text = ", ".join(workflow.split_words(fields.get(k))) if k in ("voice", "never") else one_line(fields.get(k))
                 if text:
                     todo[k] = text[:600] if k == "what" else text
@@ -940,6 +937,10 @@ class StudioBackend:
                     else:
                         self._brandkit(log, "answer", self._bdir(bid), path, text)
 
+            if palette:
+                self._write_palette(bid, palette, log)
+                words = ""  # the colours are now the ones chosen, not words about them
+
             def done(q):
                 q["brief_done"] = True
                 if words is not None:
@@ -947,6 +948,22 @@ class StudioBackend:
                 self._retouch(q)
             self._mutateb(bid, done)
             return self._brief_view(self._loadb(bid))
+
+    def _write_palette(self, bid, palette, log):
+        """The colours chosen with the pickers: a source the person typed, in the dossier, replaced at each choice (a typed colour outranks the
+        ones read on the site, so these become the brand's colours, confirmed)."""
+        d = self._bdir(bid)
+        for f in (d / "sources").glob("*.json"):
+            if (read_json(f, {}) or {}).get("label") == PALETTE_LABEL:
+                f.unlink()
+        src = {"adapter": "typed", "origin": "colours chosen by the person", "label": PALETTE_LABEL,
+               "values": [{"path": "colours", "item": {"hex": c["hex"], "role": c["role"]}} for c in palette]}
+        tmp = self._mdir(bid) / "logs" / f"colours-{uuid.uuid4().hex[:8]}.json"
+        write_json(tmp, src)
+        try:
+            self._brandkit(log, "add", d, tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def confirm(self, bid, keys=None):
         with self._op("brand:" + bid):

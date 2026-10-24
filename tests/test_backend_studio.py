@@ -417,7 +417,8 @@ class Brand(Base):
         data = png(40, 20, (30, 60, 50))
         b = self.drop(bid, data, name="mon logo.png")
         logo = b["assets"]["logo"]
-        self.assertEqual((logo["state"], logo["source"], b["stage"], b["waiting"]), ("confirmed", "choisi par toi", "ready", []))
+        self.assertEqual((logo["state"], logo["source"], b["stage"], [t["title"] for t in b["waiting"]]), ("confirmed", "choisi par toi", "to_brief", ["Choisir les couleurs de la marque"]))
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}/brief")["needs"], ["colours"])
         self.assertEqual([x["note"] for x in b["assets"]["logos"]], ["Logo déposé, png"])
         self.assertEqual(self.call("GET", logo["preview"], raw=True), data)  # the picture is served from the dossier of the brand
         f = next((self.bdir(bid) / "assets").glob("logo-*.png"))
@@ -430,6 +431,30 @@ class Brand(Base):
         again = self.drop(bid, data)  # the same file twice: one candidate
         self.assertEqual(len(again["assets"]["logos"]), 1)
         self.drop("nope", data, code=404)
+
+    def test_colours_chosen_with_the_pickers_become_the_colours_of_the_brand(self):
+        bid = self.mkbrand(name="Sélecteur", site=None)
+        self.drop(bid, png(40, 20))
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "une cave"}})
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}")["stage"], "to_brief")
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"colours": [{"hex": "#112233", "role": "background"}]}}, code=400)  # no text colour
+        r = self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"colours": [{"hex": "#F4EFE6", "role": "background"}, {"hex": "#1E2A24", "role": "text"}]}})
+        self.assertEqual((r["stage"], r["needs"], r["palette"]), ("ready", [], {"background": "#f4efe6", "text": "#1e2a24", "accent": None}))
+        b = self.call("GET", f"/api/brands/{bid}")
+        self.assertEqual([(c["hex"], c["role"], c["state"], c["source"]) for c in b["assets"]["colours"]],
+                         [("#f4efe6", "background", "confirmed", "choisie par toi"), ("#1e2a24", "text", "confirmed", "choisie par toi")])
+        self.assertEqual(b["identity"]["colours"], {"value": "#f4efe6, #1e2a24", "state": "confirmed", "source": "choisie par toi"})
+        self.assertFalse(list((self.home / "marques" / bid / "logs").glob("colours-*.json")))  # no scrap left behind
+        r = self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"colours": [{"hex": "#ffffff", "role": "background"}, {"hex": "#000000", "role": "text"}, {"hex": "#c8553d", "role": "accent"}]}})
+        self.assertEqual(r["palette"], {"background": "#ffffff", "text": "#000000", "accent": "#c8553d"})  # a second choice replaces the first
+        self.assertEqual(len(self.call("GET", f"/api/brands/{bid}")["assets"]["colours"]), 3)
+        self.assertEqual(len([f for f in (self.bdir(bid) / "sources").glob("*.json") if "colours" in f.name]), 1)
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "Premier"})["id"]  # the piece is written from these colours
+        f = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**f, "objective": "o", "audience": "a", "message": "m"}})
+        brand_md = (self.pdir(pid) / "piece" / "brand.md").read_text()
+        self.assertIn("- background: #ffffff", brand_md)
+        self.assertIn("- text: #000000", brand_md)
 
     def test_a_logo_dropped_next_to_the_logos_of_the_site(self):
         bid = self.mkbrand(name="Deux Logos")
@@ -1182,7 +1207,7 @@ class Runner(unittest.TestCase):
     def test_the_stage_of_a_brand_and_its_tasks(self):
         """The one place the stages are written (workflow.brand_stage), whatever the backend."""
         st = workflow.brand_stage
-        base = {"id": "b", "name": "B", "site": "", "discovered": False, "kept": False, "logo": False, "brief_done": False, "deduced": [], "unsorted": 0}
+        base = {"id": "b", "name": "B", "site": "", "discovered": False, "kept": False, "logo": False, "colours_ok": True, "brief_done": False, "deduced": [], "unsorted": 0}
         self.assertEqual(st(base), "new")
         self.assertEqual(st({**base, "site": "https://x.example/"}), "to_brief")
         self.assertEqual(st({**base, "site": "https://x.example/", "running": {"id": "j"}}), "discovering")
@@ -1193,6 +1218,10 @@ class Runner(unittest.TestCase):
         self.assertEqual(st({**kept, "brief_done": True, "deduced": ["voice"]}), "to_confirm")
         self.assertEqual(st({**kept, "brief_done": True, "migrated": True}), "to_confirm")
         self.assertEqual(st({**kept, "brief_done": True}), "ready")
+        self.assertEqual(st({**kept, "brief_done": True, "colours_ok": False}), "to_brief")  # a logo and not the two colours a piece needs
+        self.assertEqual([a["title"] for a in workflow.brand_asks({**kept, "brief_done": True, "colours_ok": False})], ["Choisir les couleurs de la marque"])
+        self.assertEqual(workflow.brand_needs({**kept, "brief_done": True, "colours_ok": False}), ["colours"])
+        self.assertEqual(workflow.brand_needs({**base, "brief_done": True}), ["logo"])
         self.assertEqual(st({**base, "brief_done": True}), "to_brief")  # nothing to find a logo in
         self.assertEqual([a["kind"] for a in workflow.brand_asks({**kept, "brief_done": True, "deduced": ["voice", "logo"]})], ["brand-confirm"])
         self.assertEqual([a["kind"] for a in workflow.brand_asks({**kept, "brief_done": True})], [])
@@ -1210,6 +1239,19 @@ class Runner(unittest.TestCase):
         self.assertEqual(workflow.left_out_of("Post 4x5, story, film 30s"), ["film 30s"])
         self.assertEqual(workflow.split_words("franc; chaleureux\n drôle,, "), ["franc", "chaleureux", "drôle"])
         self.assertEqual(workflow.slug("Atelier Ondine !"), "atelier-ondine")
+
+    def test_the_pickers_and_the_proposal(self):
+        ok = [{"hex": "#FFFFFF", "role": "background"}, {"hex": "#112233", "role": "text"}]
+        self.assertEqual(workflow.parse_palette(ok), [{"hex": "#ffffff", "role": "background"}, {"hex": "#112233", "role": "text"}])
+        self.assertEqual([c["role"] for c in workflow.parse_palette(ok[::-1] + [{"hex": "#c8553d", "role": "accent"}])], ["background", "text", "accent"])
+        for bad in (None, "x", [1], [], ok[:1], [{"hex": "#fff", "role": "background"}, ok[1]], [ok[0], {"hex": "#112233", "role": "dominant"}], ok + [ok[1]]):
+            with self.assertRaises(ValueError):
+                workflow.parse_palette(bad)
+        measured = [{"hex": "#2f5d50", "role": "dominant"}, {"hex": "#e8dcc4", "role": "dominant 2"}, {"hex": "#1e2a24", "role": "dominant 3"}]
+        self.assertEqual(workflow.palette_of(measured), {"background": "#e8dcc4", "text": "#1e2a24", "accent": None})  # the lightest, then what reads best on it
+        self.assertEqual(workflow.palette_of(ok + measured), {"background": "#ffffff", "text": "#112233", "accent": None})  # a named role wins
+        self.assertEqual(workflow.palette_of([{"hex": "#202020", "role": "dominant"}]), {"background": None, "text": "#202020", "accent": None})
+        self.assertEqual(workflow.palette_of([]), {"background": None, "text": None, "accent": None})
 
 
 if __name__ == "__main__":

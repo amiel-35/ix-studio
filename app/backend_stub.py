@@ -60,7 +60,7 @@ VARIANTS = [
      "image_prompt": "Deux verres, l'un d'eau, l'autre de soda, et entre eux une bouteille ambrée, aucun texte."},
 ]
 
-MEASURED = ("#2F5D50", "#E8DCC4", "#B5562F", "#1E2A24")
+MEASURED = ("#2f5d50", "#e8dcc4", "#b5562f", "#1e2a24")
 ROLES = ("background", "text", "accent", "headline colour")
 DEDUCED_FROM_SITE = {"what": "Une brasserie de kombucha de petite cuvée, au port", "voice": "direct, chaleureux, pince-sans-rire",
                      "signature": "Servez-vous."}
@@ -260,7 +260,7 @@ class StubBackend:
         deduced = [k for k in workflow.FIELD_KEYS if ident[k]["state"] == "deduced"] + (["logo"] if b["logo"] and b["logo_state"] == "deduced" else [])
         last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "learn" and j["brand"] == b["id"]), None)
         return {"id": b["id"], "name": b["name"], "site": b["site"], "discovered": b["discovered"], "kept": b["kept"], "logo": bool(b["logo"]),
-                "brief_done": b["brief_done"], "migrated": b["migrated"], "deduced": deduced, "unsorted": sum(1 for e in b["evidence"] if e["kept"] is None),
+                "colours_ok": len(b["colours"]) >= 2, "brief_done": b["brief_done"], "migrated": b["migrated"], "deduced": deduced, "unsorted": sum(1 for e in b["evidence"] if e["kept"] is None),
                 "running": self._running("learn", brand=b["id"]),
                 "failed": {"error": last["error"], "at": last["start"]} if last and last["status"] == "failed" else None, "since": b["since"]}
 
@@ -290,7 +290,9 @@ class StubBackend:
         return workflow.brand_payload(self._bstate(b), {"description": b["description"]}, self._identity(b), self._assets(b), self._brand_projects(b), jobs, time.time())
 
     def _brief_view(self, b):
-        return {"fields": self._identity(b), "done": b["brief_done"], "stage": workflow.brand_stage(self._bstate(b)), "keys": workflow.FIELD_KEYS}
+        bs = self._bstate(b)
+        return {"fields": self._identity(b), "done": b["brief_done"], "stage": workflow.brand_stage(bs), "keys": workflow.FIELD_KEYS,
+                "needs": workflow.brand_needs(bs), "palette": workflow.palette_of(b["colours"])}
 
     # ---------- the project and what waits for the person ----------
     def state(self, p):
@@ -430,9 +432,12 @@ class StubBackend:
             unknown = set(fields) - set(workflow.FIELD_KEYS)
             if unknown:
                 raise ValueError(f"brief: unknown field {', '.join(sorted(unknown))}")
+            palette = workflow.parse_palette(fields["colours"]) if isinstance(fields.get("colours"), list) else None  # the pickers; a string is the person's words
             now = self._identity(b)
             todo = {}
             for k in workflow.FIELD_KEYS:
+                if k == "colours" and palette:
+                    continue
                 text = ", ".join(workflow.split_words(fields.get(k))) if k in ("voice", "never") else one_line(fields.get(k))
                 if text:
                     todo[k] = text
@@ -444,6 +449,9 @@ class StubBackend:
                     self._confirm_key(b, k)  # read and kept as it is: confirmed, not typed
                 elif not (cur["state"] == "confirmed" and text == cur["value"]):
                     b["fields"][k] = field(text, "confirmed", "tapé")
+            if palette:  # the colours chosen are the brand's colours, confirmed; what was said of them in words is no longer
+                b["colours"] = [{**c, "state": "confirmed", "source": "choisie par toi"} for c in palette]
+                b["fields"].pop("colours", None)
             b["brief_done"] = True
             self._touch(b)
             return self._brief_view(b)
