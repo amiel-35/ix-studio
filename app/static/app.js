@@ -66,11 +66,24 @@
   const BRAND_STAGE = { new: "À décrire", discovering: "Lecture du site en cours", to_sort: "Visuels à trier", to_brief: "Brief à écrire", to_confirm: "À confirmer", ready: "Prête" };
   const FIELD_LABEL = { what: "Ce qu'elle est", who: "Pour qui", voice: "Sa voix", signature: "Sa signature", never: "Ce qu'elle ne dit jamais", colours: "Ses couleurs", logo: "Son logo" };
   const host = (url) => String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  /* a name after "de": "d'Ondine", "du Port", "des Caves", "de Marrowbay" */
+  const deName = (n) => /^les\s/i.test(n) ? "des " + n.slice(4) : /^le\s/i.test(n) ? "du " + n.slice(3) : /^[aeiouyhàâéèêîôû]/i.test(n) ? "d'" + n : "de " + n;
+  /* what a person or the studio wrote is put in the middle of a sentence: no full stop of its own (the sentence has the next one), and
+     no capital left over where the sentence goes on ("c'est Une brasserie", "à les caves") */
+  const dot = (v) => String(v || "").trim().replace(/[.\s]+$/, "");
+  const ARTICLE = /^(?:[LD]['’]|(?:Une?|Le|La|Les|Des|Du|De|Ce|Cet|Cette|Ces|Notre|Nos|Votre|Vos|Leur|Leurs|Mon|Ma|Mes|Son|Sa|Ses|Ton|Ta|Tes|Chaque|Tous|Toutes|Tout)(?=\s|$))/;
+  const lowerFirst = (v) => ARTICLE.test(v) ? v.charAt(0).toLowerCase() + v.slice(1) : v;
+  const lowerVerb = (v) => /^[A-ZÀ-Ý][a-zà-ÿ]+(?:er|ir|re)(?=\s|$)/.test(v) ? v.charAt(0).toLowerCase() + v.slice(1) : lowerFirst(v);
+  /* "à" and an article melt: à les artisans, aux artisans */
+  const toWhom = (v) => { const x = lowerFirst(dot(v)); return /^les\s/i.test(x) ? "aux " + x.slice(4) : /^le\s/i.test(x) ? "au " + x.slice(3) : "à " + x; };
+  /* a brand's brief in one sentence, a project's brief in one sentence: how each piece is written in it */
+  const BRAND_SHOW = { what: (v) => lowerFirst(dot(v)), who: toWhom };
+  const BRIEF_SHOW = { objective: (v) => lowerVerb(dot(v)), audience: (v) => lowerFirst(dot(v)) };
   /* the titles the studio gives to a brand's tasks say "la marque": the interface says which one */
   function taskTitle(t) {
     if (t.scope !== "brand" || !t.brand_name) return t.title;
-    const n = t.brand_name, de = /^[aeiouyhàâéèêîôû]/i.test(n) ? "d'" + n : "de " + n;
-    return t.title.replace("de la marque", de).replace(/la marque\b/, n);
+    const n = t.brand_name;
+    return t.title.replace("de la marque", deName(n)).replace(/la marque\b/, n);
   }
   /* what a task waits on, for a list: where it belongs, and how long it has waited */
   const taskPlace = (t) => t.scope === "brand" ? t.brand_name : t.brand_name + " · " + t.project_name;
@@ -303,7 +316,7 @@
   /* ================= a brand: its brief, as one sentence whose pieces are corrected ================= */
   const BPARTS = [
     { k: "what", before: ", c'est ", label: "ce qu'elle est", area: true },
-    { k: "who", before: ". Elle parle à ", label: "pour qui", area: true },
+    { k: "who", before: ". Elle parle ", label: "pour qui", area: true },
     { k: "voice", before: ". Sa voix : ", label: "sa voix" },
     { k: "signature", before: ". Sa signature : « ", after: " »", label: "sa signature" },
     { k: "never", before: ". Elle ne dit jamais : ", label: "ce qu'elle ne dit jamais" },
@@ -358,7 +371,7 @@
       "aria-label": "Corriger " + p.label + " : " + (p.palette ? (hasPal ? ROLES.filter((r) => pal[r]).map((r) => ROLE_WORDS[r].toLowerCase()).join(", ") : "vide") : fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
       onClick: () => setOpen(open === p.k ? null : p.k),
       onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
-    }, p.palette ? (hasPal ? h(Dots, { palette: pal }) : colourWords || h("span", { className: "blank" }, "à choisir")) : (fields[p.k] || "").trim() || h("span", { className: "blank" }, "à écrire")), p.after || "");
+    }, p.palette ? (hasPal ? h(Dots, { palette: pal }) : colourWords || h("span", { className: "blank" }, "à choisir")) : (fields[p.k] || "").trim() ? (BRAND_SHOW[p.k] || dot)(fields[p.k]) : h("span", { className: "blank" }, "à écrire")), p.after || "");
     const cur = BPARTS.find((p) => p.k === open);
     const palWrong = palette && !(palette.background && palette.text);
     const needColours = data.done && data.needs.includes("colours");
@@ -366,9 +379,9 @@
       const changed = BPARTS.filter((p) => p.palette ? !!palette : (fields[p.k] || "") !== (data.fields[p.k].value || "")).map((p) => p.label);
       await api.saveBrandBrief(bid, palette ? { ...fields, colours: ROLES.filter((r) => palette[r]).map((r) => ({ hex: palette[r], role: r })) } : fields);
       ctx.log("@" + bid, "toi", "Brief de la marque validé", changed.length ? "Corrigé : " + changed.join(", ") : "Rien à corriger");
-      await ctx.answered("@" + bid, "Brief de " + name + " enregistré.", { before: snap, sibling: (t) => t.kind === "brand-brief" }); // a brand with no logo and no site still asks for one: the same task, said otherwise
+      await ctx.answered("@" + bid, "Brief " + deName(name) + " enregistré.", { before: snap, sibling: (t) => t.kind === "brand-brief" }); // a brand with no logo and no site still asks for one: the same task, said otherwise
     });
-    return h("div", { className: "task" }, h(Head, { sr: true }, needColours ? "Choisis les couleurs de " + name : "Relis le brief de " + name),
+    return h("div", { className: "task" }, h(Head, { sr: true }, needColours ? "Choisis les couleurs " + deName(name) : "Relis le brief " + deName(name)),
       needColours && h("p", { className: "lead" }, "Pour composer une pièce, il faut au moins deux couleurs : une pour le fond, une pour le texte."),
       h("p", { className: "sentence" }, name, BPARTS.map(piece), "."),
       h("p", { className: "small muted" }, "Touche un passage pour le corriger." + (anyDeduced ? " Les passages en pointillé sont ce que le studio a déduit : validés tels quels, ils sont confirmés." : "")),
@@ -401,7 +414,7 @@
       await api.updateBrand(bid, { site: site.trim() });
       await api.discover(bid);
       ctx.log("@" + bid, "toi", "Site donné : " + site.trim(), "Le studio le lit pour y trouver un logo");
-      await ctx.answered("@" + bid, "Le studio lit le site de " + name + ".", { before: snap, any: false });
+      await ctx.answered("@" + bid, "Le studio lit le site " + deName(name) + ".", { before: snap, any: false });
     });
     return h("div", { className: "task" }, h(Head, null, name + " n'a pas de logo"),
       h("p", { className: "lead" }, "Dépose le fichier de son logo, ou donne l'adresse de son site pour que le studio le cherche."),
@@ -430,10 +443,10 @@
       ctx.log("@" + bid, "toi", "Marque confirmée", toConfirm.map((k) => FIELD_LABEL[k].toLowerCase()).join(", "));
       await ctx.answered("@" + bid, name + " est confirmée.", { before: snap });
     });
-    return h("div", { className: "task" }, h(Head, null, toConfirm.length ? "Confirme ce que le studio a déduit de " + name : "Regarde " + name + ", puis confirme"),
+    return h("div", { className: "task" }, h(Head, null, toConfirm.length ? "Confirme ce que le studio a déduit " + deName(name) : "Regarde " + name + ", puis confirme"),
       h("ul", { className: "rows facts" }, shown.map((k) => h("li", { key: k, className: "fact" },
         h("span", { className: "cap" }, FIELD_LABEL[k]),
-        k === "logo" ? h("img", { src: a.logo.preview, alt: "Logo de " + name, className: "factlogo" })
+        k === "logo" ? h("img", { src: a.logo.preview, alt: "Logo " + deName(name), className: "factlogo" })
           : k === "colours" && a.colours.length ? h(Swatches, { colours: a.colours, quiet: true })
           : h("span", { className: "factval" }, brand.identity[k].value),
         h("span", { className: "small muted" }, k === "logo" ? a.logo.source : brand.identity[k].source)))),
@@ -484,7 +497,7 @@
         return tokens.map((t, i) => h(React.Fragment, { key: i }, i ? ", " : "", known.has(fmtKey(t)) ? fmtWord(t) : h("span", { className: "away" }, t)));
       }
       const v = (fields[p.k] || "").trim();
-      return v || h("span", { className: "blank" }, p.empty || "à écrire");
+      return v ? (BRIEF_SHOW[p.k] || dot)(v) : h("span", { className: "blank" }, p.empty || "à écrire");
     };
     const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
       role: "button", tabIndex: 0, className: "bit", "aria-expanded": open === p.k, "aria-label": "Corriger " + p.label + " : " + (fields[p.k] || "vide"),
@@ -673,7 +686,7 @@
       edit && h("div", { className: "sec" },
         h("div", { className: "field" }, h("label", { htmlFor: "w-head" }, "Titre"), h("input", { id: "w-head", type: "text", autoFocus: true, value: words.headline, onChange: (e) => setWords({ ...words, headline: e.target.value }) })),
         h("div", { className: "field" }, h("label", { htmlFor: "w-sub" }, "Sous-ligne (facultative)"), h("input", { id: "w-sub", type: "text", value: words.subline, onChange: (e) => setWords({ ...words, subline: e.target.value }) }))),
-      pc.bans && pc.bans.length > 0 && h("p", { className: "small" }, "Tu avais refusé : " + pc.bans.join(" ; ") + ". Le studio le retient."),
+      pc.bans && pc.bans.length > 0 && h("p", { className: "small" }, "Tu avais refusé : " + dot(pc.bans.join(" ; ")) + ". Le studio le retient."),
       h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image" + (several ? ", le même pour " + formats : "")),
         h("textarea", { id: "prompt", className: "prompt", value: prompt, onChange: (e) => setPrompt(e.target.value) })),
       h("div", { className: "gestures" },
@@ -724,7 +737,7 @@
     const send = (verdict) => ctx.act(async (snap) => {
       await api.decide(pid, id, verdict, words);
       ctx.log(pid, "toi", (verdict === "keep" ? "Gardée : " : "Renvoyée : ") + pc.label, words.trim() || "Sans commentaire");
-      await ctx.answered(pid, verdict === "keep" ? pc.label + " : gardée." : pc.label + " : renvoyée, le studio retient « " + words.trim() + " ».",
+      await ctx.answered(pid, verdict === "keep" ? pc.label + " : gardée." : pc.label + " : renvoyée, le studio retient « " + dot(words) + " ».",
         { before: snap, prefer: (t) => t.piece === id, any: false, sibling: verdict === "keep" ? (t) => t.kind === "decide" && t.piece !== id : undefined });
     });
     const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le png.");
@@ -871,7 +884,7 @@
   }
 
   /* ---------- 2. a brand: its brief, its assets, its projects ---------- */
-  const BRIEF_BITS = [["what", ", c'est "], ["who", ". Elle parle à "], ["voice", ". Sa voix : "], ["signature", ". Sa signature : « ", " »"], ["never", ". Elle ne dit jamais : "], ["colours", ". Ses couleurs : "]];
+  const BRIEF_BITS = [["what", ", c'est "], ["who", ". Elle parle "], ["voice", ". Sa voix : "], ["signature", ". Sa signature : « ", " »"], ["never", ". Elle ne dit jamais : "], ["colours", ". Ses couleurs : "]];
 
   function BrandCol({ ctx, bid }) {
     const b = useLive(ctx, () => api.getBrand(bid), bid);
@@ -905,12 +918,12 @@
       shown && h("div", { id: "ident" }, h(Where, null, "Son brief"),
       known.length === 0 ? h("p", { className: "vide" }, reading ? "Le studio lit le site : le brief se pré-remplit avec ce qu'il y trouve." : "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
-          h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : id[k].value,
+          h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : (BRAND_SHOW[k] || dot)(id[k].value),
             id[k].state === "deduced" && h("span", { className: "sr" }, " (à confirmer)")), after || "")), "."),
       h(Where, null, "Ses assets"),
       h("div", { className: "assets" },
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Logo"),
-          logo ? h("div", { className: "logobox" }, h("img", { src: logo.preview, alt: "Logo de " + b.name }), h("span", { className: "small muted" }, logo.state === "deduced" ? "à confirmer" : "confirmé"))
+          logo ? h("div", { className: "logobox" }, h("img", { src: logo.preview, alt: "Logo " + deName(b.name) }), h("span", { className: "small muted" }, logo.state === "deduced" ? "à confirmer" : "confirmé"))
             : h("p", { className: "small muted" }, noLogo),
           h("div", null, h(LogoDrop, { ctx, bid, label: logo ? "Changer de logo" : "Déposer un logo", variant: logo ? "ghost" : "secondary", onDone: (r) => ctx.notify("Logo déposé : " + r.name + " a un logo.") }))),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Couleurs"), a.colours.length ? h(Swatches, { colours: a.colours, mini: true }) : h("p", { className: "small muted" }, noColours),
@@ -981,14 +994,14 @@
     if (step === "brand") {
       const logo = body.assets.logo;
       main = h("div", { className: "sec" }, h("p", { className: "lead" }, "La marque est prête : " + body.name + (logo ? ", avec son logo." : ".")),
-        logo && h("img", { src: logo.preview, alt: "Logo de " + body.name, className: "factlogo" }), body.assets.colours.length > 0 && h(Swatches, { colours: body.assets.colours, mini: true }));
+        logo && h("img", { src: logo.preview, alt: "Logo " + deName(body.name), className: "factlogo" }), body.assets.colours.length > 0 && h(Swatches, { colours: body.assets.colours, mini: true }));
       const bt = (k, title) => ({ id: "@" + body.id + ":reopen:" + k, scope: "brand", brand: body.id, brand_name: body.name, project: null, kind: k, title, reopen: true });
       action = h("div", { className: "gestures" },
         h(Button, { variant: "secondary", size: "sm", onClick: () => ctx.openTask(bt("brand-brief", "Relire le brief de la marque")), "aria-label": "Rouvrir le brief de la marque" }, "Rouvrir le brief"),
         body.assets.evidence.length > 0 && h(Button, { variant: "ghost", size: "sm", onClick: () => ctx.openTask(bt("brand-sort", "Revoir le tri des visuels")), "aria-label": "Rouvrir le tri des visuels de la marque" }, "Rouvrir le tri"));
     } else if (step === "brief") {
       const f = body.fields;
-      main = h("p", { className: "sentence small" }, "Je veux " + (f.objective || "…") + ". Pour " + (f.audience || "…") + ". Le message : " + (f.message || "…") + ". Sur " + body.chosen.map(fmtWord).join(", ") + (f.cta ? ". Pour finir : « " + f.cta + " »" : "") + ".");
+      main = h("p", { className: "sentence small" }, "Je veux " + (f.objective ? BRIEF_SHOW.objective(f.objective) : "…") + ". Pour " + (f.audience ? BRIEF_SHOW.audience(f.audience) : "…") + ". Le message : " + (f.message ? dot(f.message) : "…") + ". Sur " + body.chosen.map(fmtWord).join(", ") + (f.cta ? ". Pour finir : « " + dot(f.cta) + " »" : "") + ".");
       action = h(Button, { variant: "secondary", size: "sm", onClick: () => reopen("brief"), "aria-label": "Rouvrir le brief du projet" }, "Rouvrir");
     } else if (step === "mandates") {
       main = h("div", { className: "sec" }, h("p", { className: "lead" }, body.common), h("ul", { className: "plain" }, body.items.map((it) => h("li", { key: it.id }, h("span", { className: "cap" }, "Agent " + it.id.toUpperCase()), h("span", null, it.mandate)))));
@@ -1057,7 +1070,7 @@
         ctx.close(f.name.trim() + " est enregistrée." + (siteChanged && f.site.trim() ? " Le nouveau site n'est pas lu : « Relire le site » le fait." : ""));
       });
     };
-    const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site de " + b.name + "."); }, "Le studio relit le site.");
+    const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site " + deName(b.name) + "."); }, "Le studio relit le site.");
     return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, "Modifier " + b.name)),
       h("form", { className: "sec form", onSubmit: save },
         h("div", { className: "field" }, h("label", { htmlFor: "eb-name" }, "Nom"), h("input", { id: "eb-name", type: "text", autoFocus: true, value: f.name, onChange: set("name"), autoComplete: "off" })),
@@ -1297,7 +1310,7 @@
     /* acting on the whole series: every missing image, every piece ready to compose. Inside a task (`core`), the next one opens; from a column, a line says it */
     const composeAll = useCallback(async (pid, snap, core) => {
       const r = await api.composeAll(pid);
-      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : " + r.failed[0].error : "") + ".";
+      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : " + dot(r.failed[0].error) : "") + ".";
       log(pid, "studio", "Pièces composées d'un coup : " + r.composed.length, r.failed.map((f) => f.piece + " : " + f.error).join(" ; "));
       if (core) await answered(pid, text, { before: snap }); else { await refresh(); setRev((x) => x + 1); setNotice(text); }
     }, [answered, refresh, log]);
