@@ -6,7 +6,7 @@ read and correct the instructions the agents will get, follow the divergence, pi
 follow the image, compose, check, decide.
 
 The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere, then the brands) /
-a brand (its brief, its assets, its projects) / a project (its seven steps, what waits) / the detail of a step already done. What is
+a brand (its brief, its assets, its projects) / a project (its seven steps, what waits, and once pieces exist the series as thumbnails, each with where it stands) / the detail of a step already done, or of steps 5 to 7 as soon as they have begun ("x sur y pièces"). What is
 selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
 (a brand, a project) and its "Modifier". A task is the core: opening it folds the columns into thin strips that keep their names;
 a click on a strip, Escape or the left arrow brings them back. Keyboard: up and down in a column, right to go deeper, left or

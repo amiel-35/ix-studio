@@ -577,6 +577,25 @@
     return "prompt";
   };
   const STAGE_WORDS = { running: "Le studio dessine l'image", kept: "Gardée", decide: "À décider", compose: "À composer", prompt: "Prompt à relire" };
+  /* where the series stands: how many pieces have their image, are composed, are decided (kept) */
+  const SERIES_STEPS = ["image", "piece", "decide"];
+  const seriesCount = (pcs) => ({ total: pcs.length, image: pcs.filter((x) => x.image).length, piece: pcs.filter((x) => x.composed).length, decide: pcs.filter((x) => x.decision && x.decision.verdict === "keep").length });
+  const SERIES_WORD = { image: " avec leur image", piece: " composées", decide: " gardées" };
+  const pieceSrc = (pc) => pc.composed || pc.image || null;
+
+  /* the series in a column: the pieces as thumbnails, each with where it stands; a click opens it */
+  function Series({ ctx, p, col }) {
+    const jobs = p.jobs, n = seriesCount(p.pieces);
+    const open = (pc) => ctx.openTask(synth(p, "piece-any", { piece: pc.id, title: pc.label }));
+    return h(React.Fragment, null,
+      h(Where, null, "La série · " + plural(n.total, "pièce", "pièces")),
+      h("ul", { className: "serie", "aria-label": "Les pièces de la série" }, p.pieces.map((pc) => {
+        const w = STAGE_WORDS[stageOf(pc, jobs)], src = pieceSrc(pc);
+        return h("li", { key: pc.id }, h("button", { type: "button", className: "vign", "data-col": col, "data-piece": pc.id, onClick: () => open(pc), "aria-label": pc.label + " : " + w.toLowerCase() },
+          h("span", { className: "vf", style: { "--ratio": pc.size[0] / pc.size[1] } }, src ? h("img", { src, alt: "" }) : null),
+          h("span", { className: "nom small" }, pc.label), h("span", { className: "meta" }, w)));
+      })));
+  }
 
   function usePiece(ctx, pid, id) {
     const [pc, setPc] = useState(null);
@@ -821,7 +840,7 @@
     const tasks = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid);
     const brandTask = ctx.data.tasks.find((t) => t.scope === "brand" && t.brand === p.brand);
     const jobs = ctx.data.jobs.filter((j) => j.project === pid);
-    const keptN = p.pieces.filter((x) => x.decision && x.decision.verdict === "keep").length;
+    const sc = seriesCount(p.pieces), keptN = sc.decide;
     const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(pid); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(keptN, "pièce", "pièces") + "."); });
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, p.name),
@@ -831,18 +850,23 @@
       h("ol", { className: "etapes", "aria-label": "Les sept étapes" }, SEVEN.map((s, i) => {
         const status = st(s.key), cur = i === nowIdx;
         const word = STEP_WORD[status];
-        const inner = [h("i", { key: "d", "aria-hidden": "true" }), h("span", { key: "t", className: "t" }, s.label), h("span", { key: "m", className: cur ? "m" : "sr" }, cur ? word : " : " + word)];
-        const open = status === "done" ? () => ctx.selectStep(s.key) : s.key === "brand" && brandTask ? () => ctx.openTask(brandTask) : null;
+        const serie = SERIES_STEPS.includes(s.key) && p.pieces.length > 0 && status !== "todo"; // steps 5 to 7, once they have begun: "x sur y pièces"
+        const count = serie ? sc[s.key] + " sur " + plural(sc.total, "pièce", "pièces") : "";
+        const meta = [cur ? word : "", count].filter(Boolean).join(" · ");
+        const inner = [h("i", { key: "d", "aria-hidden": "true" }), h("span", { key: "t", className: "t" }, s.label), h("span", { key: "m", className: meta ? "m" : "sr" }, meta || " : " + word)];
+        const readable = status === "done" || serie;
+        const open = readable ? () => ctx.selectStep(s.key) : s.key === "brand" && brandTask ? () => ctx.openTask(brandTask) : null;
         const selected = sel.detail && sel.detail.kind === "step" && sel.detail.key === s.key;
         return h("li", { key: s.key, "data-etat": status, "data-cur": cur ? "1" : undefined, "aria-current": cur ? "step" : undefined },
-          open ? h("button", { type: "button", className: "etape", "data-col": 2, "data-select": status === "done" ? "1" : undefined, "data-sel": selected ? level : undefined, "aria-current": selected ? "true" : undefined,
-            onClick: open, "aria-label": (i + 1) + ". " + s.label + " : " + word + (status === "done" ? ". Voir ce qui a été décidé" : ". Ouvrir la tâche de la marque") }, inner)
+          open ? h("button", { type: "button", className: "etape", "data-col": 2, "data-select": readable ? "1" : undefined, "data-sel": selected ? level : undefined, "aria-current": selected ? "true" : undefined,
+            onClick: open, "aria-label": (i + 1) + ". " + s.label + " : " + word + (count ? ", " + count : "") + (status === "done" ? ". Voir ce qui a été décidé" : serie ? ". Voir les pièces" : ". Ouvrir la tâche de la marque") }, inner)
             : h("div", { className: "etape" }, inner));
       })),
       p.brand_stage !== "ready" && h("p", { className: "vide" }, "Le projet attend sa marque" + (p.brand_waiting.length ? " : " + p.brand_waiting.map((x) => taskTitle({ scope: "brand", brand_name: p.brand_name, title: x.title }).toLowerCase()).join(", ") : "") + "."),
+      p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
+      keptN > 0 && h("div", { className: "take" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(keptN, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(keptN, "pièce gardée", "pièces gardées"))),
       h(Where, null, "Ce qui attend"),
-      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."),
-      keptN > 0 && h("div", { className: "take" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(keptN, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(keptN, "pièce gardée", "pièces gardées"))));
+      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
   }
 
   /* ---------- 4. the detail of a step already done: what was decided, and a way to reopen it ---------- */
@@ -860,6 +884,7 @@
     }, key);
     const label = (SEVEN.find((s) => s.key === step) || {}).label || "";
     if (!p || !body) return h("div", { className: "colhead" }, h(Eyebrow, null, "Décidé"), h("p", { className: "vide" }, "Un instant."));
+    const stepDone = ((p.steps.find((x) => x.key === step) || {}).status || "todo") === "done", sc = seriesCount(p.pieces);
     const reopen = (k, extra) => ctx.openTask(synth(p, k, extra));
     let main, action;
     if (step === "brand") {
@@ -882,13 +907,16 @@
       main = h("ul", { className: "plain" }, body.map((v) => h("li", { key: v.id }, h("span", { className: "cap" }, v.mandate + (inSeries.has(v.id) ? " · dans la série" : "")), h("span", { className: "hl" }, v.headline), v.subline && h("span", null, v.subline))));
       action = h(Button, { variant: "secondary", size: "sm", onClick: () => reopen("diverge-pick", { readOnly: true }), "aria-label": "Rouvrir les variantes de la série" }, "Rouvrir");
     } else {
-      main = p.pieces.length === 0 ? h("p", { className: "vide" }, "Pas de pièce.") : h("ul", { className: "pieces", "aria-label": "Les pièces" }, p.pieces.map((pc) => { const w = STAGE_WORDS[stageOf(pc, p.jobs)];
-        return h("li", { key: pc.id }, h("button", { type: "button", className: "row", "data-col": 3, onClick: () => reopen("piece-any", { piece: pc.id, title: pc.label }), "aria-label": "Rouvrir " + pc.label + " : " + w.toLowerCase() },
+      main = p.pieces.length === 0 ? h("p", { className: "vide" }, "Pas de pièce.") : h("ul", { className: "pieces", "aria-label": "Les pièces" }, p.pieces.map((pc) => { const w = STAGE_WORDS[stageOf(pc, p.jobs)], src = pieceSrc(pc);
+        return h("li", { key: pc.id }, h("button", { type: "button", className: "row", "data-col": 3, onClick: () => reopen("piece-any", { piece: pc.id, title: pc.label }), "aria-label": (stepDone ? "Rouvrir " : "Ouvrir ") + pc.label + " : " + w.toLowerCase() },
+          h("span", { className: "vf mini", style: { "--ratio": pc.size[0] / pc.size[1] } }, src ? h("img", { src, alt: "" }) : null),
           h("span", { className: "main" }, h("span", { className: "nom" }, pc.label), h("span", { className: "meta" }, w)))); }));
       action = null;
     }
+    const serie = SERIES_STEPS.includes(step);
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Décidé"), h("h2", { className: "titre" }, label), h("p", { className: "sub" }, "Étape faite. Ce qui a été décidé, tel quel.")),
+      h("div", { className: "colhead" }, h(Eyebrow, null, stepDone ? "Décidé" : "En cours"), h("h2", { className: "titre" }, label),
+        h("p", { className: "sub" }, serie && !stepDone ? sc[step] + " sur " + plural(sc.total, "pièce", "pièces") + SERIES_WORD[step] + "." : "Étape faite. Ce qui a été décidé, tel quel.")),
       h("div", { className: "bodyc" }, main, action));
   }
 
