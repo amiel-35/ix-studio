@@ -1303,6 +1303,12 @@
     const now = () => Date.now() + skew.current;
     const touch = useCallback(() => setRev((x) => x + 1), []);
     const notify = useCallback((text) => setNotice(text), []);
+    /* what was just done is said once, in the core or in the columns, and goes: it is not a state of the screen */
+    useEffect(() => {
+      if (!notice) return;
+      const t = setTimeout(() => setNotice(null), 9000);
+      return () => clearTimeout(t);
+    }, [notice]);
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
@@ -1412,7 +1418,7 @@
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
-        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h("p", { className: "ou small muted" }, whereLine(t)), slow, err, h(Core, { ctx, t, key: t._k }))), pal);
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h(Notice, { text: notice }), h("p", { className: "ou small muted" }, whereLine(t)), slow, err, h(Core, { ctx, t, key: t._k }))), pal);
     }
 
     /* ----- the columns ----- */

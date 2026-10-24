@@ -143,6 +143,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .coeur { flex: 1; min-width: 0; height: 100%; overflow-y: auto; display: flex; padding: var(--space-8) var(--page-x); outline: none; background: var(--surface-page); }
 .coeur-in { margin: auto; width: 100%; max-width: 720px; }
 .ou { margin-bottom: var(--space-3); }
+.coeur-in > .notice { margin-bottom: var(--space-6); }
 .task > * + * { margin-top: var(--space-5); }
 .head { font-family: var(--font-display); font-size: var(--fs-h2); line-height: var(--lh-heading); letter-spacing: var(--ls-heading); font-weight: var(--fw-semibold); color: var(--text-heading); outline: none; }
 .lead { font-size: var(--fs-body-lg); max-width: 60ch; }
