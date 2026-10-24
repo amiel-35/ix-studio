@@ -6,3 +6,6 @@ local.md
 __pycache__/
 *.pyc
 .DS_Store
+
+# The interface loads the brand design system from here; it is not published with the repository (see app/README.md)
+app/static/ds/
