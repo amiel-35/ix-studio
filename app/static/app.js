@@ -646,7 +646,7 @@
       (toDraw > 1 && hasPrompt || toCompose > 1 || n.decide > 0) && h("div", { className: "take" },
         toDraw > 1 && hasPrompt && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.drawAll(p.id), "Le studio lance toutes les images."), "aria-label": "Lancer les " + toDraw + " images qui manquent, sans relire les prompts" }, "Dessiner toutes les images"),
         toCompose > 1 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.composeAll(p.id), "Le studio compose les pièces, une par une."), "aria-label": "Composer et vérifier les " + toCompose + " pièces qui ont leur image" }, "Composer tout"),
-        n.decide > 0 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(n.decide, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(n.decide, "pièce gardée", "pièces gardées"))),
+        n.decide > 0 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": n.decide === 1 ? "Télécharger en zip la pièce gardée" : "Télécharger en zip les " + plural(n.decide, "pièce gardée", "pièces gardées") }, n.decide === 1 ? "Télécharger la pièce gardée" : "Télécharger les " + plural(n.decide, "pièce gardée", "pièces gardées"))),
       h("ul", { className: "serie", "aria-label": "Les pièces de la série" }, p.pieces.map((pc) => {
         const w = STAGE_WORDS[stageOf(pc, jobs)], src = pieceSrc(pc);
         return h("li", { key: pc.id }, h("button", { type: "button", className: "vign", "data-col": col, "data-piece": pc.id, onClick: () => open(pc), "aria-label": pc.label + " : " + w.toLowerCase() },
