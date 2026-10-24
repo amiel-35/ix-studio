@@ -10,7 +10,7 @@ a brand (its brief, its assets, its projects) / a project (its seven steps, what
 selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
 (a brand, a project) and its "Modifier". A task is the core: opening it folds the columns into thin strips that keep their names;
 a click on a strip, Escape or the left arrow brings them back. Keyboard: up and down in a column, right to go deeper, left or
-Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. Under 760 px, one column at a time, with a way back.
+Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. When the columns do not fit side by side (four levels on a 1 280 px screen), those on the left fold into strips that keep their names, as they do in a task, and a click on a strip goes back to that level. Under 760 px, one column at a time, with a way back.
 
 The interface is built on the API only (`API.md`), so it does not know which backend answers. Two exist:
 

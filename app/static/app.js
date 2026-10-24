@@ -1106,6 +1106,22 @@
   }
   const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
+  /* the width of the window, to know how many columns fit side by side */
+  function useWidth() {
+    const [w, setW] = useState(window.innerWidth);
+    useEffect(() => { const f = () => setW(window.innerWidth); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
+    return w;
+  }
+  /* what each column asks for (the last one takes what is left, down to LAST_MIN) and what a folded one costs */
+  const COL_W = [300, 360, 360, 420], LAST_MIN = 360, STRIP_W = 44;
+  /* how many of the columns on the left fold into strips so that the rest fits: the least that does it (the last column is never folded) */
+  function foldCount(n, width) {
+    const need = (i) => STRIP_W * i + Array.from({ length: n - i }, (_, k) => (i + k === n - 1 ? LAST_MIN : COL_W[Math.min(i + k, 3)])).reduce((a, b) => a + b, 0);
+    let i = 0;
+    while (i < n - 1 && need(i) > width) i++;
+    return i;
+  }
+
   function useNarrow() {
     const q = "(max-width: 760px)";
     const [n, setN] = useState(() => window.matchMedia(q).matches);
@@ -1124,6 +1140,7 @@
     const [rev, setRev] = useState(0);
     const [, setTick] = useState(0);
     const narrow = useNarrow();
+    const width = useWidth();
     const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), digest = useRef(""), cmdsRef = useRef([]), overlayRef = useRef(false), arrowsRef = useRef(false), backTo = useRef(null);
     const selRef = useRef(sel), diveRef = useRef(dive), opened = useRef(0);
     overlayRef.current = palette;
@@ -1352,8 +1369,10 @@
         i > 0 && h("button", { type: "button", className: "retour", onClick: () => popTo(i), "aria-label": "Retour : " + labels[cols[i - 1]] }, "‹ " + labels[cols[i - 1]]),
         h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i)), pal);
     }
+    const fold = foldCount(cols.length, width); // when the columns do not fit, those on the left fold into strips that keep their names, as they do in a task
+    const strip = (kind, i) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => popTo(i + 1), "aria-label": "Revenir à : " + labels[kind] }, h("span", null, labels[kind]));
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
-      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map(shell),
+      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => i < fold ? strip(kind, i) : shell(kind, i)),
         cols.length === 1 && h("div", { className: "rest" }, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. ", h("span", { className: "mono" }, MOD + " K"), " pour tout trouver."))),
       pal);
   }
