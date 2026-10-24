@@ -13,7 +13,7 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
 brand and the order of the steps are written once, in `workflow.py`, which both backends feed with plain data. Tomorrow the same routes can run on a central server, behind an authentication.
 
-Every route answers JSON. Every route but `GET /api/health` goes through the authentication hook
+Every route answers JSON, except the two downloads (a png, a zip). Every route but `GET /api/health` goes through the authentication hook
 (`server.py`, `authenticate`): `STUDIO_AUTH=none` (default, local) lets everything through; `STUDIO_AUTH=token`
 asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that hook with its own (sessions, SSO).
 
@@ -104,6 +104,8 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/projects/{p}/pieces/{i}/image` | draw the image: a job |
 | `POST /api/projects/{p}/pieces/{i}/compose` | compose the piece and check it |
 | `POST /api/projects/{p}/pieces/{i}/decide` `{verdict, words}` | `keep`, or `again` with what is wrong |
+| `GET /api/projects/{p}/pieces/{i}/download` | **a file, not JSON**: the composed piece as a png at the size of its format (the file `studio compose` made), sent as an attachment (`Content-Disposition`, name `<project>-<piece>.png`). 409 while the piece is not composed. The simulated backend has one picture for all of them |
+| `GET /api/projects/{p}/download` | **a file, not JSON**: a zip of every piece **kept** (`<project>-<piece>.png` each, written with the standard library), name `<project>.zip`. 409 while no piece is kept |
 | `GET /api/jobs/{j}` | a job's progress (a brand's or a project's) |
 | `GET /files/{p}/piece/{path}`, `GET /files/{p}/brand/{path}` | a file of the project's `piece/` folder; a file of its brand's dossier. |
 | `GET /files/_marques/{b}/brand/{path}` | a file of a brand's dossier (the pictures the brand's shapes point to: `preview`). Anything that leaves those folders answers 404 (the first segment, `..` in any spelling, a link that points outside, a folder, a null byte). Same authentication as the API: with `STUDIO_AUTH=token` a page cannot load an `<img>` this way (a picture cannot send a header), which the central server's own hook has to solve. Served with `Content-Security-Policy: sandbox`. The simulated backend has none |

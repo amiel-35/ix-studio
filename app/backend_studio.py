@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import workflow
-from workflow import FORMATS, Conflict, NotFound, contrast, luminance, normalise_site, one_line, slug  # noqa: F401  (re-exported: the tests import them from here)
+from workflow import FORMATS, Conflict, Download, NotFound, contrast, luminance, normalise_site, one_line, slug  # noqa: F401  (re-exported: the tests import them from here)
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
@@ -1546,6 +1546,27 @@ class StudioBackend:
             for f in rounds[-1].glob("*.json"):
                 shutil.copy2(f, d / "variants" / f.name)
         write_json(d / "pick.json", {"variant": vid, "at": time.strftime("%Y-%m-%d")})
+
+    # ---------- taking the pieces out of the studio ----------
+    def download_piece(self, pid, i):
+        """The composed piece as a png file, at the size of its format (the file `studio compose` made)."""
+        e = self._entry(self._load(pid), i)
+        f = self._piece_dir(pid) / e["dir"] / "piece.png"
+        if not self._piece_view(pid, e)["composed"]:
+            raise Conflict("this piece is not composed yet")
+        return Download(f"{pid}-{i}.png", "image/png", f.read_bytes())
+
+    def download_project(self, pid):
+        """Every piece kept, in a zip (the standard library's)."""
+        p = self._load(pid)
+        files = []
+        for e in p["pieces"]:
+            f = self._piece_dir(pid) / e["dir"] / "piece.png"
+            if (e.get("decision") or {}).get("verdict") == "keep" and f.is_file():
+                files.append((f"{pid}-{e['id']}.png", f.read_bytes()))
+        if not files:
+            raise Conflict("no piece is kept yet")
+        return Download(f"{pid}.zip", "application/zip", workflow.zip_of(files))
 
     # ---------- the files of a project, and of a brand ----------
     def file(self, pid, rel) -> Path:

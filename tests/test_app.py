@@ -40,6 +40,17 @@ class Api(unittest.TestCase):
         self.assertEqual(got, code, data)
         return data
 
+    def fetch(self, path, code=200):
+        """A route that answers a file: (headers, bytes)."""
+        try:
+            with urllib.request.urlopen(self.base + path) as r:
+                got, head, data = r.status, r.headers, r.read()
+        except urllib.error.HTTPError as err:
+            got, head, data = err.code, err.headers, err.read()
+            err.close()
+        self.assertEqual(got, code, data[:200])
+        return head, data
+
     def drop(self, bid, data, ctype="image/png", name="logo.png", code=200):
         """A file sent as the body of the request (the logo): its type is the Content-Type, its name the X-Filename header."""
         req = urllib.request.Request(self.base + f"/api/brands/{bid}/logo", method="POST", data=data, headers={"Content-Type": ctype, "X-Filename": name})
@@ -383,6 +394,35 @@ class Api(unittest.TestCase):
         self.assertEqual(steps["diverge"], "done")
         row = next(p for p in self.call("GET", f"/api/brands/{bid}")["projects"] if p["id"] == pid)
         self.assertEqual((row["rank"], row["step_label"]), (5, "Les images"))  # the other three pieces still wait for their image
+
+    def test_the_pieces_are_taken_out_one_by_one_and_in_a_zip(self):
+        import io
+        import zipfile
+        bid = self.ready_brand(name="Sortie")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "La sortie"})["id"]
+        brief = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**brief, "format": "post-4x5, story"}})
+        m = self.call("GET", f"/api/projects/{pid}/mandates")
+        self.call("PUT", f"/api/projects/{pid}/mandates", {"items": m["items"], "common": m["common"]})
+        self.wait(self.call("POST", f"/api/projects/{pid}/diverge"))
+        self.call("POST", f"/api/projects/{pid}/pick", {"variants": ["v1", "v2"]})
+        self.fetch(f"/api/projects/{pid}/pieces/v1-story/download", code=409)  # not composed yet
+        self.fetch(f"/api/projects/{pid}/download", code=409)  # nothing kept yet
+        for pc in ("v1-story", "v2-story"):
+            self.wait(self.call("POST", f"/api/projects/{pid}/pieces/{pc}/image"))
+            self.call("POST", f"/api/projects/{pid}/pieces/{pc}/compose")
+        head, data = self.fetch(f"/api/projects/{pid}/pieces/v1-story/download")
+        self.assertEqual((head["Content-Type"], head["Content-Disposition"]), ("image/png", f'attachment; filename="{pid}-v1-story.png"'))
+        self.assertTrue(data.startswith(b"\x89PNG"))
+        self.fetch(f"/api/projects/{pid}/pieces/nope/download", code=404)
+        self.fetch(f"/api/projects/{pid}/download", code=409)  # composed is not kept
+        self.call("POST", f"/api/projects/{pid}/pieces/v2-story/decide", {"verdict": "keep"})
+        self.call("POST", f"/api/projects/{pid}/pieces/v1-story/decide", {"verdict": "again", "words": "trop sombre"})
+        head, data = self.fetch(f"/api/projects/{pid}/download")
+        self.assertEqual((head["Content-Type"], head["Content-Disposition"]), ("application/zip", f'attachment; filename="{pid}.zip"'))
+        z = zipfile.ZipFile(io.BytesIO(data))
+        self.assertEqual(z.namelist(), [f"{pid}-v2-story.png"])  # only what is kept
+        self.assertTrue(z.read(z.namelist()[0]).startswith(b"\x89PNG"))
 
     def test_tasks_lists_the_running_jobs_with_an_eta(self):
         b = self.brand(name="Quai Long")

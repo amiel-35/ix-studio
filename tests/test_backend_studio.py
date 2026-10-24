@@ -175,6 +175,17 @@ class Base(unittest.TestCase):
         self.assertEqual(got, code, out)
         return out
 
+    def fetch(self, path, code=200):
+        """A route that answers a file: (headers, bytes)."""
+        try:
+            with urllib.request.urlopen(self.base + path) as r:
+                got, head, data = r.status, r.headers, r.read()
+        except urllib.error.HTTPError as err:
+            got, head, data = err.code, err.headers, err.read()
+            err.close()
+        self.assertEqual(got, code, data[:200])
+        return head, data
+
     def wait(self, job, status="done"):
         for _ in range(500):
             j = self.call("GET", f"/api/jobs/{job['id']}")
@@ -1150,6 +1161,31 @@ class Pieces(Base):
         self.call("POST", f"/api/projects/{pid}/pieces/{pc}/compose")
         d = self.call("POST", f"/api/projects/{pid}/pieces/{pc}/decide", {"verdict": "keep", "words": "voilà"})
         self.assertEqual(d["decision"]["verdict"], "keep")
+
+    def test_the_pieces_are_taken_out_one_by_one_and_in_a_zip(self):
+        import io
+        import zipfile
+        pid, _ = self.picked(("v1", "v3"))
+        self.fetch(f"/api/projects/{pid}/pieces/v1-story/download", code=409)  # not composed yet
+        self.fetch(f"/api/projects/{pid}/download", code=409)  # nothing kept yet
+        for pc in ("v1-story", "v3-story", "v3-post-4x5"):
+            self.wait(self.call("POST", f"/api/projects/{pid}/pieces/{pc}/image"))
+            self.call("POST", f"/api/projects/{pid}/pieces/{pc}/compose")
+        head, data = self.fetch(f"/api/projects/{pid}/pieces/v1-story/download")
+        self.assertEqual((head["Content-Type"], head["Content-Disposition"]), ("image/png", f'attachment; filename="{pid}-v1-story.png"'))
+        self.assertEqual(data, (self.pdir(pid) / "piece" / "pieces" / "v1-story" / "piece.png").read_bytes())  # the file compose made, as it is
+        self.fetch(f"/api/projects/{pid}/pieces/v1-post-4x5/download", code=409)  # its image is not drawn
+        self.fetch(f"/api/projects/{pid}/pieces/nope/download", code=404)
+        self.fetch(f"/api/projects/{pid}/download", code=409)  # composed is not kept
+        self.call("POST", f"/api/projects/{pid}/pieces/v3-story/decide", {"verdict": "keep"})
+        self.call("POST", f"/api/projects/{pid}/pieces/v3-post-4x5/decide", {"verdict": "keep"})
+        self.call("POST", f"/api/projects/{pid}/pieces/v1-story/decide", {"verdict": "again", "words": "trop sombre"})
+        head, data = self.fetch(f"/api/projects/{pid}/download")
+        self.assertEqual((head["Content-Type"], head["Content-Disposition"]), ("application/zip", f'attachment; filename="{pid}.zip"'))
+        z = zipfile.ZipFile(io.BytesIO(data))
+        self.assertEqual(sorted(z.namelist()), [f"{pid}-v3-post-4x5.png", f"{pid}-v3-story.png"])  # only what is kept
+        self.assertTrue(all(z.read(n).startswith(b"\x89PNG") for n in z.namelist()))
+        self.fetch("/api/projects/nope/download", code=404)
 
     def test_a_missing_screenshot_is_said_not_hidden(self):
         pid, _ = self.picked(("v1",), formats="story")

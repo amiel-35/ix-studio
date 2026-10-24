@@ -22,7 +22,9 @@ import time
 import urllib.parse
 
 import workflow
-from workflow import FORMATS, STEPS, Conflict, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
+from pathlib import Path
+
+from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
 DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
@@ -674,6 +676,28 @@ class StubBackend:
             pc["status"] = "composed"
             self._mark(p, "image", "piece", "decide")
             return copy.deepcopy(pc)
+
+    def _png(self, pc):
+        """The composed piece: the simulated studio has one picture for all of them (static/stub/piece.png)."""
+        return (Path(__file__).resolve().parent / "static" / self.static / "piece.png").read_bytes()
+
+    def download_piece(self, pid, i):
+        """The composed piece as a png file (at its size in the real studio; the simulated one has one picture)."""
+        with self.lock:
+            self._tick()
+            pc = self._piece(self._p(pid), i)
+            if not pc["composed"]:
+                raise Conflict("this piece is not composed yet")
+            return Download(f"{pid}-{i}.png", "image/png", self._png(pc))
+
+    def download_project(self, pid):
+        """Every piece kept, in a zip."""
+        with self.lock:
+            self._tick()
+            kept = [pc for pc in self._p(pid)["pieces"] if pc["composed"] and (pc["decision"] or {}).get("verdict") == "keep"]
+            if not kept:
+                raise Conflict("no piece is kept yet")
+            return Download(f"{pid}.zip", "application/zip", workflow.zip_of([(f"{pid}-{pc['id']}.png", self._png(pc)) for pc in kept]))
 
     def decide(self, pid, i, verdict, words):
         with self.lock:

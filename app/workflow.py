@@ -21,14 +21,24 @@ The state a backend gives (a dict):
 """
 
 import copy
+import io
 import ipaddress
 import re
 import unicodedata
 import urllib.parse
+import zipfile
+from typing import NamedTuple
 
 
 class NotFound(Exception):
     pass
+
+
+class Download(NamedTuple):
+    """What a download route answers instead of JSON: the file itself (its type, its name, its bytes). The server sends it as an attachment."""
+    name: str
+    ctype: str
+    data: bytes
 
 
 class Conflict(Exception):
@@ -403,6 +413,15 @@ def palette_of(colours) -> dict:
         ref = out["background"]
         out["text"] = max(rest, key=lambda h: contrast(h, ref)) if ref else min(rest, key=luminance)
     return out
+
+
+def zip_of(files) -> bytes:
+    """A zip (the standard library's) of `[(name, bytes)]`: the pieces are png files, already compressed, so they are stored as they are."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for name, data in files:
+            z.writestr(name, data)
+    return buf.getvalue()
 
 
 LOGO_MAX = 2 * 1024 * 1024  # bytes: a logo is a small file

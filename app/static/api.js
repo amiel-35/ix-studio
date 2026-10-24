@@ -35,6 +35,21 @@
     return data;
   }
 
+  /* a file (a png, a zip): fetched with the headers, so that a token goes with it; answers {blob, name}, the name being the one the studio gave */
+  async function download(path) {
+    const h = {};
+    if (api.token) h.Authorization = "Bearer " + api.token;
+    const r = await fetch(api.base + path, { headers: h });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      const err = new Error(data.error || r.status + " " + r.statusText);
+      err.status = r.status;
+      throw err;
+    }
+    const m = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "");
+    return { blob: await r.blob(), name: m ? m[1] : "piece" };
+  }
+
   const P = (p) => "/api/projects/" + encodeURIComponent(p);
   const B = (b) => "/api/brands/" + encodeURIComponent(b);
   Object.assign(api, {
@@ -66,6 +81,8 @@
     saveBrandBrief: (b, fields) => call("PUT", B(b) + "/brief", { fields }), // fields: { what, who, voice, signature, never, colours }
     confirmBrand: (b, keys) => call("POST", B(b) + "/confirm", { keys }), // no keys: every value to confirm
     createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
+    downloadPiece: (p, i) => download(P(p) + "/pieces/" + encodeURIComponent(i) + "/download"), // the composed piece, a png at its size
+    downloadKept: (p) => download(P(p) + "/download"), // every piece kept, a zip
     updateProject: (p, fields) => call("PUT", P(p), fields), // fields: { name }
     job: (j) => call("GET", "/api/jobs/" + encodeURIComponent(j)),
     /* Follows a job until it ends; onProgress(job) at each step. Resolves with the finished job. */

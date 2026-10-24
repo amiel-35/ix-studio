@@ -4,6 +4,7 @@
 
 Serves app/static/ and answers /api/* (see API.md) with a backend: STUDIO_BACKEND=studio (default) drives scripts/studio
 and scripts/brandkit and keeps its projects in STUDIO_HOME; STUDIO_BACKEND=stub is the simulated one (backend_stub).
+GET /api/projects/<p>/pieces/<i>/download and GET /api/projects/<p>/download answer a file (a png, a zip) as an attachment.
 GET /files/<project>/<path> serves the pictures of a project (its piece/ folder, and the brand/ folder of its brand) and
 GET /files/_marques/<brand>/<path> those of a brand (its brand/ folder). Stdlib only. Listens
 on 127.0.0.1 unless told otherwise; on a central server it sits behind a proxy that terminates TLS, and `authenticate`
@@ -23,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from workflow import Conflict, NotFound  # noqa: E402
+from workflow import Conflict, Download, NotFound  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 B = r"(?P<b>[\w-]+)"
@@ -58,7 +59,9 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/diverge", lambda b, m, d: b.diverge(m["p"])),
     ("GET", rf"/api/projects/{P}/variants", lambda b, m, d: b.variants(m["p"])),
     ("POST", rf"/api/projects/{P}/pick", lambda b, m, d: b.pick(m["p"], d.get("variants", []))),
+    ("GET", rf"/api/projects/{P}/download", lambda b, m, d: b.download_project(m["p"])),
     ("GET", rf"/api/projects/{P}/pieces/{I}", lambda b, m, d: b.piece(m["p"], m["i"])),
+    ("GET", rf"/api/projects/{P}/pieces/{I}/download", lambda b, m, d: b.download_piece(m["p"], m["i"])),
     ("PUT", rf"/api/projects/{P}/pieces/{I}/prompt", lambda b, m, d: b.put_prompt(m["p"], m["i"], d.get("prompt"))),
     ("POST", rf"/api/projects/{P}/pieces/{I}/image", lambda b, m, d: b.image(m["p"], m["i"])),
     ("POST", rf"/api/projects/{P}/pieces/{I}/compose", lambda b, m, d: b.compose(m["p"], m["i"])),
@@ -132,7 +135,10 @@ def make_handler(backend):
                 m = re.fullmatch(pat, path)
                 if m and verb == method:
                     try:
-                        return self.send(200, call(backend, m.groupdict(), body))
+                        out = call(backend, m.groupdict(), body)
+                        if isinstance(out, Download):  # a file, not JSON: sent as an attachment
+                            return self.send(200, out.data, out.ctype, {"Content-Disposition": f'attachment; filename="{out.name}"', "X-Content-Type-Options": "nosniff"})
+                        return self.send(200, out)
                     except NotFound as err:
                         return self.send(404, {"error": str(err)})
                     except Conflict as err:

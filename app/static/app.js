@@ -80,6 +80,13 @@
   const loadJournal = (pid) => { try { return JSON.parse(localStorage.getItem("studio-journal:" + pid) || "[]"); } catch (e) { return []; } };
   const saveJournal = (pid, list) => { try { localStorage.setItem("studio-journal:" + pid, JSON.stringify(list.slice(0, 200))); } catch (e) { /* private window: no journal */ } };
 
+  /* a file the studio gave ({blob, name}) is saved by the browser */
+  function saveFile(f) {
+    const url = URL.createObjectURL(f.blob), a = document.createElement("a");
+    a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
   /* a core screen gives its own commands to the palette: the ref holds the list of the screen on screen */
   function useCmds(ctx, list) {
     const mine = useRef(null);
@@ -641,8 +648,10 @@
       await ctx.answered(pid, verdict === "keep" ? pc.label + " : gardée." : pc.label + " : renvoyée, le studio retient « " + words.trim() + " ».",
         { before: snap, prefer: (t) => t.piece === id, any: false, sibling: verdict === "keep" ? (t) => t.kind === "decide" && t.piece !== id : undefined });
     });
+    const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); });
     useCmds(ctx, pc ? [
       !pc.decision && { id: "keep", label: "Garder " + pc.label, run: () => send("keep") },
+      { id: "take", label: "Télécharger " + pc.label + " en png", run: take },
       { id: "back", label: "Renvoyer " + pc.label + " avec une raison", run: () => setBack(true) },
       { id: "notes", label: notes ? "Cacher les alertes" : "Voir les alertes de la vérification", run: () => setNotes(!notes) },
     ].filter(Boolean) : []);
@@ -666,7 +675,8 @@
           h(Button, { variant: "ghost", size: "lg", onClick: () => setBack(false), "aria-label": "Ne pas renvoyer" }, "Annuler")))
         : h("div", { className: "gestures" },
           !pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: () => send("keep"), "aria-label": "Garder cette pièce" }, "Garder"),
-          h(Button, { variant: pc.decision ? "primary" : "secondary", size: "lg", onClick: () => setBack(true), "aria-label": pc.decision ? "Revenir sur cette décision et renvoyer la pièce" : "Renvoyer la pièce en disant pourquoi" }, "Renvoyer")))));
+          h(Button, { variant: pc.decision ? "primary" : "secondary", size: "lg", onClick: () => setBack(true), "aria-label": pc.decision ? "Revenir sur cette décision et renvoyer la pièce" : "Renvoyer la pièce en disant pourquoi" }, "Renvoyer"),
+          h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger")))));
   }
 
   /* a piece opened from the series, wherever it stands */
@@ -811,6 +821,8 @@
     const tasks = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid);
     const brandTask = ctx.data.tasks.find((t) => t.scope === "brand" && t.brand === p.brand);
     const jobs = ctx.data.jobs.filter((j) => j.project === pid);
+    const keptN = p.pieces.filter((x) => x.decision && x.decision.verdict === "keep").length;
+    const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(pid); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(keptN, "pièce", "pièces") + "."); });
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, p.name),
         h("p", { className: "sub" }, done === 7 ? "Terminé" : "Étape " + (nowIdx + 1) + " sur 7 · " + SEVEN[nowIdx].label),
@@ -829,7 +841,8 @@
       })),
       p.brand_stage !== "ready" && h("p", { className: "vide" }, "Le projet attend sa marque" + (p.brand_waiting.length ? " : " + p.brand_waiting.map((x) => taskTitle({ scope: "brand", brand_name: p.brand_name, title: x.title }).toLowerCase()).join(", ") : "") + "."),
       h(Where, null, "Ce qui attend"),
-      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
+      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."),
+      keptN > 0 && h("div", { className: "take" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": "Télécharger en zip les " + plural(keptN, "pièce gardée", "pièces gardées") }, "Télécharger les " + plural(keptN, "pièce gardée", "pièces gardées"))));
   }
 
   /* ---------- 4. the detail of a step already done: what was decided, and a way to reopen it ---------- */
