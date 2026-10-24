@@ -24,6 +24,7 @@
   const P = (p) => "/api/projects/" + encodeURIComponent(p);
   Object.assign(api, {
     health: () => call("GET", "/api/health"),
+    tasks: () => call("GET", "/api/tasks"),
     projects: () => call("GET", "/api/projects"),
     createProject: (name, from) => call("POST", "/api/projects", { name, from }),
     project: (p) => call("GET", P(p)),

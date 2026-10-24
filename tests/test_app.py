@@ -95,6 +95,33 @@ class Api(unittest.TestCase):
         self.assertEqual(steps["brand"], "done")
         self.assertEqual(steps["diverge"], "done")
 
+    def test_tasks_across_projects(self):
+        a = self.call("POST", "/api/projects", {"name": "tâches A"})["id"]
+        b = self.call("POST", "/api/projects", {"name": "tâches B"})["id"]
+        t = self.call("GET", "/api/tasks")
+        mine = [x for x in t["tasks"] if x["project"] in (a, b)]
+        self.assertEqual([(x["project"], x["kind"], x["id"]) for x in mine], [(a, "brand-how", f"{a}:brand:"), (b, "brand-how", f"{b}:brand:")])
+        self.assertEqual(mine[0]["project_name"], "tâches A")
+        self.assertTrue(all(x["title"] and x["since"] for x in mine))
+        self.assertEqual({x["id"] for x in t["projects"]} >= {a, b}, True)
+        self.wait(self.call("POST", f"/api/projects/{a}/brand/learn", {"mode": "learn"}))
+        mine = [x for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == a]
+        self.assertEqual([(x["kind"], x["title"]) for x in mine], [("brand-sort", "Trier 8 visuels de la marque")])
+        self.call("POST", f"/api/projects/{a}/brand/keep", {"kept": ["ev-01"], "logo": "logo-1"})
+        self.assertEqual([x["kind"] for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == a], ["brief"])
+        self.assertEqual(self.call("GET", f"/api/projects/{a}")["waiting"][0]["kind"], "brief")
+        self.assertIsNone([x for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == a][0]["piece_label"])
+
+    def test_tasks_lists_the_running_jobs_with_an_eta(self):
+        pid = self.call("POST", "/api/projects", {"name": "en cours"})["id"]
+        job = self.call("POST", f"/api/projects/{pid}/brand/learn", {"mode": "learn"})
+        running = [j for j in self.call("GET", "/api/tasks")["jobs"] if j["id"] == job["id"]]
+        for j in running:  # the stub runs at 1/100 speed: the job may already be over
+            self.assertEqual((j["project"], j["kind"]), (pid, "learn"))
+            self.assertGreaterEqual(j["eta"], 0)
+        self.wait(job)
+        self.assertEqual([j for j in self.call("GET", "/api/tasks")["jobs"] if j["id"] == job["id"]], [])
+
     def test_declination_starts_from_another_project(self):
         src = self.call("POST", "/api/projects", {"name": "source"})["id"]
         self.wait(self.call("POST", f"/api/projects/{src}/brand/learn"))

@@ -28,6 +28,7 @@ I = r"(?P<i>[\w-]+)"
 
 # (method, path pattern, backend call taking (backend, match groups, json body))
 ROUTES = [
+    ("GET", r"/api/tasks", lambda b, m, d: b.tasks()),
     ("GET", r"/api/projects", lambda b, m, d: b.list_projects()),
     ("POST", r"/api/projects", lambda b, m, d: b.create_project(d.get("name"), d.get("from"))),
     ("GET", rf"/api/projects/{P}", lambda b, m, d: b.project(m["p"])),

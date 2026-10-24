@@ -145,10 +145,13 @@ class StubBackend:
             step("brand", "running", "studio", j)
         elif not p["brand"]["learned"]:
             step("brand", "todo", "person")
-            asks.append({"step": "brand", "piece": None, "question": "Comment apprendre la marque : le studio cherche, tu réponds, ou on part de rien ?"})
+            asks.append({"step": "brand", "piece": None, "kind": "brand-how", "title": "Choisir comment apprendre la marque",
+                         "question": "Comment apprendre la marque : le studio cherche, tu réponds, ou on part de rien ?"})
         elif not p["brand"]["kept"]:
             step("brand", "waiting", "person")
-            asks.append({"step": "brand", "piece": None, "question": f"Garder ou écarter {len(p['evidence'])} visuels, et choisir le logo."})
+            n = len(p["evidence"])
+            asks.append({"step": "brand", "piece": None, "kind": "brand-sort", "title": f"Trier {n} visuels de la marque" if n else "Valider une marque sans visuel",
+                         "question": f"Garder ou écarter {n} visuels, et choisir le logo."})
         else:
             step("brand", "done", "person")
         prev = st["brand"]["status"] == "done"
@@ -156,14 +159,15 @@ class StubBackend:
             step("brief", "todo", "person")
         elif not p["brief"]["confirmed"]:
             step("brief", "waiting", "person")
-            asks.append({"step": "brief", "piece": None, "question": "Relire le brief pré-rempli et corriger ce qui change."})
+            asks.append({"step": "brief", "piece": None, "kind": "brief", "title": "Relire le brief", "question": "Relire le brief pré-rempli et corriger ce qui change."})
         else:
             step("brief", "done", "person")
         if st["brief"]["status"] != "done":
             step("mandates", "todo", "person")
         elif not p["mandates"]["confirmed"]:
             step("mandates", "waiting", "person")
-            asks.append({"step": "mandates", "piece": None, "question": "Relire les consignes que les agents vont recevoir, et les corriger."})
+            asks.append({"step": "mandates", "piece": None, "kind": "mandates", "title": "Relire les consignes aux agents",
+                         "question": "Relire les consignes que les agents vont recevoir, et les corriger."})
         else:
             step("mandates", "done", "person")
         j = self._running(p, "diverge")
@@ -172,10 +176,12 @@ class StubBackend:
         elif st["mandates"]["status"] != "done" or not p["variants"]:
             step("diverge", "todo", "person")
             if st["mandates"]["status"] == "done":
-                asks.append({"step": "diverge", "piece": None, "question": "Lancer la divergence : quatre agents écrivent chacun leur variante."})
+                asks.append({"step": "diverge", "piece": None, "kind": "diverge-launch", "title": "Lancer la divergence",
+                             "question": "Lancer la divergence : quatre agents écrivent chacun leur variante."})
         elif not p["pieces"]:
             step("diverge", "waiting", "person")
-            asks.append({"step": "diverge", "piece": None, "question": "Choisir une ou plusieurs variantes : chacune devient une pièce par format."})
+            asks.append({"step": "diverge", "piece": None, "kind": "diverge-pick", "title": "Choisir les variantes",
+                         "question": "Choisir une ou plusieurs variantes : chacune devient une pièce par format."})
         else:
             step("diverge", "done", "person")
         pcs = p["pieces"]
@@ -192,11 +198,14 @@ class StubBackend:
                 step("image", "waiting", "person")
             for pc in pcs:
                 if not pc["image"] and not self._running(p, "image", pc["id"]):
-                    asks.append({"step": "image", "piece": pc["id"], "question": f"Relire le prompt de l'image de {pc['label']}, puis la lancer."})
+                    asks.append({"step": "image", "piece": pc["id"], "kind": "prompt", "title": f"Relire le prompt de {pc['label']}",
+                                 "question": f"Relire le prompt de l'image de {pc['label']}, puis la lancer."})
                 elif pc["image"] and not pc["composed"]:
-                    asks.append({"step": "piece", "piece": pc["id"], "question": f"Composer et vérifier {pc['label']}."})
+                    asks.append({"step": "piece", "piece": pc["id"], "kind": "compose", "title": f"Composer et vérifier {pc['label']}",
+                                 "question": f"Composer et vérifier {pc['label']}."})
                 elif pc["composed"] and not pc["decision"]:
-                    asks.append({"step": "decide", "piece": pc["id"], "question": f"Garder {pc['label']}, ou recommencer en disant pourquoi."})
+                    asks.append({"step": "decide", "piece": pc["id"], "kind": "decide", "title": f"Décider de {pc['label']}",
+                                 "question": f"Garder {pc['label']}, ou recommencer en disant pourquoi."})
             step("piece", "done" if all(pc["composed"] for pc in pcs) else "waiting" if any(pc["image"] for pc in pcs) else "todo", "person")
             step("check", st["piece"]["status"], "studio", since=p["since"].get("piece"))
             step("decide", "done" if all(pc["decision"] for pc in pcs) else "waiting" if any(pc["composed"] for pc in pcs) else "todo", "person")
@@ -213,6 +222,26 @@ class StubBackend:
         with self.lock:
             self._tick()
             return [{"id": p["id"], "name": p["name"], "waiting": len(self.view(p)["waiting"])} for p in self.projects.values()]
+
+    def tasks(self):
+        """What waits for the person, in every project, the oldest first; the running jobs; the projects, for the breadcrumb."""
+        with self.lock:
+            self._tick()
+            tasks, jobs, projects = [], [], []
+            for p in self.projects.values():
+                v = self.view(p)
+                projects.append({"id": p["id"], "name": p["name"], "brand": p["brand"]["name"], "pieces": len(p["pieces"]), "waiting": len(v["waiting"])})
+                for a in v["waiting"]:
+                    pc = next((x for x in p["pieces"] if x["id"] == a["piece"]), None) if a["piece"] else None
+                    tasks.append({"id": f"{p['id']}:{a['step']}:{a['piece'] or ''}", "project": p["id"], "project_name": p["name"], "brand": p["brand"]["name"],
+                                  "step": a["step"], "piece": a["piece"], "piece_label": pc["label"] if pc else None, "kind": a["kind"], "title": a["title"],
+                                  "question": a["question"], "since": p["since"].get(a["step"])})
+            tasks.sort(key=lambda t: (t["since"] is None, t["since"] or 0))  # stable: the order inside a project is kept
+            for j in self.jobs.values():
+                if j["status"] == "running":
+                    jobs.append({"id": j["id"], "project": j["project"], "kind": j["kind"], "piece": j["piece"], "progress": j["progress"],
+                                 "message": j["message"], "since": j["start"], "eta": round(j["duration"] * (1 - j["progress"]), 1)})
+            return {"tasks": tasks, "jobs": jobs, "projects": projects, "now": time.time()}
 
     def create_project(self, name, src=None):
         with self.lock:

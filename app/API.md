@@ -17,7 +17,10 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   `image`, `piece`, `check`, `decide`. `status`: `todo`, `running`, `waiting` (waits for the person), `done`.
   `hand`: who holds it now, `studio` or `person`. `since`: when the hand last changed on this step (epoch seconds, or null).
   `job`: the running job's id, or null.
-- **ask**: what waits for the person, `{step, piece, question}`: the list the interface shows first.
+- **ask**: what waits for the person, `{step, piece, kind, title, question}`. `kind` names the task (`brand-how`, `brand-sort`,
+  `brief`, `mandates`, `diverge-launch`, `diverge-pick`, `prompt`, `compose`, `decide`); `title` is its short name for a list.
+- **task**: an ask seen across projects, `{id, project, project_name, brand, step, piece, piece_label, kind, title, question, since}`. `id` is
+  `project:step:piece`: it stays the same as long as the task waits. `since` is when the hand came to the person (epoch seconds).
 - **job**: `{id, kind, status, progress, message, result}`; `status` is `running`, `done` or `failed`;
   `progress` goes from 0 to 1.
 - **piece**: `{id, variant, format, size, status, image, prompt, composed, check, decision}`.
@@ -27,6 +30,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | Method and path | What it does |
 | --- | --- |
 | `GET /api/health` | `{ok, backend, auth}`, no authentication |
+| `GET /api/tasks` | `{tasks, jobs, projects, now}`: what waits for the person in every project (the oldest first), the running jobs of every project (`{id, project, kind, piece, progress, message, since, eta}`, `eta` in seconds), and the projects (`{id, name, brand, pieces, waiting}`) |
 | `GET /api/projects` | the projects |
 | `POST /api/projects` `{name, from?}` | a new project; `from` starts it from another one (a declination) |
 | `GET /api/projects/{p}` | the project, its steps and what waits for the person |
