@@ -1,8 +1,16 @@
 # The studio's interface
 
-A page that drives the whole studio without a terminal: learn the brand (keep or discard each visual, choose the
-logo), correct the prefilled brief, read and correct the instructions the agents will get, follow the divergence,
-pick a series, correct each image prompt, follow the image, compose, check, decide.
+A page that drives the whole studio without a terminal: learn a brand (keep or discard each visual, choose or drop the
+logo, write its brief, confirm what the studio deduced), then, for each project of the brand, correct the prefilled brief,
+read and correct the instructions the agents will get, follow the divergence, pick a series, correct each image prompt,
+follow the image, compose, check, decide.
+
+The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere, then the brands) /
+a brand (its brief, its assets, its projects) / a project (its seven steps, what waits) / the detail of a step already done. What is
+selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
+(a brand, a project) and its "Modifier". A task is the core: opening it folds the columns into thin strips that keep their names;
+a click on a strip, Escape or the left arrow brings them back. Keyboard: up and down in a column, right to go deeper, left or
+Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. Under 760 px, one column at a time, with a way back.
 
 The interface is built on the API only (`API.md`), so it does not know which backend answers. Two exist:
 
@@ -24,8 +32,8 @@ STUDIO_BACKEND=stub python3 app/server.py    # the simulated one
 
 Then open http://127.0.0.1:8765/. Stdlib only, Python 3.10+.
 
-Creating a project asks for the brand's name and, optionally, its site: the studio reads the site to learn the brand
-(without a site you tell it what you know, or start from nothing). A step that fails (the site cannot be read, an
+Creating a brand asks for its name and, optionally, its site: the studio reads the site to learn the brand (without a site you
+write its brief and drop its logo, a png, jpg or svg of 2 MB at most). A brand is learned once, its projects use it. A step that fails (the site cannot be read, an
 agent writes nothing, no image engine) comes back in the list as a task to run again, with the reason; the whole
 output of each job is in the `logs/` folder of its brand or project.
 

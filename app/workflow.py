@@ -182,9 +182,13 @@ def rank_of(steps: dict) -> tuple:
 
 
 def project_summary(view: dict) -> dict:
-    """The line of a project inside its brand: `{id, name, type, rank, step_label, waiting}` (`rank`: the step in progress, out of seven)."""
+    """The line of a project inside its brand: `{id, name, type, rank, step_label, done, waiting}` (`rank`: the step in progress, out of seven;
+    `done`: all seven are done, which `rank` alone cannot tell from the last one in progress)."""
     rank, label = rank_of(view["steps"])
-    return {"id": view["id"], "name": view["name"], "type": view.get("type", "campagne"), "rank": rank, "step_label": label, "waiting": len(view["waiting"])}
+    by = {x["key"]: x for x in view["steps"]}
+    done = all(by[k]["status"] == "done" for k, _ in SEVEN)
+    return {"id": view["id"], "name": view["name"], "type": view.get("type", "campagne"), "rank": rank, "step_label": label, "done": done,
+            "waiting": len(view["waiting"])}
 
 
 # ---------------------------------------------------------------- the brand
@@ -322,6 +326,38 @@ def tasks_payload(entries: list, jobs: list, now: float, brands: list = ()) -> d
                           "question": a["question"], "since": s.get("since", {}).get(a["step"])})
     tasks.sort(key=lambda t: (t["since"] is None, t["since"] or 0))
     return {"tasks": tasks, "jobs": jobs, "projects": projects, "brands": brand_lines, "now": now}
+
+
+LOGO_MAX = 2 * 1024 * 1024  # bytes: a logo is a small file
+LOGO_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/svg+xml": "svg"}
+
+
+def logo_ext(data: bytes, ctype: str = "") -> str:
+    """The extension (`png`, `jpg` or `svg`) of a logo file that was dropped, or a ValueError (a 400) saying what is wrong. The type given by
+    the browser must be one of the three and the content must really be it (the first bytes, for a picture; a `<svg` root without script, for
+    a drawing), so that nothing else is ever stored under the name of a logo."""
+    ext = LOGO_TYPES.get((ctype or "").split(";")[0].strip().lower())
+    if not ext:
+        raise ValueError("logo: a png, jpg or svg file")
+    if not data:
+        raise ValueError("logo: the file is empty")
+    if len(data) > LOGO_MAX:
+        raise ValueError(f"logo: the file is too big ({LOGO_MAX // (1024 * 1024)} MB at most)")
+    if ext == "png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("logo: this is not a png file")
+    if ext == "jpg" and not data.startswith(b"\xff\xd8\xff"):
+        raise ValueError("logo: this is not a jpg file")
+    if ext == "svg":
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("logo: this is not an svg file") from None
+        low = text.lower()
+        if "<svg" not in low:
+            raise ValueError("logo: this is not an svg file")
+        if "<script" in low or "javascript:" in low or "<!entity" in low or "<foreignobject" in low or re.search(r"\son[a-z]+\s*=", low):
+            raise ValueError("logo: an svg with a script or an external entity is refused")
+    return ext
 
 
 def normalise_site(raw: str) -> str:

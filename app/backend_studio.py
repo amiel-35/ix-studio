@@ -22,6 +22,7 @@ tests give it a fake one that calls neither `claude`, nor `codex`, nor the netwo
 """
 
 import contextlib
+import hashlib
 import importlib.util
 import json
 import os
@@ -644,7 +645,7 @@ class StudioBackend:
                 "colours": self._colours_of(doc),
                 "visuals": [{"id": e["id"], "note": e["note"], "preview": e["preview"]} for e in ev if e["kept"]],
                 "evidence": ev,
-                "logos": [{"id": x["id"], "note": ("Icône du site" if str(x.get("note", "")).startswith("icon") else "Logo du site") + f", {Path(x['where']).suffix.lstrip('.')}",
+                "logos": [{"id": x["id"], "note": ("Logo déposé" if "déposé" in str(x.get("note", "")) else "Icône du site" if str(x.get("note", "")).startswith("icon") else "Logo du site") + f", {Path(x['where']).suffix.lstrip('.')}",
                            "preview": pre(x)} for x in logos]}
 
     def _brand_payload(self, b, bs=None, now=None) -> dict:
@@ -863,6 +864,36 @@ class StudioBackend:
                 self._retouch(q)
             self._mutateb(bid, done)
             return {**self.brand_view(bid), "kept": len(kept), "discarded": len(ids) - len(kept)}
+
+    def add_logo(self, bid, data, ctype="", name=""):
+        """A logo dropped by the person: the file goes into the brand's dossier (`assets/`) as a source the person typed, which makes it a
+        logo candidate (a confirmed one), and it is chosen as the logo at once. What was sorted stays as it was."""
+        ext = workflow.logo_ext(data, ctype)
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            log, d = self._bcmd_log(bid), self._bdir(bid)
+            self._ensure_dossier(b, log)
+            rel = f"assets/logo-{hashlib.sha256(data).hexdigest()[:10]}.{ext}"
+            (d / "assets").mkdir(parents=True, exist_ok=True)
+            (d / rel).write_bytes(data)
+            src = {"adapter": "typed", "origin": "logo dropped by the person", "label": "logo " + hashlib.sha256(data).hexdigest()[:8],
+                   "evidence": [{"id": "logo", "kind": "file", "where": rel, "note": "logo candidate, déposé" + (f" ({one_line(name)[:60]})" if one_line(name) else "")}],
+                   "values": [{"path": "logo", "item": {"file": rel, "format": ext, "variant": "primary"}, "evidence": ["logo"]}]}
+            tmp = self._mdir(bid) / "logs" / f"logo-{uuid.uuid4().hex[:8]}.json"
+            write_json(tmp, src)
+            try:
+                self._brandkit(log, "add", d, tmp)
+            finally:
+                tmp.unlink(missing_ok=True)
+            ev = next((x for x in read_json(d / "evidence.json", []) or [] if x.get("where") == rel), None)
+            if not ev:
+                raise ToolError("the logo could not be added to the dossier")
+
+            def done(q):
+                q["logo"] = ev["id"]
+                self._retouch(q)
+            self._mutateb(bid, done)
+        return self.brand_view(bid)
 
     # ---------- the brief of the brand, and its confirmation ----------
     def _brief_view(self, b):

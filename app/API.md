@@ -35,9 +35,9 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     `[{id, note, preview}]`), `evidence` (everything the reading found, to sort: `[{id, kind, note, preview, proposed, kept}]`;
     `proposed` is what the studio would keep, `kept` the person's choice, null before it) and `logos` (the candidates,
     `[{id, note, preview}]`).
-  - `projects`: `[{id, name, type, rank, step_label, waiting}]`: `rank` is the step in progress out of seven (the first of
-    `brand, brief, mandates, diverge, image, piece, decide` that is not done), `step_label` its short name, `waiting` the number of the
-    project's own tasks.
+  - `projects`: `[{id, name, type, rank, step_label, done, waiting}]`: `rank` is the step in progress out of seven (the first of
+    `brand, brief, mandates, diverge, image, piece, decide` that is not done), `step_label` its short name, `done` whether all seven are
+    done (`rank` alone cannot tell the last step in progress from a finished project), `waiting` the number of the project's own tasks.
   - `waiting`: the brand's tasks (see **task**). `jobs`: its running reading, `[{id, kind, piece, progress, message, since}]`.
 - **project**: `{id, name, type, brand, brand_name, brand_stage, brand_waiting, can_learn, steps: [step], pieces: [piece], waiting: [ask], jobs: [job], now}`.
   `brand` is the **id** of the brand (it was the brand's name before the brands existed: the name is `brand_name`), `type` is `campagne`
@@ -75,10 +75,11 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | --- | --- |
 | `GET /api/health` | `{ok, backend, auth}`, no authentication |
 | `GET /api/tasks` | `{tasks, jobs, projects, brands, now}`: what waits for the person in every brand and project (the oldest first; see **task**), the running jobs of every brand and project (`{id, project, brand, kind, piece, progress, message, since, eta}`, `project` null for a brand's reading, `eta` in seconds), the projects (`{id, name, brand, brand_name, can_learn, pieces, waiting}`) and the brands (`{id, name, site, stage, projects, waiting}`) |
-| `GET /api/brands` | the brands: `[{id, name, site, stage, projects: [{id, name, type, rank, step_label, waiting}], waiting}]` (`waiting`: the number of the brand's tasks) |
+| `GET /api/brands` | the brands: `[{id, name, site, stage, projects: [{id, name, type, rank, step_label, done, waiting}], waiting}]` (`waiting`: the number of the brand's tasks) |
 | `POST /api/brands` `{name, site?}` | a new brand (the name is required; a site is a public web address: `ftp:` and local or private addresses are refused with 400). A site starts the reading (a job, in `jobs` of the answer); no site, the brief of the brand is its first task. Answers the brand |
 | `GET /api/brands/{b}` | the whole brand (identity, assets, projects, tasks, jobs) |
 | `PUT /api/brands/{b}` `{name?, site?, description?}` | the metadata. A new site does not start a reading by itself. Answers the brand |
+| `POST /api/brands/{b}/logo` (the file itself) | **drop a logo**: the body is the image, not JSON; its type is the request's `Content-Type` (`image/png`, `image/jpeg` or `image/svg+xml`, and the first bytes must agree; an svg with a script, an `on…=` attribute or an entity is refused) and its name an `X-Filename` header (only a note). 2 MB at most. 400 for any other type, an empty or false file, a file too big; 404 for an unknown brand. The file becomes a logo candidate (note `Logo déposé, png`), **chosen as the logo at once** and `confirmed` (the person gave it); what was sorted stays as it was, and dropping another replaces the choice (the first stays a candidate). A brand with no site, or whose site gave no logo, cannot be `ready` without it. In the real backend the file goes into the dossier of the brand (`assets/logo-<hash>.<ext>`) as a typed source (`brandkit add`), like any file added to it. Answers the brand |
 | `POST /api/brands/{b}/discover` | read the site (a job), again if it was read; what the person said and the choices already made stay, and visuals that were not there before come back to be sorted. 409 without a site, or when the reading already runs |
 | `POST /api/brands/{b}/keep` `{kept: [ids], logo}` | the sort of the visuals and the logo (409 before the site is read; 400 for an unknown id). A logo the person chooses is `confirmed`. Answers the brand plus `kept` and `discarded` (counts) |
 | `GET /api/brands/{b}/brief` / `PUT` `{fields}` | the brief of the brand: `{fields: identity, done, stage, keys}`, prefilled with what the reading found. `PUT` takes strings for any of `what, who, voice, signature, never, colours` (400 for another key; `what` is required, typed or already there; `voice` and `never` are cut at commas, semicolons and line breaks). Everything given becomes `confirmed`: a value given back as it was deduced is confirmed with its own source, a different one is typed. Marks the brief done |
@@ -121,6 +122,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | Route | Commands |
 | --- | --- |
 | `POST /brands` with a site, `discover` | `brandkit init <m>/brand --name <brand> --lang fr` (only if there is no dossier: an existing one is kept, with what was typed in it), `node scripts/collect/collect.mjs <site> <m>/brand/collect/web-<host>`, `brandkit infer-site <m>/brand <that folder>`, `brandkit review-html <m>/brand --no-previews` |
+| `POST /brands/{b}/logo` | the file written to `<m>/brand/assets/logo-<hash>.<ext>`, then `brandkit add <m>/brand <source.json>`: a `typed` source with the file as evidence (`kind: file`, note `logo candidate, déposé`) and as the `logo` value; the evidence id found by its path in `evidence.json` becomes the brand's logo. No `keep`: the sort is not touched |
 | `keep` | `brandkit keep <m>/brand <kept ids> <site page ids> [--logo <id>]` (`--none` with nothing to keep) |
 | `PUT brief` (the brand's) | per field given: `brandkit answer <m>/brand <path> <value>` (`--json` with a list) when typed, `brandkit confirm <m>/brand <path>` when given back as deduced. The paths: `what` `identity.one_liner`, `who` `audience.who`, `voice` `voice.traits`, `signature` `promise.signature_line`, `never` `voice.banned_words`. `colours` has no field in the dossier (its colours are a list): the person's words stay in `marque.json` |
 | `confirm` | `brandkit confirm <m>/brand <path>` for each value to confirm (`colours` and `logo` are the dossier's lists, confirmed whole) |

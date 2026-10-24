@@ -398,6 +398,51 @@ class Brand(Base):
         self.assertTrue(img.startswith(b"\x89PNG"))
         self.assertTrue(a["evidence"][0]["preview"].startswith(f"/files/_marques/{bid}/brand/collect/web-marrowbay.example/"))
 
+    def drop(self, bid, data, ctype="image/png", name="logo.png", code=200):
+        req = urllib.request.Request(self.base + f"/api/brands/{bid}/logo", method="POST", data=data, headers={"Content-Type": ctype, "X-Filename": name})
+        try:
+            with urllib.request.urlopen(req) as r:
+                got, out = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            got, out = err.code, json.loads(err.read())
+            err.close()
+        self.assertEqual(got, code, out)
+        return out
+
+    def test_a_logo_dropped_goes_through_the_dossier_and_makes_a_brand_without_site_ready(self):
+        bid = self.mkbrand(name="Sans Site", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "une cave", "who": "les voisins"}})
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}")["stage"], "to_brief")  # no logo, no site to find one
+        self.drop(bid, b"nope", "image/png", code=400)
+        data = png(40, 20, (30, 60, 50))
+        b = self.drop(bid, data, name="mon logo.png")
+        logo = b["assets"]["logo"]
+        self.assertEqual((logo["state"], logo["source"], b["stage"], b["waiting"]), ("confirmed", "choisi par toi", "ready", []))
+        self.assertEqual([x["note"] for x in b["assets"]["logos"]], ["Logo déposé, png"])
+        self.assertEqual(self.call("GET", logo["preview"], raw=True), data)  # the picture is served from the dossier of the brand
+        f = next((self.bdir(bid) / "assets").glob("logo-*.png"))
+        self.assertEqual(f.read_bytes(), data)
+        self.assertEqual(len(self.brand_calls(bid, "add")), 1)  # the dossier took it as a source, through brandkit
+        self.assertEqual(self.doc(bid)["logo"]["items"][0]["file"]["value"], f"assets/{f.name}")
+        m = json.loads((self.home / "marques" / bid / "marque.json").read_text())
+        self.assertEqual(m["logo"], logo["id"])
+        self.assertFalse(list((self.home / "marques" / bid / "logs").glob("logo-*.json")))  # no scrap left behind
+        again = self.drop(bid, data)  # the same file twice: one candidate
+        self.assertEqual(len(again["assets"]["logos"]), 1)
+        self.drop("nope", data, code=404)
+
+    def test_a_logo_dropped_next_to_the_logos_of_the_site(self):
+        bid = self.mkbrand(name="Deux Logos")
+        site_logo = self.call("GET", f"/api/brands/{bid}")["assets"]["logos"][0]
+        b = self.drop(bid, png(), name="a.png")
+        self.assertEqual((b["stage"], len(b["assets"]["logos"]), b["assets"]["logo"]["id"] != site_logo["id"]), ("to_sort", 2, True))
+        self.assertIn(site_logo["id"], [x["id"] for x in b["assets"]["logos"]])
+        a = b["assets"]
+        r = self.call("POST", f"/api/brands/{bid}/keep", {"kept": [e["id"] for e in a["evidence"]][:1], "logo": site_logo["id"]})  # the person can still prefer the site's
+        self.assertEqual((r["assets"]["logo"]["id"], r["stage"]), (site_logo["id"], "to_brief"))
+        r = self.call("POST", f"/api/brands/{bid}/keep", {"kept": [e["id"] for e in a["evidence"]][:1], "logo": b["assets"]["logo"]["id"]})
+        self.assertEqual((r["assets"]["logo"]["id"], r["assets"]["logo"]["state"]), (b["assets"]["logo"]["id"], "confirmed"))
+
     def test_sorting_keeps_the_choices(self):
         bid = self.mkbrand(name="Tri")
         a = self.call("GET", f"/api/brands/{bid}")["assets"]
@@ -745,8 +790,8 @@ class Tasks(Base):
         self.assertTrue(all(x["title"] and x["since"] for x in mine))
         self.assertIn({"id": a, "name": "tâches A", "brand": bid, "brand_name": "Tâches", "can_learn": False, "pieces": 0, "waiting": 0}, t["projects"])
         self.assertEqual([x for x in t["brands"] if x["id"] == bid], [{"id": bid, "name": "Tâches", "site": "", "stage": "new", "waiting": 1,
-                                                                        "projects": [{"id": a, "name": "tâches A", "type": "campagne", "rank": 1, "step_label": "La marque", "waiting": 0},
-                                                                                     {"id": b, "name": "tâches B", "type": "campagne", "rank": 1, "step_label": "La marque", "waiting": 0}]}])
+                                                                        "projects": [{"id": a, "name": "tâches A", "type": "campagne", "rank": 1, "step_label": "La marque", "done": False, "waiting": 0},
+                                                                                     {"id": b, "name": "tâches B", "type": "campagne", "rank": 1, "step_label": "La marque", "done": False, "waiting": 0}]}])
         self.assertEqual(t["tasks"], sorted(t["tasks"], key=lambda x: (x["since"] is None, x["since"] or 0)))
         proj = self.started(name="de la marque prête")
         mine = [x for x in self.call("GET", "/api/tasks")["tasks"] if x["project"] == proj]

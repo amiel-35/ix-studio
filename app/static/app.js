@@ -1,9 +1,12 @@
 /* app.js: the interface that drives the studio. React 18 without JSX, components of the design system.
    It talks to the studio only through window.studioApi (api.js, see app/API.md): no simulated data lives here.
 
-   The idea: the home screen is the list of what waits for the person, and nothing else. A task opens on one thing and two
-   gestures; the answer brings back the list (or the next task when it follows). The power lives behind "Plus" and the command
-   palette (Cmd/Ctrl+K), which open the same functions. The journal is kept on this side (localStorage): the API has no journal route yet. */
+   The idea: the levels of the studio are side by side, from the widest to the most precise, and the position is read by following what is
+   selected from left to right. The studio (what waits everywhere, then the brands) / a brand (its brief, its assets, its projects) / a project
+   (its seven steps, what waits) / the detail of a step already done. A task opens on one thing and two gestures: diving into it folds the
+   columns into thin vertical strips that keep their names; a click on a strip, Escape or the left arrow brings them back. Every column has
+   its "+" to make what it holds (a brand, a project). The command palette (Cmd/Ctrl+K) reaches everything. The journal is kept on this side
+   (localStorage): the API has no journal route yet. */
 (function () {
   "use strict";
   const DS = window[Object.keys(window).find((k) => k.endsWith("DesignSystem_9fde59"))]; // the design system's global, found by its suffix
@@ -48,26 +51,36 @@
   const FORMAT_WORDS = { "post-4x5": "post 4×5", "post-1x1": "post carré", story: "story", "poster-a3": "affiche A3", "poster-3x2": "affiche 3×2", linkedin: "bandeau 1200×627" };
   const fmtKey = (t) => t.trim().toLowerCase().replace(/ /g, "-");
   const fmtWord = (t) => FORMAT_WORDS[fmtKey(t)] || t.trim();
-  /* the seven steps of a project, in plain words: what the project page shows, and what places a task */
+  /* the seven steps of a project, in plain words: the project column lists them, and `rankOf` places a task among them */
   const SEVEN = [
-    { key: "brand", label: "La marque", say: "Le studio trouve des visuels ; tu gardes ce qui est la marque et tu choisis le logo." },
-    { key: "brief", label: "Le brief", say: "Ce que la pièce doit faire, pour qui, et dans quels formats." },
-    { key: "mandates", label: "Les consignes", say: "Ce que les agents vont recevoir, relu avant qu'ils écrivent." },
-    { key: "diverge", label: "La divergence", say: "Quatre agents écrivent chacun une variante ; tu en gardes une ou plusieurs." },
-    { key: "image", label: "Les images", say: "Une image par pièce et par format, après relecture de son prompt." },
-    { key: "piece", label: "La composition", say: "Chaque pièce est composée, puis vérifiée." },
-    { key: "decide", label: "La décision", say: "Tu gardes chaque pièce, ou tu la renvoies en disant pourquoi." },
+    { key: "brand", label: "La marque" },
+    { key: "brief", label: "Le brief" },
+    { key: "mandates", label: "Les consignes" },
+    { key: "diverge", label: "La divergence" },
+    { key: "image", label: "Les images" },
+    { key: "piece", label: "La composition" },
+    { key: "decide", label: "La décision" },
   ];
   const rankOf = (step) => { const k = step === "check" ? "piece" : step; const i = SEVEN.findIndex((s) => s.key === k); return i < 0 ? null : i + 1; };
-  const STEP_LABELS = { brand: "Apprendre la marque", brief: "Le brief", mandates: "Les consignes aux agents", diverge: "La divergence", series: "La série" };
-  const SHORT = { "brand-how": "La marque", "brand-sort": "Les visuels", brief: "Le brief", mandates: "Les consignes", "diverge-launch": "La divergence", "diverge-pick": "Les variantes",
-    prompt: "Le prompt", compose: "La composition", decide: "La décision", "job-failed": "À relancer" };
+  const STEP_WORD = { todo: "à venir", waiting: "t'attend", running: "le studio travaille", done: "faite" };
+  const BRAND_STAGE = { new: "À décrire", discovering: "Lecture du site en cours", to_sort: "Visuels à trier", to_brief: "Brief à écrire", to_confirm: "À confirmer", ready: "Prête" };
+  const FIELD_LABEL = { what: "Ce qu'elle est", who: "Pour qui", voice: "Sa voix", signature: "Sa signature", never: "Ce qu'elle ne dit jamais", colours: "Ses couleurs", logo: "Son logo" };
+  const host = (url) => String(url || "").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  /* the titles the studio gives to a brand's tasks say "la marque": the interface says which one */
+  function taskTitle(t) {
+    if (t.scope !== "brand" || !t.brand_name) return t.title;
+    const n = t.brand_name, de = /^[aeiouyhàâéèêîôû]/i.test(n) ? "d'" + n : "de " + n;
+    return t.title.replace("de la marque", de).replace(/la marque\b/, n);
+  }
+  /* what a task waits on, for a list: where it belongs, and how long it has waited */
+  const taskPlace = (t) => t.scope === "brand" ? t.brand_name : t.brand_name + " · " + t.project_name;
+  const owner = (t) => (t.scope === "brand" ? "@" + t.brand : t.project);
 
   /* the journal of decisions, per project, on this side */
   const loadJournal = (pid) => { try { return JSON.parse(localStorage.getItem("studio-journal:" + pid) || "[]"); } catch (e) { return []; } };
   const saveJournal = (pid, list) => { try { localStorage.setItem("studio-journal:" + pid, JSON.stringify(list.slice(0, 200))); } catch (e) { /* private window: no journal */ } };
 
-  /* a panel gives its own commands to the palette and to "Plus": the ref holds the list of the panel on screen */
+  /* a core screen gives its own commands to the palette: the ref holds the list of the screen on screen */
   function useCmds(ctx, list) {
     const mine = useRef(null);
     mine.current = list;
@@ -88,73 +101,67 @@
     const ratio = size ? size[0] / size[1] : 4 / 5;
     return h("div", { className: "frame", style: { "--ratio": ratio } }, h("img", { src, alt }));
   }
-  const Swatches = ({ colours }) => colours.length === 0 ? h("p", { className: "muted" }, "Aucune couleur mesurée pour cette marque.") :
-    h("ul", { className: "swatches", "aria-label": "Couleurs mesurées" }, colours.map((c) => h("li", { key: c.hex, className: "swatch" },
-      h("i", { style: { background: c.hex }, role: "img", "aria-label": "Couleur " + c.hex }), h("span", { className: "mono small" }, c.hex))));
-
-  /* ================= 1. brand: how to learn it ================= */
-  function BrandHow({ ctx, pid, failure }) {
-    const [say, setSay] = useState(false);
-    const [answers, setAnswers] = useState("");
-    const info = ctx.data.projects.find((x) => x.id === pid);
-    const canLearn = !info || info.can_learn !== false; // the studio searches a brand on its site: without a site it cannot
+  /* ================= a failed reading, or a failed job ================= */
+  function JobFailed({ ctx, t }) {
     useCmds(ctx, []);
-    const go = (mode) => ctx.act(async (snap) => {
-      await api.learnBrand(pid, mode, mode === "answer" ? answers : undefined);
-      const what = { learn: "Le studio cherche la marque", answer: "Tu décris la marque toi-même", create: "On part de rien" }[mode];
-      ctx.log(pid, "toi", what, mode === "answer" ? answers : "");
-      await ctx.answered(pid, { learn: "La recherche est lancée : le studio lit le site et les images.", answer: "Ta description est notée.", create: "On part de rien, aucun visuel à trier." }[mode], { before: snap });
-    });
-    if (say) {
-      return h("div", { className: "task" }, h(Head, null, "Dis ce que tu sais de la marque"),
-        h("div", { className: "field" }, h("label", { htmlFor: "answers", className: "sr" }, "Ce que tu sais de la marque"),
-          h("textarea", { id: "answers", value: answers, autoFocus: true, onChange: (e) => setAnswers(e.target.value), placeholder: "Qui c'est, à quoi ça ressemble, ce qu'il ne faut jamais faire." })),
-        h("div", { className: "gestures" },
-          h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !answers.trim(), onClick: () => go("answer"), "aria-label": "Envoyer ma description de la marque" }, "Envoyer"),
-          h(Button, { variant: "ghost", size: "lg", onClick: () => setSay(false), "aria-label": "Revenir aux trois façons d'apprendre la marque" }, "Retour")));
-    }
-    return h("div", { className: "task" }, h(Head, null, "Comment le studio apprend la marque ?"),
-      failure && h(Callout, { tone: "risk", label: "La lecture du site a échoué" }, failure),
-      h("p", { className: "lead" }, "Il lit le site et les images, puis te propose quoi garder. Ou tu lui racontes la marque toi-même."),
-      !canLearn && h("p", { className: "small muted" }, "Aucun site n'est renseigné pour cette marque : le studio ne peut pas la chercher. Raconte-la toi-même, ou pars de rien."),
-      h("div", { className: "gestures" },
-        h(Button, { variant: canLearn ? "primary" : "secondary", size: "lg", disabled: ctx.busy || !canLearn, onClick: () => go("learn"), "aria-label": failure ? "Relancer la recherche de la marque" : "Laisser le studio chercher la marque" }, failure ? "Relance la recherche" : "Laisse le studio chercher"),
-        h(Button, { variant: canLearn ? "secondary" : "primary", size: "lg", disabled: ctx.busy, onClick: () => setSay(true), "aria-label": "Raconter la marque moi-même" }, "Je raconte la marque")),
-      h("p", { className: "aside" }, "Ou ", h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: () => go("create"), "aria-label": "Partir de rien, sans visuel à trier" }, "pars de rien"), " : pas de visuel à trier, tu poseras la marque dans le brief."));
-  }
-
-  /* a job that failed: the reason in a line, and a way to run it again (for the brand, the other two ways stay open) */
-  function JobFailed({ ctx, pid, step, piece, title, question }) {
-    useCmds(ctx, []);
-    const reason = String(question || "").replace(/^Le dernier essai a échoué : /, "").replace(/\.$/, "");
-    if (step === "brand") return h(BrandHow, { ctx, pid, failure: reason });
+    const reason = String(t.question || "").replace(/^Le dernier essai a échoué : /, "").replace(/\.$/, "");
     const retry = () => ctx.act(async (snap) => {
-      if (step === "diverge") await api.diverge(pid); else await api.drawImage(pid, piece);
-      ctx.log(pid, "toi", "Relancé : " + title, reason);
-      await ctx.answered(pid, "C'est relancé.", { before: snap, any: false });
+      if (t.scope === "brand") await api.discover(t.brand);
+      else if (t.step === "diverge") await api.diverge(t.project);
+      else await api.drawImage(t.project, t.piece);
+      ctx.log(owner(t), "toi", "Relancé : " + taskTitle(t), reason);
+      await ctx.answered(owner(t), "C'est relancé.", { before: snap, any: false });
     });
-    return h("div", { className: "task" }, h(Head, null, title),
+    return h("div", { className: "task" }, h(Head, null, taskTitle(t)),
       h(Callout, { tone: "risk", label: "Ça n'a pas marché" }, reason),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: retry, "aria-label": "Relancer : " + title }, "Relancer")));
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: retry, "aria-label": "Relancer : " + taskTitle(t) }, "Relancer")));
   }
 
-  /* ================= 2. brand: sort the visuals one by one, then the logo, then the colours ================= */
-  function BrandSort({ ctx, pid }) {
+  /* ================= the logo: dropped as a file, chosen at once ================= */
+  const LOGO_MAX = 2 * 1024 * 1024;
+  function LogoDrop({ ctx, bid, label, variant = "secondary", size = "sm", onDone }) {
+    const input = useRef(null);
+    const pick = (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      ev.target.value = "";
+      if (!f) return;
+      if (f.size > LOGO_MAX) { ctx.fail(new Error("Ce fichier fait plus de 2 Mo : un logo est un petit fichier.")); return; }
+      if (!/^image\/(png|jpeg|svg\+xml)$/.test(f.type)) { ctx.fail(new Error("Un logo se dépose en png, jpg ou svg.")); return; }
+      ctx.act(async (snap) => {
+        const b = await api.uploadLogo(bid, f);
+        ctx.log("@" + bid, "toi", "Logo déposé : " + f.name, "");
+        ctx.touch();
+        if (onDone) await onDone(b, f, snap);
+      });
+    };
+    return h(React.Fragment, null,
+      h("input", { ref: input, type: "file", className: "sr", accept: "image/png,image/jpeg,image/svg+xml", onChange: pick, tabIndex: -1, "aria-hidden": "true", "data-logo-input": "1" }),
+      h(Button, { variant, size, disabled: ctx.busy, onClick: () => input.current && input.current.click(), "aria-label": label + " (png, jpg ou svg, 2 Mo au plus)" }, label));
+  }
+
+  /* the colours of a brand, each with its state: measured and not confirmed yet, or confirmed */
+  const Swatches = ({ colours, mini, quiet }) => colours.length === 0 ? h("p", { className: "muted small" }, "Aucune couleur pour cette marque.") :
+    h("ul", { className: "swatches" + (mini ? " mini" : ""), "aria-label": "Couleurs de la marque" }, colours.map((c) => h("li", { key: c.hex, className: "swatch" },
+      h("i", { style: { background: c.hex }, role: "img", "aria-label": "Couleur " + c.hex + (c.state === "deduced" ? ", à confirmer" : "") }),
+      h("span", { className: "mono small" }, c.hex), !mini && !quiet && c.state === "deduced" && h("span", { className: "small muted" }, "à confirmer"))));
+
+  /* ================= a brand: sort the visuals one by one, then choose (or drop) the logo ================= */
+  function BrandSort({ ctx, t }) {
     const [brand, setBrand] = useState(null);
-    useEffect(() => { api.brand(pid).then(setBrand).catch(ctx.fail); }, [pid]);
+    useEffect(() => { api.getBrand(t.brand).then(setBrand).catch(ctx.fail); }, [t.brand]);
     if (!brand) return h("div", { className: "task" }, h(Wait, { text: "Chargement des visuels." }));
-    return h(Sorter, { ctx, pid, brand });
+    return h(Sorter, { ctx, bid: t.brand, brand });
   }
 
-  function Sorter({ ctx, pid, brand }) {
-    const { evidence, logos } = brand;
+  function Sorter({ ctx, bid, brand }) {
+    const { evidence } = brand.assets;
+    const [logos, setLogos] = useState(brand.assets.logos);
     const [dec, setDec] = useState(() => { const m = {}; evidence.forEach((e) => { if (typeof e.kept === "boolean") m[e.id] = e.kept; }); return m; });
     const [cur, setCur] = useState(() => Math.max(0, evidence.findIndex((e) => typeof e.kept !== "boolean")));
-    const [stage, setStage] = useState(() => (evidence.length === 0 ? "end" : "visuals")); // visuals, end, colours
-    const [logo, setLogo] = useState(brand.logo || (logos.length === 1 ? logos[0].id : null));
+    const [stage, setStage] = useState(() => (evidence.length === 0 ? "end" : "visuals")); // visuals, end
+    const [logo, setLogo] = useState(() => (brand.assets.logo && brand.assets.logo.id) || (brand.assets.logos.length === 1 ? brand.assets.logos[0].id : null));
     const [said, setSaid] = useState("");
-    const [result, setResult] = useState(null);
     const hist = useRef([]);
     const H = useRef({});
 
@@ -186,7 +193,9 @@
       const any = evidence.findIndex((x) => n[x.id] === undefined);
       if (any >= 0) setCur(any); else setStage("end");
     };
-    H.current = { decide, undo, move, stage };
+    H.current = { decide, undo, move, stage, cur };
+    ctx.arrowsRef.current = stage === "visuals" && cur > 0; // from the second visual on, the left arrow goes back one visual; on the first, it brings the columns back
+    useEffect(() => () => { ctx.arrowsRef.current = false; }, []);
 
     useEffect(() => {
       const f = (ev) => {
@@ -197,8 +206,8 @@
         if (H.current.stage === "visuals" && k === "g") { ev.preventDefault(); H.current.decide(true); }
         else if (H.current.stage === "visuals" && k === "e") { ev.preventDefault(); H.current.decide(false); }
         else if (k === "u") { ev.preventDefault(); H.current.undo(); }
-        else if (ev.key === "ArrowRight") { ev.preventDefault(); H.current.move(1); }
-        else if (ev.key === "ArrowLeft") { ev.preventDefault(); H.current.move(-1); }
+        else if (ev.key === "ArrowRight" && H.current.stage === "visuals") { ev.preventDefault(); H.current.move(1); }
+        else if (ev.key === "ArrowLeft" && H.current.stage === "visuals" && H.current.cur > 0) { ev.preventDefault(); H.current.move(-1); } // at the first visual, the left arrow brings the columns back
       };
       window.addEventListener("keydown", f);
       return () => window.removeEventListener("keydown", f);
@@ -215,30 +224,30 @@
       e && { id: "drop", label: "Écarter ce visuel", hint: "E", run: () => decide(false) },
       { id: "undo", label: "Annuler le dernier geste", hint: "U", run: undo },
       hasProposals && { id: "follow", label: "Suivre les propositions du studio pour les " + left + " restants", run: followStudio },
-    ].filter(Boolean) : stage === "end" ? [{ id: "undo", label: "Annuler le dernier geste", hint: "U", run: undo }] : []);
+    ].filter(Boolean) : [{ id: "undo", label: "Annuler le dernier geste", hint: "U", run: undo }]);
 
-    const submit = () => ctx.act(async () => {
-      const r = await api.keep(pid, kept.map((x) => x.id), logo);
+    const submit = () => ctx.act(async (snap) => {
+      const r = await api.keepBrand(bid, kept.map((x) => x.id), logo);
       const lg = logos.find((l) => l.id === logo);
-      ctx.log(pid, "toi", "Tri de la marque : " + plural(r.kept, "gardé", "gardés") + ", " + plural(r.discarded, "écarté", "écartés") + (lg ? ", logo : " + lg.note : ""),
+      ctx.log("@" + bid, "toi", "Tri de la marque : " + plural(r.kept, "gardé", "gardés") + ", " + plural(r.discarded, "écarté", "écartés") + (lg ? ", logo : " + lg.note : ""),
         dropped.length ? "Écartés : " + dropped.map((x) => x.note).join(" ; ") : "");
-      setResult(r); setStage("colours");
+      await ctx.answered("@" + bid, "Tri enregistré : " + summary + ".", { before: snap });
     });
+    const dropped_ = (b) => { setLogos(b.assets.logos); setLogo(b.assets.logo ? b.assets.logo.id : null); setSaid("Logo déposé et choisi."); };
 
-    if (stage === "colours") {
-      return h(Colours, { ctx, pid, colours: result.colours, line: "Tri enregistré : " + summary + ".", revise: () => setStage("visuals"), after: "Tri et couleurs de la marque validés : " + plural(result.kept, "visuel gardé", "visuels gardés") + "." });
-    }
     if (stage === "end") {
-      const needLogo = logos.length > 0 && !logo;
       return h("div", { className: "task" },
-        h(Head, null, evidence.length === 0 ? "Aucun visuel à trier" : logos.length ? "Quel logo garder ?" : "Le tri est fait"),
-        evidence.length === 0 ? h("p", { className: "lead" }, "On part de rien : le studio ne te montre aucun visuel. Tu poseras la marque dans le brief.") : h("p", { className: "lead muted" }, summary + "."),
+        h(Head, null, logos.length ? "Quel logo garder ?" : evidence.length === 0 ? "Dépose le logo de la marque" : "Le tri est fait : il manque le logo"),
+        evidence.length > 0 && h("p", { className: "lead muted" }, summary + "."),
+        logos.length === 0 && h("p", { className: "lead" }, "Le site n'en a pas donné. Dépose le fichier de ton logo : sans lui, la marque ne peut pas être prête."),
         logos.length > 0 && h("div", { className: "logos", role: "radiogroup", "aria-label": "Logo de la marque" }, logos.map((l) => h("button", { key: l.id, type: "button", role: "radio", "aria-checked": logo === l.id, className: "logo", onClick: () => setLogo(l.id) },
           h("img", { src: l.preview, alt: "" }), h("span", { className: "small" }, l.note)))),
         h("div", { className: "gestures" },
-          h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || needLogo, onClick: submit, "aria-label": "Valider le tri de la marque" }, "Valider le tri"),
+          h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !logo, onClick: submit, "aria-label": "Valider le tri de la marque" }, "Valider le tri"),
+          h(LogoDrop, { ctx, bid, label: logos.length ? "Déposer un autre logo" : "Déposer un logo", size: "lg", variant: logos.length ? "secondary" : "primary", onDone: dropped_ }),
           evidence.length > 0 && h(Button, { variant: "ghost", size: "lg", onClick: () => { setStage("visuals"); setCur(evidence.length - 1); }, "aria-label": "Revoir les visuels" }, "Revoir les visuels")),
-        needLogo && h("p", { className: "small muted" }, "Choisis un logo pour continuer."));
+        !logo && h("p", { className: "small muted" }, "Choisis un logo, ou dépose le tien, pour continuer."),
+        h("span", { className: "sr", role: "status", "aria-live": "polite" }, said));
     }
     const mark = dec[e.id] === true ? "gardé" : dec[e.id] === false ? "écarté" : null;
     const proposal = e.proposed === true ? "Le studio propose de garder." : e.proposed === false ? "Le studio propose d'écarter." : "Le studio ne tranche pas : à toi.";
@@ -255,27 +264,110 @@
       h("span", { className: "sr", role: "status", "aria-live": "polite" }, said));
   }
 
-  function Colours({ ctx, pid, colours, line, revise, after }) {
-    const next = () => ctx.answered(pid, after, { before: ctx.snap() });
+  /* ================= a brand: its brief, as one sentence whose pieces are corrected ================= */
+  const BPARTS = [
+    { k: "what", before: ", c'est ", label: "ce qu'elle est", area: true },
+    { k: "who", before: ". Elle parle à ", label: "pour qui", area: true },
+    { k: "voice", before: ". Sa voix : ", label: "sa voix" },
+    { k: "signature", before: ". Sa signature : « ", after: " »", label: "sa signature" },
+    { k: "never", before: ". Elle ne dit jamais : ", label: "ce qu'elle ne dit jamais" },
+    { k: "colours", before: ". Ses couleurs : ", label: "ses couleurs" },
+  ];
+
+  function BrandBrief({ ctx, t }) {
+    const bid = t.brand, name = t.brand_name;
+    const [data, setData] = useState(null);
+    const [fields, setFields] = useState(null);
+    const [open, setOpen] = useState(null);
+    useEffect(() => {
+      api.brandBrief(bid).then((b) => { setData(b); const f = {}; Object.keys(b.fields).forEach((k) => { f[k] = b.fields[k].value || ""; }); setFields(f); }).catch(ctx.fail);
+    }, [bid]);
+    useEffect(() => {
+      if (!open) return;
+      const f = (ev) => { if (ev.key === "Escape" && !ctx.overlayRef.current) { ev.stopPropagation(); ev.preventDefault(); setOpen(null); } };
+      window.addEventListener("keydown", f, true);
+      return () => window.removeEventListener("keydown", f, true);
+    }, [open]);
     useCmds(ctx, []);
-    return h("div", { className: "task" }, h(Head, null, "Voilà les couleurs de la marque"),
-      h("p", { className: "lead muted" }, "Mesurées sur les visuels que tu as gardés." + (line ? " " + line : "")),
-      h(Swatches, { colours }),
+    if (!fields) return h("div", { className: "task" }, h(Wait, { text: "Chargement du brief de la marque." }));
+    if (data.done && !t.reopen) return h(NeedLogo, { ctx, bid, name });
+    const set = (k, v) => setFields({ ...fields, [k]: v });
+    const stateOf = (k) => (data.fields[k].state === "deduced" && (fields[k] || "") === data.fields[k].value ? "deduced" : "typed");
+    const anyDeduced = BPARTS.some((p) => stateOf(p.k) === "deduced");
+    const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
+      role: "button", tabIndex: 0, className: "bit", "aria-expanded": open === p.k, "data-open": open === p.k, "data-state": stateOf(p.k),
+      "aria-label": "Corriger " + p.label + " : " + (fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
+      onClick: () => setOpen(open === p.k ? null : p.k),
+      onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
+    }, (fields[p.k] || "").trim() || h("span", { className: "blank" }, "à écrire")), p.after || "");
+    const cur = BPARTS.find((p) => p.k === open);
+    const submit = () => ctx.act(async (snap) => {
+      const changed = BPARTS.filter((p) => (fields[p.k] || "") !== (data.fields[p.k].value || "")).map((p) => p.label);
+      await api.saveBrandBrief(bid, fields);
+      ctx.log("@" + bid, "toi", "Brief de la marque validé", changed.length ? "Corrigé : " + changed.join(", ") : "Rien à corriger");
+      await ctx.answered("@" + bid, "Brief de " + name + " enregistré.", { before: snap, sibling: (t) => t.kind === "brand-brief" }); // a brand with no logo and no site still asks for one: the same task, said otherwise
+    });
+    return h("div", { className: "task" }, h(Head, { sr: true }, "Relis le brief de " + name),
+      h("p", { className: "sentence" }, name, BPARTS.map(piece), "."),
+      h("p", { className: "small muted" }, "Touche un passage pour le corriger." + (anyDeduced ? " Les passages en pointillé sont ce que le studio a déduit : validés tels quels, ils sont confirmés." : "")),
+      cur && h("div", { className: "editor" },
+        h("label", { htmlFor: "bed", className: "small" }, "Corriger " + cur.label),
+        cur.area ? h("textarea", { id: "bed", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value) })
+          : h("input", { id: "bed", type: "text", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
+        (cur.k === "voice" || cur.k === "never") && h("span", { className: "small muted" }, "Sépare par des virgules."),
+        h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", onClick: next, "aria-label": "Les couleurs sont bonnes, continuer" }, "Les couleurs sont bonnes"),
-        h(Button, { variant: "secondary", size: "lg", onClick: revise, "aria-label": "Revoir mon tri des visuels" }, "Revoir mon tri")));
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !(fields.what || "").trim(), onClick: submit, "aria-label": "Valider le brief de la marque" }, data.done ? "Enregistrer le brief" : "Valider le brief")),
+      !(fields.what || "").trim() && h("p", { className: "small muted", role: "status" }, "Il manque : ce qu'elle est."));
   }
 
-  /* the colours of a brand already sorted, reopened from "Rouvrir une étape" */
-  function BrandDone({ ctx, pid }) {
+  /* the brief is done, the brand has no logo and the studio has no site to find one in: drop one, or give the site */
+  function NeedLogo({ ctx, bid, name }) {
+    const [site, setSite] = useState("");
+    useCmds(ctx, []);
+    const read = () => ctx.act(async (snap) => {
+      await api.updateBrand(bid, { site: site.trim() });
+      await api.discover(bid);
+      ctx.log("@" + bid, "toi", "Site donné : " + site.trim(), "Le studio le lit pour y trouver un logo");
+      await ctx.answered("@" + bid, "Le studio lit le site de " + name + ".", { before: snap, any: false });
+    });
+    return h("div", { className: "task" }, h(Head, null, name + " n'a pas de logo"),
+      h("p", { className: "lead" }, "Dépose le fichier de son logo, ou donne l'adresse de son site pour que le studio le cherche."),
+      h("div", { className: "gestures" },
+        h(LogoDrop, { ctx, bid, label: "Déposer un logo", size: "lg", variant: "primary", onDone: (b, f, snap) => ctx.answered("@" + bid, "Logo déposé : " + name + " a un logo.", { before: snap, any: false }) })),
+      h("form", { className: "sec", onSubmit: (e) => { e.preventDefault(); if (site.trim()) read(); } },
+        h("div", { className: "field" }, h("label", { htmlFor: "nl-site" }, "Ou son site"), h("input", { id: "nl-site", type: "text", inputMode: "url", value: site, onChange: (e) => setSite(e.target.value), autoComplete: "off", placeholder: "ma-marque.example" })),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "secondary", size: "lg", disabled: ctx.busy || !site.trim(), "aria-label": "Lire ce site pour y trouver le logo" }, "Lire le site"))));
+  }
+
+  /* ================= a brand: confirm what the studio deduced, in one gesture ================= */
+  function BrandConfirm({ ctx, t }) {
+    const bid = t.brand, name = t.brand_name;
     const [brand, setBrand] = useState(null);
-    const [again, setAgain] = useState(false);
-    useEffect(() => { api.brand(pid).then(setBrand).catch(ctx.fail); }, [pid]);
+    const [fix, setFix] = useState(false);
+    useEffect(() => { api.getBrand(bid).then(setBrand).catch(ctx.fail); }, [bid]);
     useCmds(ctx, []);
     if (!brand) return h("div", { className: "task" }, h(Wait, null));
-    if (again) return h(Sorter, { ctx, pid, brand });
-    const n = brand.evidence.filter((x) => x.kept).length;
-    return h(Colours, { ctx, pid, colours: brand.colours, line: plural(n, "visuel gardé", "visuels gardés") + ", " + plural(brand.evidence.length - n, "écarté", "écartés") + ".", revise: () => setAgain(true), after: "Marque relue." });
+    if (fix) return h(BrandBrief, { ctx, t: { ...t, reopen: true } });
+    const a = brand.assets;
+    const keys = Object.keys(FIELD_LABEL).filter((k) => (k === "logo" ? a.logo : brand.identity[k].state !== "absent"));
+    const toConfirm = keys.filter((k) => (k === "logo" ? a.logo.state === "deduced" : brand.identity[k].state === "deduced"));
+    const shown = toConfirm.length ? toConfirm : keys;
+    const confirm = () => ctx.act(async (snap) => {
+      await api.confirmBrand(bid);
+      ctx.log("@" + bid, "toi", "Marque confirmée", toConfirm.map((k) => FIELD_LABEL[k].toLowerCase()).join(", "));
+      await ctx.answered("@" + bid, name + " est confirmée.", { before: snap });
+    });
+    return h("div", { className: "task" }, h(Head, null, toConfirm.length ? "Confirme ce que le studio a déduit de " + name : "Regarde " + name + ", puis confirme"),
+      h("ul", { className: "rows facts" }, shown.map((k) => h("li", { key: k, className: "fact" },
+        h("span", { className: "cap" }, FIELD_LABEL[k]),
+        k === "logo" ? h("img", { src: a.logo.preview, alt: "Logo de " + name, className: "factlogo" })
+          : k === "colours" && a.colours.length ? h(Swatches, { colours: a.colours, quiet: true })
+          : h("span", { className: "factval" }, brand.identity[k].value),
+        h("span", { className: "small muted" }, k === "logo" ? a.logo.source : brand.identity[k].source)))),
+      h("div", { className: "gestures" },
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: confirm, "aria-label": "Confirmer la marque" }, toConfirm.length ? "Tout confirmer" : "Confirmer"),
+        h(Button, { variant: "secondary", size: "lg", onClick: () => setFix(true), "aria-label": "Corriger dans le brief de la marque" }, "Corriger")));
   }
 
   /* ================= 3. the brief, as one sentence whose pieces are corrected ================= */
@@ -551,122 +643,296 @@
     return h(Decide, { ctx, pid, id });
   }
 
-  /* ================= screens opened from "Plus" ================= */
-  function Rows({ items }) {
-    return h("ul", { className: "rows" }, items.map((it) => h("li", { key: it.key }, h("button", { type: "button", className: "row-btn", onClick: it.onClick, "aria-label": it.aria },
-      h("span", { className: "t" }, it.title), h("span", { className: "m" }, it.meta)))));
+  /* ================= the core: one thing, two gestures ================= */
+  function Core({ ctx, t }) {
+    const k = t.kind, key = t.id;
+    if (t.scope === "brand") {
+      return k === "brand-sort" ? h(BrandSort, { ctx, t, key }) : k === "brand-brief" ? h(BrandBrief, { ctx, t, key })
+        : k === "brand-confirm" ? h(BrandConfirm, { ctx, t, key }) : h(JobFailed, { ctx, t, key });
+    }
+    const p = t.project;
+    return k === "brief" ? h(Brief, { ctx, pid: p, key }) : k === "mandates" ? h(Mandates, { ctx, pid: p, key })
+      : k === "diverge-launch" ? h(DivergeLaunch, { ctx, pid: p, key }) : k === "diverge-pick" ? h(DivergePick, { ctx, pid: p, readOnly: t.readOnly, key })
+      : k === "job-failed" ? h(JobFailed, { ctx, t, key })
+      : k === "piece-any" ? h(PieceAny, { ctx, pid: p, id: t.piece, key })
+      : k === "prompt" ? h(Prompt, { ctx, pid: p, id: t.piece, key }) : k === "compose" ? h(Compose, { ctx, pid: p, id: t.piece, key }) : h(Decide, { ctx, pid: p, id: t.piece, key });
   }
-  const Blocked = ({ ctx, text }) => h("div", { className: "task" }, h(Head, null, text), h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "lg", onClick: () => ctx.go({ kind: "home" }), "aria-label": "Revenir à la liste des tâches" }, "Retour à la liste")));
-  const Busy = ({ text }) => h("div", { className: "task" }, h(Head, null, text), h("p", { className: "lead muted" }, "Tu le retrouves dans ta liste quand c'est prêt."));
 
-  function Steps({ ctx, pid }) {
-    const [p, setP] = useState(null);
-    useEffect(() => { api.project(pid).then(setP).catch(ctx.fail); }, [pid]);
-    useCmds(ctx, []);
-    if (!p) return h("div", { className: "task" }, h(Wait, null));
+
+  /* ================= the columns ================= */
+  /* the live data of a column: fetched again when what it shows changes (`rev` moves each time the studio's list does) */
+  function useLive(ctx, fn, id) {
+    const [box, setBox] = useState({ id: null, v: null });
+    useEffect(() => {
+      let on = true;
+      Promise.resolve(fn()).then((v) => { if (on) setBox({ id, v }); }).catch((e) => { if (on) ctx.fail(e); });
+      return () => { on = false; };
+    }, [id, ctx.rev]);
+    return box.id === id ? box.v : null;
+  }
+
+  const Count = ({ n }) => n > 0 ? h("span", { className: "n", title: n + " en attente", "aria-hidden": "true" }, n) : null;
+  const Plus = ({ label, onClick, disabled }) => h("button", { type: "button", className: "add", onClick, disabled, "aria-label": label, title: label }, "+");
+  /* the seven segments of a project: done in teal, the one in progress in gold */
+  const Segments = ({ rank, done }) => h("span", { className: "seg", "aria-hidden": "true" }, SEVEN.map((s, i) => h("i", { key: s.key, className: done || i < rank - 1 ? "done" : i === rank - 1 ? "now" : "" })));
+  const Where = ({ children }) => h("div", { className: "groupe" }, children);
+
+  /* a row of a list: the one shape of the columns. `select` rows open the next column; the others open a task */
+  function Row({ col, sel, select, onClick, label, task, children }) {
+    return h("button", { type: "button", className: "row", "data-col": col, "data-sel": sel || undefined, "data-select": select ? "1" : undefined, "data-task": task || undefined,
+      "aria-current": sel ? "true" : undefined, "aria-label": label, onClick }, children, h("span", { className: "chev", "aria-hidden": "true" }, sel === "strong" ? "›" : ""));
+  }
+
+  function JobLine({ jobs }) {
+    const t = studioLine(jobs);
+    return t ? h("p", { className: "working", role: "status" }, h("b", { "aria-hidden": "true" }), t) : null;
+  }
+
+  function TaskRow({ ctx, col, t, place }) {
+    const r = t.scope === "project" ? rankOf(t.step) : null;
+    const when = (r ? "Étape " + r + " sur 7" : "") + (r && t.since ? " · " : "") + (t.since ? ago(t.since, ctx.now()) : "");
+    const meta = place ? taskPlace(t) + (when ? " · " + when : "") : when || (t.scope === "brand" && t.since ? ago(t.since, ctx.now()) : "");
+    return h(Row, { col, task: t.id, sel: ctx.sel.task === t.id ? "strong" : null, onClick: () => ctx.openTask(t, false, col),
+      label: taskTitle(t) + (place ? ", " + taskPlace(t) : "") + (when ? ", " + when : "") },
+      h("span", { className: "main" }, h("span", { className: "nom" }, taskTitle(t)), meta && h("span", { className: "meta" }, meta)));
+  }
+
+  /* ---------- 1. the studio: what waits everywhere, then the brands ---------- */
+  function StudioCol({ ctx }) {
+    const { tasks, brands, jobs, loaded } = ctx.data, { sel } = ctx;
+    const level = ctx.level(0);
+    const total = (b) => b.waiting + b.projects.reduce((n, p) => n + p.waiting, 0);
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h("h2", { className: "sr" }, "Le studio")),
+      h(Row, { col: 0, select: true, sel: !sel.brand && sel.panel !== "newBrand" ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Le studio")), h(Count, { n: tasks.length })),
+      h(JobLine, { jobs }),
+      h(Where, null, "Ce qui t'attend"),
+      !loaded ? h("p", { className: "vide" }, "Un instant.") : tasks.length === 0 ? h("p", { className: "vide" }, jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend.")
+        : tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 0, t, place: true })),
+      h("div", { className: "groupe split" }, h("span", null, "Marques"), h(Plus, { label: "Nouvelle marque", onClick: ctx.newBrand })),
+      loaded && brands.length === 0 && h("p", { className: "vide" }, "Aucune marque. Le « + » en crée une."),
+      brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
+        label: b.name + ", " + (BRAND_STAGE[b.stage] || b.stage).toLowerCase() + (total(b) ? ", " + plural(total(b), "tâche", "tâches") : "") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))));
+  }
+
+  /* ---------- 2. a brand: its brief, its assets, its projects ---------- */
+  const BRIEF_BITS = [["what", ", c'est "], ["who", ". Elle parle à "], ["voice", ". Sa voix : "], ["signature", ". Sa signature : « ", " »"], ["never", ". Elle ne dit jamais : "], ["colours", ". Ses couleurs : "]];
+
+  function BrandCol({ ctx, bid }) {
+    const b = useLive(ctx, () => api.getBrand(bid), bid);
+    const jobs = ctx.data.jobs.filter((j) => j.brand === bid && !j.project);
+    const level = ctx.level(1);
+    if (!b) return h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("p", { className: "vide" }, "Un instant."));
+    const a = b.assets, id = b.identity;
+    const known = BRIEF_BITS.filter(([k]) => id[k].state !== "absent");
+    const logo = a.logo;
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, b.name),
+        h("p", { className: "sub" }, (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site")),
+        h("button", { type: "button", className: "linkbtn modif", onClick: ctx.editBrand, "aria-label": "Modifier la marque " + b.name + " : nom, site, description" }, "Modifier")),
+      h(JobLine, { jobs }),
+      b.description && h("p", { className: "desc" }, b.description),
+      b.waiting.length > 0 && h(React.Fragment, null, h(Where, null, "Ce qui attend"), b.waiting.map((t) => h(TaskRow, { key: t.id, ctx, col: 1, t, place: false }))),
+      h("div", { className: "groupe split" }, h("span", null, "Projets"), h(Plus, { label: "Nouveau projet dans " + b.name, onClick: ctx.newProject })),
+      b.projects.length === 0 && h("p", { className: "vide" }, "Aucun projet. Le « + » en crée un."),
+      b.projects.map((p) => h(Row, { key: p.id, col: 1, select: true, sel: ctx.sel.project === p.id ? level : null, onClick: () => ctx.selectProject(p.id),
+        label: p.name + ", " + (p.done ? "terminé" : "étape " + p.rank + " sur 7, " + p.step_label.toLowerCase()) + (p.waiting ? ", " + plural(p.waiting, "tâche", "tâches") : "") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, p.name), h("span", { className: "meta" }, p.done ? "Terminé" : "Étape " + p.rank + " sur 7 · " + p.step_label), h(Segments, { rank: p.rank, done: p.done })),
+        h(Count, { n: p.waiting }))),
+      h(Where, null, "Son brief"),
+      known.length === 0 ? h("p", { className: "vide" }, "Pas encore de brief : il se fait en une phrase.")
+        : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
+          h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, id[k].value,
+            id[k].state === "deduced" && h("span", { className: "sr" }, " (à confirmer)")), after || "")), "."),
+      h(Where, null, "Ses assets"),
+      h("div", { className: "assets" },
+        h("div", { className: "asset" }, h("span", { className: "cap" }, "Logo"),
+          logo ? h("div", { className: "logobox" }, h("img", { src: logo.preview, alt: "Logo de " + b.name }), h("span", { className: "small muted" }, logo.state === "deduced" ? "à confirmer" : "confirmé"))
+            : h("p", { className: "small muted" }, "Pas de logo : sans lui, la marque ne peut pas être prête."),
+          h("div", null, h(LogoDrop, { ctx, bid, label: logo ? "Changer de logo" : "Déposer un logo", variant: logo ? "ghost" : "secondary", onDone: (r) => ctx.notify("Logo déposé : " + r.name + " a un logo.") }))),
+        h("div", { className: "asset" }, h("span", { className: "cap" }, "Couleurs"), a.colours.length ? h(Swatches, { colours: a.colours, mini: true }) : h("p", { className: "small muted" }, "Pas encore de couleur."),
+          a.colours.some((c) => c.state === "deduced") && h("span", { className: "small muted" }, "à confirmer")),
+        h("div", { className: "asset" }, h("span", { className: "cap" }, "Visuels gardés" + (a.visuals.length ? " · " + a.visuals.length : "")),
+          a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
+            : h("p", { className: "small muted" }, b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire."))));
+  }
+
+  /* ---------- 3. a project: its seven steps, what waits ---------- */
+  function ProjectCol({ ctx, pid }) {
+    const p = useLive(ctx, () => api.project(pid), pid);
+    const { sel } = ctx;
+    const level = ctx.level(2);
+    if (!p) return h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("p", { className: "vide" }, "Un instant."));
     const st = (k) => (p.steps.find((s) => s.key === k) || {}).status || "todo";
-    const word = { todo: "À venir", waiting: "T'attend", running: "Le studio travaille", done: "Faite" };
     const done = SEVEN.filter((s) => st(s.key) === "done").length;
-    const now = SEVEN.find((s) => st(s.key) !== "done");
-    const open = (s) => (["brand", "brief", "mandates", "diverge"].includes(s.key) ? () => ctx.go({ kind: "step", pid, step: s.key }) : p.pieces.length ? () => ctx.go({ kind: "series", pid }) : null);
-    return h("div", { className: "task" },
-      h(Head, null, done === 7 ? "Le projet est fini" : "Étape " + (SEVEN.indexOf(now) + 1) + " sur 7 : " + now.label.toLowerCase()),
-      h("p", { className: "lead muted" }, plural(done, "étape faite", "étapes faites") + " sur 7. Chaque étape se rouvre d'un clic."),
-      h("ol", { className: "seven" }, SEVEN.map((s, i) => {
-        const go = st(s.key) === "todo" ? null : open(s);
-        const body = [h("span", { className: "n", key: "n" }, String(i + 1)), h("span", { className: "t", key: "t" }, s.label), h("span", { className: "m", key: "m" }, word[st(s.key)]), h("span", { className: "d", key: "d" }, s.say)];
-        return h("li", { key: s.key, "data-s": st(s.key), "aria-current": s === now ? "step" : undefined },
-          go ? h("button", { type: "button", className: "seven-row", onClick: go, "aria-label": (i + 1) + ". " + s.label + " : " + word[st(s.key)].toLowerCase() + ". " + s.say }, body)
-             : h("div", { className: "seven-row" }, body));
-      })));
+    const nowIdx = SEVEN.findIndex((s) => st(s.key) !== "done");
+    const tasks = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid);
+    const brandTask = ctx.data.tasks.find((t) => t.scope === "brand" && t.brand === p.brand);
+    const jobs = ctx.data.jobs.filter((j) => j.project === pid);
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, p.name),
+        h("p", { className: "sub" }, done === 7 ? "Terminé" : "Étape " + (nowIdx + 1) + " sur 7 · " + SEVEN[nowIdx].label),
+        h("button", { type: "button", className: "linkbtn modif", onClick: ctx.editProject, "aria-label": "Modifier le projet " + p.name + " : son nom" }, "Modifier")),
+      h(JobLine, { jobs }),
+      h("ol", { className: "etapes", "aria-label": "Les sept étapes" }, SEVEN.map((s, i) => {
+        const status = st(s.key), cur = i === nowIdx;
+        const word = STEP_WORD[status];
+        const inner = [h("i", { key: "d", "aria-hidden": "true" }), h("span", { key: "t", className: "t" }, s.label), h("span", { key: "m", className: cur ? "m" : "sr" }, cur ? word : " : " + word)];
+        const open = status === "done" ? () => ctx.selectStep(s.key) : s.key === "brand" && brandTask ? () => ctx.openTask(brandTask) : null;
+        const selected = sel.detail && sel.detail.kind === "step" && sel.detail.key === s.key;
+        return h("li", { key: s.key, "data-etat": status, "data-cur": cur ? "1" : undefined, "aria-current": cur ? "step" : undefined },
+          open ? h("button", { type: "button", className: "etape", "data-col": 2, "data-select": status === "done" ? "1" : undefined, "data-sel": selected ? level : undefined, "aria-current": selected ? "true" : undefined,
+            onClick: open, "aria-label": (i + 1) + ". " + s.label + " : " + word + (status === "done" ? ". Voir ce qui a été décidé" : ". Ouvrir la tâche de la marque") }, inner)
+            : h("div", { className: "etape" }, inner));
+      })),
+      p.brand_stage !== "ready" && h("p", { className: "vide" }, "Le projet attend sa marque" + (p.brand_waiting.length ? " : " + p.brand_waiting.map((x) => taskTitle({ scope: "brand", brand_name: p.brand_name, title: x.title }).toLowerCase()).join(", ") : "") + "."),
+      h(Where, null, "Ce qui attend"),
+      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
   }
 
-  function StepAny({ ctx, pid, step }) {
-    const [p, setP] = useState(null);
-    useEffect(() => { api.project(pid).then(setP).catch(ctx.fail); }, [pid, step]);
-    useCmds(ctx, []);
-    if (!p) return h("div", { className: "task" }, h(Wait, null));
-    const S = (k) => (p.steps.find((s) => s.key === k) || {}).status;
-    if (step === "brand") { const st = S("brand"); return st === "done" ? h(BrandDone, { ctx, pid }) : st === "waiting" ? h(BrandSort, { ctx, pid }) : st === "running" ? h(Busy, { text: "Le studio lit le site et les images." }) : h(BrandHow, { ctx, pid }); }
-    if (step === "brief") return S("brand") !== "done" ? h(Blocked, { ctx, text: "Le brief s'ouvre quand la marque est triée." }) : h(Brief, { ctx, pid });
-    if (step === "mandates") return S("brief") !== "done" ? h(Blocked, { ctx, text: "Les consignes s'ouvrent quand le brief est validé." }) : S("mandates") === "running" ? h(Busy, { text: "Un agent prépare les consignes." }) : h(Mandates, { ctx, pid });
-    const st = S("diverge");
-    if (st === "running") return h(Busy, { text: "Les quatre agents écrivent." });
-    if (st === "waiting") return h(DivergePick, { ctx, pid });
-    if (st === "done") return h(DivergePick, { ctx, pid, readOnly: true });
-    return S("mandates") === "done" ? h(DivergeLaunch, { ctx, pid }) : h(Blocked, { ctx, text: "La divergence s'ouvre quand les consignes sont relues." });
+  /* ---------- 4. the detail of a step already done: what was decided, and a way to reopen it ---------- */
+  const synth = (p, k, extra) => ({ id: p.id + ":reopen:" + k + ((extra && extra.piece) || ""), scope: "project", project: p.id, project_name: p.name, brand: p.brand, brand_name: p.brand_name, kind: k, step: null, piece: null, title: "", ...extra });
+
+  function StepDetail({ ctx, pid, step }) {
+    const key = pid + "|" + step;
+    const p = useLive(ctx, () => api.project(pid), pid + "|p");
+    const body = useLive(ctx, () => {
+      if (step === "brand") return api.getBrand(ctx.sel.brand);
+      if (step === "brief") return api.brief(pid);
+      if (step === "mandates") return api.mandates(pid);
+      if (step === "diverge") return api.variants(pid);
+      return Promise.resolve({});
+    }, key);
+    const label = (SEVEN.find((s) => s.key === step) || {}).label || "";
+    if (!p || !body) return h("div", { className: "colhead" }, h(Eyebrow, null, "Décidé"), h("p", { className: "vide" }, "Un instant."));
+    const reopen = (k, extra) => ctx.openTask(synth(p, k, extra));
+    let main, action;
+    if (step === "brand") {
+      const logo = body.assets.logo;
+      main = h("div", { className: "sec" }, h("p", { className: "lead" }, "La marque est prête : " + body.name + (logo ? ", avec son logo." : ".")),
+        logo && h("img", { src: logo.preview, alt: "Logo de " + body.name, className: "factlogo" }), body.assets.colours.length > 0 && h(Swatches, { colours: body.assets.colours, mini: true }));
+      const bt = (k, title) => ({ id: "@" + body.id + ":reopen:" + k, scope: "brand", brand: body.id, brand_name: body.name, project: null, kind: k, title, reopen: true });
+      action = h("div", { className: "gestures" },
+        h(Button, { variant: "secondary", size: "sm", onClick: () => ctx.openTask(bt("brand-brief", "Relire le brief de la marque")), "aria-label": "Rouvrir le brief de la marque" }, "Rouvrir le brief"),
+        body.assets.evidence.length > 0 && h(Button, { variant: "ghost", size: "sm", onClick: () => ctx.openTask(bt("brand-sort", "Revoir le tri des visuels")), "aria-label": "Rouvrir le tri des visuels de la marque" }, "Rouvrir le tri"));
+    } else if (step === "brief") {
+      const f = body.fields;
+      main = h("p", { className: "sentence small" }, "Je veux " + (f.objective || "…") + ". Pour " + (f.audience || "…") + ". Le message : " + (f.message || "…") + ". Sur " + body.chosen.map(fmtWord).join(", ") + (f.cta ? ". Pour finir : « " + f.cta + " »" : "") + ".");
+      action = h(Button, { variant: "secondary", size: "sm", onClick: () => reopen("brief"), "aria-label": "Rouvrir le brief du projet" }, "Rouvrir");
+    } else if (step === "mandates") {
+      main = h("div", { className: "sec" }, h("p", { className: "lead" }, body.common), h("ul", { className: "plain" }, body.items.map((it) => h("li", { key: it.id }, h("span", { className: "cap" }, "Agent " + it.id.toUpperCase()), h("span", null, it.mandate)))));
+      action = h(Button, { variant: "secondary", size: "sm", onClick: () => reopen("mandates"), "aria-label": "Rouvrir les consignes aux agents" }, "Rouvrir");
+    } else if (step === "diverge") {
+      const inSeries = new Set(p.pieces.map((x) => x.variant));
+      main = h("ul", { className: "plain" }, body.map((v) => h("li", { key: v.id }, h("span", { className: "cap" }, v.mandate + (inSeries.has(v.id) ? " · dans la série" : "")), h("span", { className: "hl" }, v.headline), v.subline && h("span", null, v.subline))));
+      action = h(Button, { variant: "secondary", size: "sm", onClick: () => reopen("diverge-pick", { readOnly: true }), "aria-label": "Rouvrir les variantes de la série" }, "Rouvrir");
+    } else {
+      main = p.pieces.length === 0 ? h("p", { className: "vide" }, "Pas de pièce.") : h("ul", { className: "pieces", "aria-label": "Les pièces" }, p.pieces.map((pc) => { const w = STAGE_WORDS[stageOf(pc, p.jobs)];
+        return h("li", { key: pc.id }, h("button", { type: "button", className: "row", "data-col": 3, onClick: () => reopen("piece-any", { piece: pc.id, title: pc.label }), "aria-label": "Rouvrir " + pc.label + " : " + w.toLowerCase() },
+          h("span", { className: "main" }, h("span", { className: "nom" }, pc.label), h("span", { className: "meta" }, w)))); }));
+      action = null;
+    }
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Décidé"), h("h2", { className: "titre" }, label), h("p", { className: "sub" }, "Étape faite. Ce qui a été décidé, tel quel.")),
+      h("div", { className: "bodyc" }, main, action));
   }
 
-  function Series({ ctx, pid }) {
-    const [p, setP] = useState(null);
-    useEffect(() => { api.project(pid).then(setP).catch(ctx.fail); }, [pid]);
-    useCmds(ctx, []);
-    if (!p) return h("div", { className: "task" }, h(Wait, null));
-    if (p.pieces.length === 0) return h("div", { className: "task" }, h(Head, null, "Pas encore de série"), h("p", { className: "lead muted" }, "Les pièces arrivent quand tu as choisi des variantes à la divergence."));
-    return h("div", { className: "task" }, h(Head, null, "La série : " + plural(p.pieces.length, "pièce", "pièces")),
-      h(Rows, { items: p.pieces.map((pc) => { const w = STAGE_WORDS[stageOf(pc, p.jobs)]; return { key: pc.id, title: pc.label, meta: w, aria: pc.label + " : " + w.toLowerCase(), onClick: () => ctx.go({ kind: "piece", pid, piece: pc.id, label: pc.label }) }; }) }));
-  }
-
-  function Journal({ ctx, pid }) {
-    const list = useMemo(() => loadJournal(pid), [pid]);
-    useCmds(ctx, []);
-    return h("div", { className: "task" }, h(Head, null, "Le journal des décisions"),
-      list.length === 0 ? h("p", { className: "lead muted" }, "Chaque décision s'écrit ici avec son heure et sa raison.") :
+  function JournalCol({ ctx, pid }) {
+    const list = useMemo(() => loadJournal(pid), [pid, ctx.rev]);
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, "Le journal des décisions")),
+      list.length === 0 ? h("p", { className: "vide" }, "Chaque décision s'écrit ici avec son heure et sa raison.") :
         h("ol", { className: "journal" }, list.slice(0, 60).map((e, i) => h("li", { key: e.at + "-" + i },
           h("time", { dateTime: new Date(e.at).toISOString() }, clock(e.at)), h("span", null, h("strong", null, e.who === "toi" ? "Toi : " : "Studio : "), e.text), e.why && h("span", { className: "why" }, e.why)))));
   }
 
-  function Projects({ ctx, focus }) {
-    const [name, setName] = useState("");
-    const [from, setFrom] = useState("");
-    const [brand, setBrand] = useState("");
-    const [site, setSite] = useState("");
-    const projects = ctx.data.projects;
-    const nameRef = useRef(null), fromRef = useRef(null);
-    useEffect(() => { const el = focus === "from" ? fromRef.current : nameRef.current; if (el) el.focus(); }, []);
-    useCmds(ctx, []);
+  /* ---------- the "+" and "Modifier" forms, in the column to the right of the one that holds them ---------- */
+  function NewBrandForm({ ctx }) {
+    const [name, setName] = useState(""), [site, setSite] = useState("");
     const create = (e) => {
       e.preventDefault();
-      ctx.act(async (snap) => {
-        const p = await api.createProject(name.trim(), from || undefined, from ? undefined : brand.trim(), from ? undefined : site.trim() || undefined);
-        ctx.setPid(p.id);
-        ctx.log(p.id, "toi", from ? "Déclinaison créée : " + p.name : "Projet créé : " + p.name, from ? "Reprend la marque et le brief de l'original" : "");
-        await ctx.answered(p.id, from ? "Déclinaison créée : " + p.name + "." : "Projet créé : " + p.name + ".", { before: snap });
+      ctx.act(async () => {
+        const b = await api.createBrand(name.trim(), site.trim() || undefined);
+        ctx.log("@" + b.id, "toi", "Marque créée : " + b.name, b.site ? "Le studio lit " + host(b.site) : "Sans site");
+        await ctx.refresh(); ctx.touch();
+        ctx.selectBrand(b.id, b.site ? b.name + " est créée : le studio lit son site." : b.name + " est créée. Son brief l'attend.");
       });
     };
-    return h("div", { className: "task" }, h(Head, null, "Nouveau projet"),
-      h("form", { className: "sec", onSubmit: create },
-        h("div", { className: "field" }, h("label", { htmlFor: "np-name" }, "Nom du projet"), h("input", { id: "np-name", ref: nameRef, type: "text", value: name, onChange: (e) => setName(e.target.value), autoComplete: "off", placeholder: "Par exemple : la campagne de rentrée" })),
-        !from && h("div", { className: "field" }, h("label", { htmlFor: "np-brand" }, "Nom de la marque"), h("input", { id: "np-brand", type: "text", value: brand, onChange: (e) => setBrand(e.target.value), autoComplete: "off" })),
-        !from && h("div", { className: "field" }, h("label", { htmlFor: "np-site" }, "Site de la marque (facultatif)"), h("input", { id: "np-site", type: "text", inputMode: "url", value: site, onChange: (e) => setSite(e.target.value), autoComplete: "off", placeholder: "ma-marque.example", "aria-describedby": "np-site-hint" }),
-          h("span", { id: "np-site-hint", className: "small muted" }, "Le studio lit ce site pour apprendre la marque. Sans site, tu la lui racontes toi-même.")),
-        projects.length > 0 && h("div", { className: "field" }, h("label", { htmlFor: "np-from" }, "Partir d'un projet existant"),
-          h("select", { id: "np-from", ref: fromRef, value: from, onChange: (e) => setFrom(e.target.value), "aria-describedby": "np-hint" },
-            h("option", { value: "" }, "Non, on part de zéro"), projects.map((p) => h("option", { key: p.id, value: p.id }, p.name))),
-          h("span", { id: "np-hint", className: "small muted" }, "Une déclinaison reprend la marque et le brief de l'original : tu ne corriges que ce qui change.")),
-        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "lg", disabled: ctx.busy || !name.trim() || (!from && !brand.trim()), "aria-label": from ? "Créer la déclinaison" : "Créer le projet" }, from ? "Créer la déclinaison" : "Créer le projet"))),
-      projects.length > 1 && h("div", { className: "sec" }, h("p", { className: "cap" }, "Projet en cours pour la série, le journal et les étapes"),
-        h("ul", { className: "rows" }, projects.map((p) => h("li", { key: p.id }, h("button", { type: "button", className: "row-btn", "aria-current": p.id === ctx.pid ? "true" : undefined, onClick: () => { ctx.setPid(p.id); ctx.go({ kind: "home" }); },
-          "aria-label": "Prendre ce projet : " + p.name }, h("span", { className: "t" }, p.name), h("span", { className: "m" }, p.id === ctx.pid ? "En cours" : plural(p.waiting, "tâche", "tâches"))))))));
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Studio"), h("h2", { className: "titre" }, "Nouvelle marque")),
+      h("form", { className: "sec form", onSubmit: create },
+        h("div", { className: "field" }, h("label", { htmlFor: "nb-name" }, "Nom de la marque"), h("input", { id: "nb-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off" })),
+        h("div", { className: "field" }, h("label", { htmlFor: "nb-site" }, "Son site (facultatif)"), h("input", { id: "nb-site", type: "text", inputMode: "url", value: site, onChange: (e) => setSite(e.target.value), autoComplete: "off", placeholder: "ma-marque.example", "aria-describedby": "nb-hint" }),
+          h("span", { id: "nb-hint", className: "small muted" }, "Un site lance la lecture : le studio y cherche les visuels, le logo, les couleurs. Sans site, tu écris son brief et tu déposes son logo.")),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": "Créer la marque" }, "Créer la marque"),
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Ne pas créer de marque" }, "Annuler"))));
   }
 
-  /* ================= the home: the list of what waits ================= */
-  function Home({ ctx }) {
-    const { tasks, loaded, jobs, projects } = ctx.data;
-    const n = tasks.length;
-    useCmds(ctx, []);
-    const many = projects.length > 1;
-    return h("div", { className: "task home" },
-      h(Head, null, !loaded ? "Un instant" : n === 0 ? "Rien ne t'attend" : n === 1 ? "Une chose t'attend" : n + " choses t'attendent"),
-      n === 0 && loaded && h("div", { className: "sec" },
-        h("p", { className: "lead muted" }, jobs.length ? "Le studio travaille. Ce que tu auras à faire apparaîtra ici." : projects.length ? "Le studio n'a rien à te demander pour l'instant." : "Aucun projet pour l'instant."),
-        projects.length === 0 && h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "lg", onClick: () => ctx.go({ kind: "projects" }), "aria-label": "Créer un projet" }, "Créer un projet"))),
-      n > 0 && h("ul", { className: "tasks", "aria-label": "Tâches" }, tasks.map((t) => {
-        const r = rankOf(t.step);
-        const when = (r ? "Étape " + r + " sur 7" : "") + (r && t.since ? " · " : "") + (t.since ? ago(t.since, ctx.now()) : "");
-        return h("li", { key: t.id }, h("button", { type: "button", className: "task-row", onClick: () => ctx.openTask(t), "aria-label": t.title + (many ? ", " + t.project_name : "") + (when ? ", " + when : "") },
-          h("span", { className: "t" }, t.title), h("span", { className: "m" }, (many ? t.project_name + (when ? " · " : "") : "") + when || " ")));
-      })));
+  function EditBrandForm({ ctx, bid }) {
+    const b = useLive(ctx, () => api.getBrand(bid), "edit|" + bid);
+    const [f, setF] = useState(null);
+    useEffect(() => { if (b && !f) setF({ name: b.name, site: b.site ? host(b.site) : "", description: b.description || "" }); }, [b]);
+    if (!b || !f) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
+    const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+    const save = (e) => {
+      e.preventDefault();
+      ctx.act(async () => {
+        const siteChanged = (f.site.trim() ? host(f.site.trim()) : "") !== (b.site ? host(b.site) : "");
+        await api.updateBrand(bid, { name: f.name.trim(), site: f.site.trim(), description: f.description });
+        ctx.log("@" + bid, "toi", "Marque modifiée : " + f.name.trim(), "");
+        await ctx.refresh(); ctx.touch();
+        ctx.close(f.name.trim() + " est enregistrée." + (siteChanged && f.site.trim() ? " Le nouveau site n'est pas lu : « Relire le site » le fait." : ""));
+      });
+    };
+    const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site de " + b.name + "."); });
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, "Modifier " + b.name)),
+      h("form", { className: "sec form", onSubmit: save },
+        h("div", { className: "field" }, h("label", { htmlFor: "eb-name" }, "Nom"), h("input", { id: "eb-name", type: "text", autoFocus: true, value: f.name, onChange: set("name"), autoComplete: "off" })),
+        h("div", { className: "field" }, h("label", { htmlFor: "eb-site" }, "Site"), h("input", { id: "eb-site", type: "text", inputMode: "url", value: f.site, onChange: set("site"), autoComplete: "off", placeholder: "ma-marque.example" })),
+        h("div", { className: "field" }, h("label", { htmlFor: "eb-desc" }, "Description"), h("textarea", { id: "eb-desc", value: f.description, onChange: set("description") })),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !f.name.trim(), "aria-label": "Enregistrer la marque" }, "Enregistrer"),
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Fermer sans enregistrer" }, "Annuler")),
+        b.can_discover && h("p", { className: "small muted" }, "Le site enregistré se relit à part : ", h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: reread, "aria-label": "Relire le site de la marque" }, "Relire le site"), ".")));
+  }
+
+  function NewProjectForm({ ctx, bid }) {
+    const b = useLive(ctx, () => api.getBrand(bid), "np|" + bid);
+    const [name, setName] = useState(""), [from, setFrom] = useState("");
+    if (!b) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
+    const create = (e) => {
+      e.preventDefault();
+      ctx.act(async () => {
+        const p = await api.createProjectIn(bid, name.trim(), from || undefined);
+        ctx.log(p.id, "toi", from ? "Déclinaison créée : " + p.name : "Projet créé : " + p.name, from ? "Reprend le brief de l'original" : "");
+        await ctx.refresh(); ctx.touch();
+        ctx.selectProject(p.id, "Projet créé : " + p.name + (p.brand_stage !== "ready" ? ". Il attend sa marque." : "."), bid);
+      });
+    };
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, b.name), h("h2", { className: "titre" }, "Nouveau projet")),
+      h("form", { className: "sec form", onSubmit: create },
+        h("div", { className: "field" }, h("label", { htmlFor: "np-name" }, "Nom du projet"), h("input", { id: "np-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off", placeholder: "Par exemple : la campagne de rentrée" })),
+        b.projects.length > 0 && h("div", { className: "field" }, h("label", { htmlFor: "np-from" }, "Partir d'un projet existant"),
+          h("select", { id: "np-from", value: from, onChange: (e) => setFrom(e.target.value), "aria-describedby": "np-hint" }, h("option", { value: "" }, "Non, on part de zéro"), b.projects.map((p) => h("option", { key: p.id, value: p.id }, p.name))),
+          h("span", { id: "np-hint", className: "small muted" }, "Une déclinaison reprend le brief de l'original : tu ne corriges que ce qui change.")),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": from ? "Créer la déclinaison" : "Créer le projet" }, from ? "Créer la déclinaison" : "Créer le projet"),
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Ne pas créer de projet" }, "Annuler"))));
+  }
+
+  function EditProjectForm({ ctx, pid }) {
+    const p = useLive(ctx, () => api.project(pid), "ep|" + pid);
+    const [name, setName] = useState(null);
+    useEffect(() => { if (p && name === null) setName(p.name); }, [p]);
+    if (!p || name === null) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
+    const save = (e) => {
+      e.preventDefault();
+      ctx.act(async () => { await api.updateProject(pid, { name: name.trim() }); ctx.log(pid, "toi", "Projet renommé : " + name.trim(), ""); await ctx.refresh(); ctx.touch(); ctx.closeDetail(name.trim() + " est enregistré."); });
+    };
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, "Modifier " + p.name)),
+      h("form", { className: "sec form", onSubmit: save },
+        h("div", { className: "field" }, h("label", { htmlFor: "ep-name" }, "Nom du projet"), h("input", { id: "ep-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off" })),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": "Enregistrer le projet" }, "Enregistrer"),
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.closeDetail(), "aria-label": "Fermer sans enregistrer" }, "Annuler"))));
   }
 
   /* ================= the palette and the menu ================= */
@@ -712,43 +978,46 @@
         h("p", { className: "pal-foot" }, "Flèches pour choisir, Entrée pour lancer, Échap pour fermer.")));
   }
 
-  function PlusMenu({ cmds, onClose, wrapRef }) {
-    const ref = useRef(null);
-    const [i, setI] = useState(0);
-    const items = cmds.filter((c) => c.plus !== false);
-    useEffect(() => {
-      const out = (e) => { if (ref.current && !ref.current.contains(e.target) && !(wrapRef.current && wrapRef.current.contains(e.target))) onClose(false); };
-      document.addEventListener("mousedown", out);
-      return () => document.removeEventListener("mousedown", out);
-    }, []);
-    useEffect(() => { const els = ref.current && ref.current.querySelectorAll('[role="menuitem"]'); if (els && els[i]) els[i].focus(); }, [i]);
-    const key = (ev) => {
-      if (ev.key === "ArrowDown") { ev.preventDefault(); setI((i + 1) % items.length); }
-      else if (ev.key === "ArrowUp") { ev.preventDefault(); setI((i - 1 + items.length) % items.length); }
-      else if (ev.key === "Home") { ev.preventDefault(); setI(0); }
-      else if (ev.key === "End") { ev.preventDefault(); setI(items.length - 1); }
-      else if (ev.key === "Escape") { ev.preventDefault(); onClose(true); }
-      else if (ev.key === "Tab") { onClose(false); }
-    };
-    return h("div", { className: "menu", role: "menu", "aria-label": "Plus", ref, onKeyDown: key },
-      groups(items).map((g) => h("div", { key: g.name, role: "none" }, h("p", { className: "pal-group", "aria-hidden": "true" }, g.name),
-        g.items.map((c) => h("button", { key: c.id, type: "button", role: "menuitem", tabIndex: -1, className: "pal-item", onClick: () => { onClose(false); c.run(); } },
-          h("span", null, c.label), c.hint && h("span", { className: "pal-hint" }, c.hint))))));
+  /* ================= the application ================= */
+  /* what each column is, from left to right, for a selection: the studio always, then a brand (or the form of a new one), a project (or the
+     form that edits or creates), the detail of a step (or its form) */
+  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null };
+  function columnsOf(sel) {
+    const c = ["studio"];
+    if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
+    if (!sel.brand) return c;
+    c.push("brand");
+    if (sel.panel === "editBrand") { c.push("editBrand"); return c; }
+    if (sel.panel === "newProject") { c.push("newProject"); return c; }
+    if (!sel.project) return c;
+    c.push("project");
+    if (sel.detail) c.push(sel.detail.kind);
+    return c;
+  }
+  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
+
+  function useNarrow() {
+    const q = "(max-width: 760px)";
+    const [n, setN] = useState(() => window.matchMedia(q).matches);
+    useEffect(() => { const m = window.matchMedia(q); const f = () => setN(m.matches); m.addEventListener("change", f); return () => m.removeEventListener("change", f); }, []);
+    return n;
   }
 
-  /* ================= the application ================= */
   function App() {
-    const [data, setData] = useState({ tasks: [], jobs: [], projects: [], now: 0, loaded: false });
-    const [view, setView] = useState({ kind: "home" });
+    const [data, setData] = useState({ tasks: [], jobs: [], projects: [], brands: [], now: 0, loaded: false });
+    const [sel, setSel] = useState(EMPTY);
+    const [dive, setDive] = useState(null); // the task opened, or null
     const [notice, setNotice] = useState(null);
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
     const [palette, setPalette] = useState(false);
-    const [menu, setMenu] = useState(false);
-    const [pid, setPid] = useState(null);
+    const [rev, setRev] = useState(0);
     const [, setTick] = useState(0);
-    const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), cmdsRef = useRef([]), overlayRef = useRef(false), plusRef = useRef(null);
-    overlayRef.current = palette || menu;
+    const narrow = useNarrow();
+    const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), digest = useRef(""), cmdsRef = useRef([]), overlayRef = useRef(false), arrowsRef = useRef(false), backTo = useRef(null);
+    const selRef = useRef(sel), diveRef = useRef(dive), opened = useRef(0);
+    overlayRef.current = palette;
+    selRef.current = sel; diveRef.current = dive;
 
     const log = useCallback((p, who, text, why) => {
       if (!p) return;
@@ -762,12 +1031,15 @@
         skew.current = r.now * 1000 - Date.now();
         const STEP_OF = { learn: "brand", mandates: "mandates", diverge: "diverge", image: "image" };
         prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id)).forEach((j) => {
-          const failed = r.tasks.find((t) => t.kind === "job-failed" && t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null));
-          if (failed) log(j.project, "studio", "Échec : " + failed.title, failed.question);
-          else log(j.project, "studio", j.kind === "learn" ? "Lecture de la marque terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : "Image prête : " + j.piece, "");
+          const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : t.scope === "brand" && t.brand === j.brand));
+          const where = j.project || "@" + j.brand;
+          if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
+        const d = JSON.stringify({ ...r, now: 0 });
+        if (d !== digest.current) { digest.current = d; setRev((x) => x + 1); }
         setData({ ...r, loaded: true });
         return r;
       } catch (e) { setError("Le serveur du studio ne répond pas."); return null; }
@@ -776,15 +1048,32 @@
     const running = data.jobs.length > 0;
     useEffect(() => { const t = setInterval(refresh, running ? 700 : 4000); return () => clearInterval(t); }, [refresh, running]);
     useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(t); }, []);
-    useEffect(() => { if (!pid && data.projects.length) setPid(data.tasks[0] ? data.tasks[0].project : data.projects[0].id); }, [data.projects.length]);
 
-    const go = useCallback((v, keepNotice) => {
+    /* ----- moving about the columns ----- */
+    const move = useCallback((fn, text) => { setSel(fn); setNotice(text || null); setError(null); setDive(null); }, []);
+    const selectStudio = useCallback(() => move(() => EMPTY), [move]);
+    const selectBrand = useCallback((id, text) => move(() => ({ ...EMPTY, brand: id }), text), [move]);
+    const selectProject = useCallback((id, text, brand) => move((s) => ({ ...EMPTY, brand: brand || s.brand, project: id }), text), [move]);
+    const selectStep = useCallback((key) => move((s) => ({ ...s, detail: { kind: "step", key }, panel: null, task: null })), [move]);
+    const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
+    const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
+    const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
+    const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
+    const showJournal = useCallback(() => move((s) => ({ ...s, detail: { kind: "journal" }, task: null })), [move]);
+    const close = useCallback((text) => move((s) => ({ ...s, panel: null }), typeof text === "string" ? text : null), [move]);
+    const closeDetail = useCallback((text) => move((s) => ({ ...s, detail: null }), typeof text === "string" ? text : null), [move]);
+    const popTo = useCallback((n) => { setNotice(null); setSel((s) => { let x = s; while (columnsOf(x).length > n) { const y = popOnce(x); if (y === x) break; x = y; } return x; }); }, []);
+
+    /* ----- diving into a task, and coming back ----- */
+    const openTask = useCallback((t, keepNotice, col) => {
       if (!keepNotice) setNotice(null);
-      setView(v); setMenu(false); setPalette(false); setError(null);
-      if (v.pid) setPid(v.pid);
+      setError(null);
+      backTo.current = { id: t.id, col };
+      setSel((s) => ({ ...EMPTY, brand: t.brand || s.brand, project: t.project || null, task: t.id }));
+      setDive({ ...t, _k: ++opened.current }); // a new key each time: the same task opened again (a sibling that keeps its id) starts afresh
       window.scrollTo(0, 0);
     }, []);
-    const openTask = useCallback((t, keepNotice) => go({ kind: "task", pid: t.project, step: t.step, piece: t.piece, tkind: t.kind, title: t.title, question: t.question, label: t.piece_label, key: t.id }, keepNotice), [go]);
+    const back = useCallback(() => setDive(null), []);
 
     /* an action runs under `busy`; `snap` is the set of tasks before it, to know which ones are new afterwards */
     const snap = useCallback(() => new Set(tasksRef.current.map((t) => t.id)), []);
@@ -794,87 +1083,153 @@
       try { return await fn(s); } catch (e) { fail(e); } finally { setBusy(false); }
     }, [fail, snap]);
 
-    /* an answer settles a task: back to the next one if it follows, else to the list, with one line that says what was done */
-    const answered = useCallback(async (p, text, o = {}) => {
+    /* an answer settles a task: on to the next one of the same owner if it follows, else back to the columns, with one line that says what was done.
+       `who` is a project id, or `@<brand>` */
+    const answered = useCallback(async (who, text, o = {}) => {
       const before = o.before || snap();
       const r = await refresh();
-      const mine = r ? r.tasks.filter((t) => t.project === p) : [];
+      const isBrand = who[0] === "@", key = isBrand ? who.slice(1) : who;
+      const mine = r ? r.tasks.filter((t) => (isBrand ? t.scope === "brand" && t.brand === key : t.scope === "project" && t.project === key)) : [];
       const isNew = (t) => !before.has(t.id);
       const next = (o.prefer && mine.find((t) => isNew(t) && o.prefer(t))) || (o.any !== false && mine.find(isNew)) || (o.sibling && mine.find(o.sibling)) || null;
       setNotice(text);
-      if (next) openTask(next, true); else go({ kind: "home" }, true);
-    }, [refresh, go, openTask, snap]);
+      if (next) openTask(next, true); else { setSel((s) => ({ ...s, task: null })); setDive(null); }
+    }, [refresh, openTask, snap]);
 
     const now = () => Date.now() + skew.current;
-    const info = (p) => data.projects.find((x) => x.id === p) || { name: "", brand: "" };
-    const cp = pid && data.projects.find((x) => x.id === pid) ? pid : null;
-    const ctx = { data, busy, pid: cp, setPid, act, answered, snap, log, fail, go, openTask, now, cmdsRef, overlayRef };
+    const touch = useCallback(() => setRev((x) => x + 1), []);
+    const notify = useCallback((text) => setNotice(text), []);
+    const cols = columnsOf(sel);
+    const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
+    const ctx = { data, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail,
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject };
 
-    /* what the breadcrumb says, and what the screen shows */
-    let crumb = [{ label: "Studio créatif" }], body;
-    const pi = view.pid ? info(view.pid) : null;
-    const trail = (last) => [{ label: pi.brand || "Studio", home: true }, { label: pi.name, to: { kind: "steps", pid: view.pid } }, { label: last }];
-    if (view.kind === "home") body = h(Home, { ctx });
-    else if (view.kind === "projects") { crumb = [{ label: "Studio créatif", home: true }, { label: "Nouveau projet" }]; body = h(Projects, { ctx, focus: view.focus, key: "pr" + (view.focus || "") }); }
-    else if (view.kind === "steps") { crumb = trail("Les étapes"); body = h(Steps, { ctx, pid: view.pid }); }
-    else if (view.kind === "step") { crumb = trail(STEP_LABELS[view.step]); body = h(StepAny, { ctx, pid: view.pid, step: view.step, key: "st" + view.pid + view.step }); }
-    else if (view.kind === "series") { crumb = trail("La série"); body = h(Series, { ctx, pid: view.pid }); }
-    else if (view.kind === "journal") { crumb = trail("Le journal"); body = h(Journal, { ctx, pid: view.pid }); }
-    else if (view.kind === "piece") { crumb = trail(view.label || view.piece); body = h(PieceAny, { ctx, pid: view.pid, id: view.piece, key: "pc" + view.piece }); }
-    else {
-      const k = view.tkind, p = view.pid, key = view.key;
-      crumb = trail(SHORT[k] + (view.label ? " · " + view.label : ""));
-      body = k === "brand-how" ? h(BrandHow, { ctx, pid: p, key }) : k === "brand-sort" ? h(BrandSort, { ctx, pid: p, key }) : k === "brief" ? h(Brief, { ctx, pid: p, key })
-        : k === "mandates" ? h(Mandates, { ctx, pid: p, key }) : k === "diverge-launch" ? h(DivergeLaunch, { ctx, pid: p, key }) : k === "diverge-pick" ? h(DivergePick, { ctx, pid: p, key })
-        : k === "job-failed" ? h(JobFailed, { ctx, pid: p, step: view.step, piece: view.piece, title: view.title, question: view.question, key })
-        : k === "prompt" ? h(Prompt, { ctx, pid: p, id: view.piece, key }) : k === "compose" ? h(Compose, { ctx, pid: p, id: view.piece, key }) : h(Decide, { ctx, pid: p, id: view.piece, key });
-    }
+    const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
+    const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
 
-    /* the commands: one list, behind "Plus" and behind the palette */
+    /* ----- the commands of the palette ----- */
     const cmds = [];
-    if (palette || menu) {
+    if (palette) {
       (cmdsRef.current || []).forEach((c) => cmds.push({ ...c, group: "Cette tâche" }));
-      if (view.kind !== "home") cmds.push({ id: "home", group: "Aller", label: "Revenir à la liste des tâches", run: () => go({ kind: "home" }) });
-      data.tasks.forEach((t) => cmds.push({ id: "task:" + t.id, group: "Ouvrir une tâche", label: t.title, hint: data.projects.length > 1 ? t.project_name : "", plus: false, run: () => openTask(t) }));
-      if (cp) {
-        cmds.push({ id: "steps", group: "Ce projet", label: "Les étapes du projet", run: () => go({ kind: "steps", pid: cp }) });
-        ["brand", "brief", "mandates", "diverge"].forEach((s) => cmds.push({ id: "step:" + s, group: "Ce projet", label: "Rouvrir : " + STEP_LABELS[s].toLowerCase(), plus: false, run: () => go({ kind: "step", pid: cp, step: s }) }));
-        cmds.push({ id: "series", group: "Ce projet", label: "Voir la série", run: () => go({ kind: "series", pid: cp }) });
-        cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: () => go({ kind: "journal", pid: cp }) });
+      if (dive) cmds.push({ id: "cols", group: "Aller", label: "Revenir aux colonnes", hint: "Échap", run: back });
+      cmds.push({ id: "studio", group: "Aller", label: "Le studio", run: selectStudio });
+      data.tasks.forEach((t) => cmds.push({ id: "task:" + t.id, group: "Ouvrir une tâche", label: taskTitle(t), hint: taskPlace(t), run: () => openTask(t) }));
+      data.brands.forEach((b) => cmds.push({ id: "brand:" + b.id, group: "Aller à une marque", label: b.name, run: () => selectBrand(b.id) }));
+      data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
+      cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
+      const here = sel.brand || (dive && dive.brand);
+      data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
+      if (sel.brand && sel.project) {
+        cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: showJournal });
+        cmds.push({ id: "edit-project", group: "Ce projet", label: "Modifier le projet", run: editProject });
       }
-      cmds.push({ id: "new", group: "Projets", label: "Nouveau projet", run: () => go({ kind: "projects", focus: "name" }) });
-      if (data.projects.length) cmds.push({ id: "from", group: "Projets", label: "Partir d'un projet existant", run: () => go({ kind: "projects", focus: "from" }) });
-      if (data.projects.length > 1) cmds.push({ id: "switch", group: "Projets", label: "Changer de projet", run: () => go({ kind: "projects", focus: "name" }) });
-      if (menu) cmds.push({ id: "palette", group: "Commandes", label: "Palette de commandes", hint: MOD + " K", run: () => setPalette(true) });
+      if (sel.brand) cmds.push({ id: "edit-brand", group: "Cette marque", label: "Modifier la marque", run: editBrand });
     }
 
     /* the palette key, wherever the focus is */
     useEffect(() => {
-      const f = (ev) => { if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); setMenu(false); setPalette((v) => !v); } };
+      const f = (ev) => { if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); setPalette((v) => !v); } };
       window.addEventListener("keydown", f);
       return () => window.removeEventListener("keydown", f);
     }, []);
 
-    const n = data.tasks.length;
-    const last = crumb[crumb.length - 1].label;
-    useEffect(() => { document.title = (n ? "(" + n + ") " : "") + (view.kind === "home" ? "Ce qui t'attend" : last) + " · Studio créatif"; }, [n, view.kind, last]);
+    /* ----- the keyboard: up and down in a column, right to go deeper, left or Escape to come back ----- */
+    const focusIn = useCallback((col, last, label) => {
+      const go = (n) => {
+        const c = document.querySelector('.col[data-col="' + col + '"]');
+        const rows = c ? [...c.querySelectorAll("button[data-col]")] : [];
+        const el = last ? rows.find((r) => label ? r.getAttribute("aria-label") === label : r.getAttribute("aria-current") === "true") || rows.find((r) => r.getAttribute("aria-current") === "true") || rows[0] : rows[0];
+        if (el) el.focus(); else if (n > 0) setTimeout(() => go(n - 1), 70);
+      };
+      setTimeout(() => go(12), 0);
+    }, []);
+    useEffect(() => {
+      const f = (ev) => {
+        if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || overlayRef.current) return;
+        const t = ev.target, tag = t && t.tagName, k = ev.key;
+        if (tag === "TEXTAREA" || tag === "SELECT" || tag === "INPUT" || (t && t.isContentEditable)) return;
+        if (diveRef.current) { if (k === "Escape" || (k === "ArrowLeft" && !arrowsRef.current)) { ev.preventDefault(); back(); } return; } // a core that uses the left arrow itself (the sort of visuals) says so in arrowsRef
+        if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Escape"].includes(k)) return;
+        const n = columnsOf(selRef.current).length;
+        const row = t && t.closest ? t.closest("button[data-col]") : null;
+        const ci = row ? +row.dataset.col : n - 1;
+        if (k === "ArrowUp" || k === "ArrowDown") {
+          const c = document.querySelector('.col[data-col="' + ci + '"]');
+          const rows = c ? [...c.querySelectorAll("button[data-col]")] : [];
+          if (!rows.length) return;
+          ev.preventDefault();
+          const at = row ? rows.indexOf(row) : rows.findIndex((r) => r.getAttribute("aria-current") === "true");
+          const nx = rows[Math.max(0, Math.min(rows.length - 1, at < 0 ? 0 : row ? at + (k === "ArrowDown" ? 1 : -1) : at))]; // with no row focused yet, the first arrow lands on the selected one
+          nx.focus();
+          if (nx.dataset.select && nx !== row) nx.click(); // a selection follows the arrows: the column to its right shows what it holds
+        } else if (k === "ArrowRight") {
+          if (!row) return;
+          ev.preventDefault();
+          if (!row.dataset.select) { row.click(); return; } // a task, a piece: it opens
+          if (row.getAttribute("aria-current") !== "true") row.click();
+          focusIn(ci + 1, false);
+        } else if (n > 1) {
+          ev.preventDefault();
+          const to = Math.max(1, ci);
+          const from = document.querySelector('.col[data-col="' + (to - 1) + '"] button[aria-current="true"]'); // the row that opened the column we leave
+          popTo(to);
+          focusIn(to - 1, true, from && from.getAttribute("aria-label"));
+        }
+      };
+      window.addEventListener("keydown", f);
+      return () => window.removeEventListener("keydown", f);
+    }, []);
 
-    const line = studioLine(data.jobs);
-    return h("div", { className: "app" },
-      h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu"),
-      h("header", { className: "bar" },
-        h("nav", { "aria-label": "Fil d'Ariane" }, h("ol", { className: "crumb" }, crumb.map((c, i) => h("li", { key: i },
-          c.home ? h("button", { type: "button", className: "crumb-link", onClick: () => go({ kind: "home" }), "aria-label": c.label + " : revenir à la liste des tâches" }, c.label) :
-          c.to && i < crumb.length - 1 ? h("button", { type: "button", className: "crumb-link", onClick: () => go(c.to), "aria-label": c.label + " : voir les étapes du projet" }, c.label) : h("span", { "aria-current": i === crumb.length - 1 ? "page" : undefined }, c.label))))),
-        h("div", { className: "plus", ref: plusRef },
-          h(Button, { variant: "ghost", size: "sm", "aria-haspopup": "menu", "aria-expanded": menu, "aria-label": "Plus : étapes, série, journal, projets", onClick: () => { setPalette(false); setMenu(!menu); } }, "Plus"),
-          menu && h(PlusMenu, { cmds, wrapRef: plusRef, onClose: (back) => { setMenu(false); if (back && plusRef.current) { const b = plusRef.current.querySelector("button"); if (b) b.focus(); } } }))),
-      h("main", { id: "main", tabIndex: -1, className: "page" },
-        error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer"))),
-        h(Notice, { text: notice }),
-        body),
-      h("div", { className: "studio-line", role: "status", "aria-live": "polite", hidden: !line }, line),
-      palette && h(Palette, { cmds, onClose: () => setPalette(false) }));
+    /* the task row that opened a dive takes the focus back when the columns return */
+    useEffect(() => {
+      if (!dive && backTo.current) {
+        const { id, col } = backTo.current; backTo.current = null;
+        setTimeout(() => { const el = document.querySelector((col != null ? '.col[data-col="' + col + '"] ' : "") + 'button[data-task="' + CSS.escape(id) + '"]'); if (el) el.focus(); }, 120);
+      }
+    }, [dive]);
+
+    const n = data.tasks.length;
+    const deepest = dive ? taskTitle(dive) : sel.project ? projectInfo(sel.project).name : sel.brand ? brandName(sel.brand) : "Studio";
+    useEffect(() => { document.title = (n ? "(" + n + ") " : "") + deepest + " · Studio créatif"; }, [n, deepest]);
+
+    const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
+    const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
+    const pal = palette && h(Palette, { cmds, onClose: () => setPalette(false) });
+
+    /* ----- a task opened: the columns fold into strips that keep their names ----- */
+    if (dive) {
+      const t = dive;
+      const names = [["Le studio", "b1"], [t.brand_name || brandName(t.brand), "b2"], ...(t.scope === "project" ? [[t.project_name || projectInfo(t.project).name, "b3"]] : [])];
+      const last = names[names.length - 1][0];
+      return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
+        narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
+          : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, err, h(Core, { ctx, t, key: t._k }))), pal);
+    }
+
+    /* ----- the columns ----- */
+    const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+      : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
+      : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
+      : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
+      : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+      step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
+    const shell = (kind, i) => {
+      const last = i === cols.length - 1;
+      return h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), "data-col": i, "aria-label": labels[kind] },
+        last && err, last && h(Notice, { text: notice }), node(kind));
+    };
+    if (narrow) {
+      const i = cols.length - 1;
+      return h("div", { className: "app narrow" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
+        i > 0 && h("button", { type: "button", className: "retour", onClick: () => popTo(i), "aria-label": "Retour : " + labels[cols[i - 1]] }, "‹ " + labels[cols[i - 1]]),
+        h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i)), pal);
+    }
+    return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
+      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map(shell),
+        cols.length === 1 && h("div", { className: "rest" }, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. ", h("span", { className: "mono" }, MOD + " K"), " pour tout trouver."))),
+      pal);
   }
 
   ReactDOM.createRoot(document.getElementById("root")).render(h(App));

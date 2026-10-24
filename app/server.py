@@ -39,6 +39,7 @@ ROUTES = [
     ("POST", r"/api/brands", lambda b, m, d: b.create_brand(d.get("name"), d.get("site"))),
     ("GET", rf"/api/brands/{B}", lambda b, m, d: b.brand_view(m["b"])),
     ("PUT", rf"/api/brands/{B}", lambda b, m, d: b.update_brand(m["b"], d.get("name"), d.get("site"), d.get("description"))),
+    ("POST", rf"/api/brands/{B}/logo", lambda b, m, d: b.add_logo(m["b"], d["raw"], d["type"], d["name"])),
     ("POST", rf"/api/brands/{B}/discover", lambda b, m, d: b.discover(m["b"])),
     ("POST", rf"/api/brands/{B}/keep", lambda b, m, d: b.keep_brand(m["b"], d.get("kept", []), d.get("logo"))),
     ("GET", rf"/api/brands/{B}/brief", lambda b, m, d: b.get_brand_brief(m["b"])),
@@ -64,6 +65,12 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/pieces/{I}/decide", lambda b, m, d: b.decide(m["p"], m["i"], d.get("verdict"), d.get("words", ""))),
     ("GET", r"/api/jobs/(?P<j>[\w-]+)", lambda b, m, d: b.job(m["j"])),
 ]
+
+
+# the routes that take a file, not JSON: the body is the file itself, its type is the request's Content-Type and its name an X-Filename header
+RAW_ROUTES = {rf"/api/brands/{B}/logo"}
+RAW_MAX = 2 * 1024 * 1024  # bytes (workflow.LOGO_MAX); a bigger body is refused
+RAW_DRAIN = 16 * 1024 * 1024  # a refused body up to this size is read and thrown away, so the answer reaches the browser; beyond, the connection closes
 
 
 def authenticate(headers) -> bool:
@@ -106,9 +113,19 @@ def make_handler(backend):
                 return self.send(401, {"error": "authentication required"})
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(n) or b"{}") if n else {}
-                if not isinstance(body, dict):
-                    raise ValueError("the body must be a JSON object")
+                if method == "POST" and any(re.fullmatch(pat, path) for pat in RAW_ROUTES):
+                    if n > RAW_MAX:
+                        if n <= RAW_DRAIN:
+                            self.rfile.read(n)
+                        else:
+                            self.close_connection = True
+                        return self.send(400, {"error": f"the file is too big ({RAW_MAX // (1024 * 1024)} MB at most)"})
+                    name = urllib.parse.unquote(self.headers.get("X-Filename") or "")
+                    body = {"raw": self.rfile.read(n) if n else b"", "type": self.headers.get("Content-Type") or "", "name": name}
+                else:
+                    body = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                    if not isinstance(body, dict):
+                        raise ValueError("the body must be a JSON object")
             except ValueError as err:
                 return self.send(400, {"error": f"bad JSON: {err}"})
             for verb, pat, call in ROUTES:

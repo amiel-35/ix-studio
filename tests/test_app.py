@@ -40,6 +40,18 @@ class Api(unittest.TestCase):
         self.assertEqual(got, code, data)
         return data
 
+    def drop(self, bid, data, ctype="image/png", name="logo.png", code=200):
+        """A file sent as the body of the request (the logo): its type is the Content-Type, its name the X-Filename header."""
+        req = urllib.request.Request(self.base + f"/api/brands/{bid}/logo", method="POST", data=data, headers={"Content-Type": ctype, "X-Filename": name})
+        try:
+            with urllib.request.urlopen(req) as r:
+                got, out = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            got, out = err.code, json.loads(err.read())
+            err.close()
+        self.assertEqual(got, code, out)
+        return out
+
     def wait(self, job, status="done"):
         for _ in range(100):
             j = self.call("GET", f"/api/jobs/{job['id']}")
@@ -210,6 +222,49 @@ class Api(unittest.TestCase):
         self.assertEqual((b["site"], b["stage"], b["jobs"]), ("https://fonds.example/", "to_brief", []))  # a new site does not read by itself
         self.wait(self.call("POST", f"/api/brands/{bid}/discover"))
         self.assertEqual(self.stage(bid), "to_sort")
+
+    def test_a_logo_dropped_makes_a_brand_without_site_ready(self):
+        bid = self.call("POST", "/api/brands", {"name": "Fonds de Cuve Deux"})["id"]
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un fonds de cuve"}})
+        self.assertEqual(self.stage(bid), "to_brief")  # no site and no logo: it can never be ready like this
+        png = b"\x89PNG\r\n\x1a\n" + b"0" * 40
+        b = self.drop(bid, png)
+        self.assertEqual((b["assets"]["logo"]["state"], b["assets"]["logo"]["source"], [x["note"] for x in b["assets"]["logos"]]),
+                         ("confirmed", "choisi par toi", ["Logo déposé, png"]))
+        self.assertTrue(b["assets"]["logo"]["preview"].startswith("data:image/png;base64,"))
+        self.assertEqual((b["stage"], b["waiting"]), ("ready", []))
+        svg = self.drop(bid, b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><rect width="4" height="4"/></svg>', "image/svg+xml", "l.svg")
+        self.assertEqual(len(svg["assets"]["logos"]), 2)  # the first one stays a candidate; the last one dropped is chosen
+        self.assertEqual(svg["assets"]["logo"]["id"], svg["assets"]["logos"][1]["id"])
+
+    def test_a_logo_dropped_is_checked(self):
+        bid = self.call("POST", "/api/brands", {"name": "Contrôle Logo"})["id"]
+        self.drop(bid, b"hello", "text/plain", code=400)
+        self.drop(bid, b"GIF89a....", "image/gif", code=400)
+        self.drop(bid, b"not a png at all", "image/png", code=400)
+        self.drop(bid, b"\xff\xd8\xff" + b"0" * 10, "image/png", code=400)  # a jpg sent as a png
+        self.drop(bid, b"", "image/png", code=400)
+        self.drop(bid, b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', "image/svg+xml", code=400)
+        self.drop(bid, b'<svg xmlns="http://www.w3.org/2000/svg" onload="x()"></svg>', "image/svg+xml", code=400)
+        self.drop(bid, b"<html></html>", "image/svg+xml", code=400)
+        self.drop(bid, b"\x89PNG\r\n\x1a\n" + b"0" * (2 * 1024 * 1024), "image/png", code=400)  # too big
+        self.drop("nope", b"\x89PNG\r\n\x1a\n" + b"0" * 4, code=404)
+        self.assertIsNone(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        self.call("POST", f"/api/brands/{bid}/logo", {"x": 1}, code=400)  # JSON is not a file
+        self.assertTrue(self.drop(bid, b"\xff\xd8\xff" + b"0" * 10, "image/jpeg")["assets"]["logo"])
+
+    def test_a_logo_dropped_after_the_reading_leaves_the_sort_as_it_was(self):
+        bid = self.read(name="Logo Après")
+        ev = self.call("GET", f"/api/brands/{bid}")["assets"]["evidence"]
+        b = self.drop(bid, b"\x89PNG\r\n\x1a\n" + b"0" * 8)
+        self.assertEqual((b["stage"], len(b["assets"]["logos"]), b["assets"]["evidence"] == ev), ("to_sort", 3, True))  # still to sort, with the logo already chosen
+        r = self.call("POST", f"/api/brands/{bid}/keep", {"kept": [e["id"] for e in ev if e["proposed"]], "logo": b["assets"]["logo"]["id"]})
+        self.assertEqual((r["stage"], r["assets"]["logo"]["id"]), ("to_brief", b["assets"]["logo"]["id"]))
+
+    def test_a_project_of_the_brand_says_when_it_is_done(self):
+        b = self.call("GET", "/api/brands/marrowbay-ferments")
+        self.assertEqual([p["done"] for p in b["projects"]], [False, False])
+        self.assertTrue(all(isinstance(p["done"], bool) for x in self.call("GET", "/api/brands") for p in x["projects"]))
 
     def test_a_brand_is_created_from_a_name_alone(self):
         self.call("POST", "/api/brands", {"name": "  "}, code=400)

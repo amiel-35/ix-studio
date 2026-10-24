@@ -14,6 +14,7 @@ The other stages are reached by creating a brand: no site, `new`; a site, `disco
 then `ready`. A site whose host contains "fail" makes the reading fail (a `job-failed` task), to see what that looks like.
 """
 
+import base64
 import copy
 import itertools
 import threading
@@ -401,6 +402,19 @@ class StubBackend:
                                 for h, r in zip(MEASURED, ROLES)][:max(1, min(4, len(kept)))]
             self._touch(b)
             return {**self._brand_view(b), "kept": len(kept), "discarded": len(ids) - len(kept)}
+
+    def add_logo(self, bid, data, ctype="", name=""):
+        """A logo dropped by the person: a new candidate, chosen at once (and confirmed: the person gave it)."""
+        ext = workflow.logo_ext(data, ctype)
+        mime = {"png": "image/png", "jpg": "image/jpeg", "svg": "image/svg+xml"}[ext]
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            lid = self._new_id("logo-up")
+            b["logos"].append({"id": lid, "note": "Logo déposé, " + ext, "preview": f"data:{mime};base64," + base64.b64encode(data).decode()})
+            b["logo"], b["logo_state"] = lid, "confirmed"
+            self._touch(b)
+            return self._brand_view(b)
 
     def get_brand_brief(self, bid):
         with self.lock:
