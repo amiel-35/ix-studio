@@ -12,20 +12,10 @@ import threading
 import time
 import urllib.parse
 
-STEPS = [("brand", "Apprendre la marque"), ("brief", "Le brief"), ("mandates", "Les consignes aux agents"),
-         ("diverge", "La divergence"), ("image", "Les images"), ("piece", "Les pièces"), ("check", "La vérification"),
-         ("decide", "La décision")]
-FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1920), "poster-a3": (1240, 1754),
-           "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
+import workflow
+from workflow import FORMATS, STEPS, Conflict, NotFound  # noqa: F401  (the server imports the exceptions from here too)
+
 DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0}  # seconds: long enough to see a progress, short enough to demo
-
-
-class NotFound(Exception):
-    pass
-
-
-class Conflict(Exception):
-    pass
 
 
 def placeholder(label, w=320, h=400, dark=False):
@@ -133,86 +123,16 @@ class StubBackend:
                      and (piece is None or j["piece"] == piece)), None)
 
     # ---------- the project and what waits for the person ----------
+    def state(self, p):
+        """The project as plain data for workflow.project_view (the logic of the steps lives there, once)."""
+        return {"id": p["id"], "name": p["name"], "brand": p["brand"]["name"], "can_learn": True,
+                "learned": p["brand"]["learned"], "kept": p["brand"]["kept"], "evidence": len(p["evidence"]),
+                "brief_confirmed": p["brief"]["confirmed"], "mandates_confirmed": p["mandates"]["confirmed"],
+                "variants": len(p["variants"]), "pieces": p["pieces"], "failed": [], "since": p["since"],
+                "running": [j for j in self.jobs.values() if j["project"] == p["id"] and j["status"] == "running"]}
+
     def view(self, p):
-        st, asks = {}, []
-
-        def step(key, status, hand, job=None, since=None):
-            st[key] = {"key": key, "label": dict(STEPS)[key], "status": status, "hand": hand, "job": job["id"] if job else None,
-                       "since": since or p["since"].get(key)}
-
-        j = self._running(p, "learn")
-        if j:
-            step("brand", "running", "studio", j)
-        elif not p["brand"]["learned"]:
-            step("brand", "todo", "person")
-            asks.append({"step": "brand", "piece": None, "kind": "brand-how", "title": "Choisir comment apprendre la marque",
-                         "question": "Comment apprendre la marque : le studio cherche, tu réponds, ou on part de rien ?"})
-        elif not p["brand"]["kept"]:
-            step("brand", "waiting", "person")
-            n = len(p["evidence"])
-            asks.append({"step": "brand", "piece": None, "kind": "brand-sort", "title": f"Trier {n} visuels de la marque" if n else "Valider une marque sans visuel",
-                         "question": f"Garder ou écarter {n} visuels, et choisir le logo."})
-        else:
-            step("brand", "done", "person")
-        prev = st["brand"]["status"] == "done"
-        if not prev:
-            step("brief", "todo", "person")
-        elif not p["brief"]["confirmed"]:
-            step("brief", "waiting", "person")
-            asks.append({"step": "brief", "piece": None, "kind": "brief", "title": "Relire le brief", "question": "Relire le brief pré-rempli et corriger ce qui change."})
-        else:
-            step("brief", "done", "person")
-        if st["brief"]["status"] != "done":
-            step("mandates", "todo", "person")
-        elif not p["mandates"]["confirmed"]:
-            step("mandates", "waiting", "person")
-            asks.append({"step": "mandates", "piece": None, "kind": "mandates", "title": "Relire les consignes aux agents",
-                         "question": "Relire les consignes que les agents vont recevoir, et les corriger."})
-        else:
-            step("mandates", "done", "person")
-        j = self._running(p, "diverge")
-        if j:
-            step("diverge", "running", "studio", j)
-        elif st["mandates"]["status"] != "done" or not p["variants"]:
-            step("diverge", "todo", "person")
-            if st["mandates"]["status"] == "done":
-                asks.append({"step": "diverge", "piece": None, "kind": "diverge-launch", "title": "Lancer la divergence",
-                             "question": "Lancer la divergence : quatre agents écrivent chacun leur variante."})
-        elif not p["pieces"]:
-            step("diverge", "waiting", "person")
-            asks.append({"step": "diverge", "piece": None, "kind": "diverge-pick", "title": "Choisir les variantes",
-                         "question": "Choisir une ou plusieurs variantes : chacune devient une pièce par format."})
-        else:
-            step("diverge", "done", "person")
-        pcs = p["pieces"]
-        for key in ("image", "piece", "check", "decide"):
-            if not pcs:
-                step(key, "todo", "person")
-        if pcs:
-            imgs = [self._running(p, "image", pc["id"]) for pc in pcs]
-            if any(imgs):
-                step("image", "running", "studio", next(x for x in imgs if x))
-            elif all(pc["image"] for pc in pcs):
-                step("image", "done", "studio")
-            else:
-                step("image", "waiting", "person")
-            for pc in pcs:
-                if not pc["image"] and not self._running(p, "image", pc["id"]):
-                    asks.append({"step": "image", "piece": pc["id"], "kind": "prompt", "title": f"Relire le prompt de {pc['label']}",
-                                 "question": f"Relire le prompt de l'image de {pc['label']}, puis la lancer."})
-                elif pc["image"] and not pc["composed"]:
-                    asks.append({"step": "piece", "piece": pc["id"], "kind": "compose", "title": f"Composer et vérifier {pc['label']}",
-                                 "question": f"Composer et vérifier {pc['label']}."})
-                elif pc["composed"] and not pc["decision"]:
-                    asks.append({"step": "decide", "piece": pc["id"], "kind": "decide", "title": f"Décider de {pc['label']}",
-                                 "question": f"Garder {pc['label']}, ou recommencer en disant pourquoi."})
-            step("piece", "done" if all(pc["composed"] for pc in pcs) else "waiting" if any(pc["image"] for pc in pcs) else "todo", "person")
-            step("check", st["piece"]["status"], "studio", since=p["since"].get("piece"))
-            step("decide", "done" if all(pc["decision"] for pc in pcs) else "waiting" if any(pc["composed"] for pc in pcs) else "todo", "person")
-        running = [{"id": j["id"], "kind": j["kind"], "piece": j["piece"], "progress": j["progress"], "message": j["message"], "since": j["start"]}
-                   for j in self.jobs.values() if j["project"] == p["id"] and j["status"] == "running"]
-        return {"id": p["id"], "name": p["name"], "brand": p["brand"]["name"], "steps": [st[k] for k, _ in STEPS],
-                "pieces": copy.deepcopy(pcs), "waiting": asks, "jobs": running, "now": time.time()}
+        return workflow.project_view(self.state(p), time.time())
 
     # ---------- routes ----------
     def health(self):
@@ -227,23 +147,14 @@ class StubBackend:
         """What waits for the person, in every project, the oldest first; the running jobs; the projects, for the breadcrumb."""
         with self.lock:
             self._tick()
-            tasks, jobs, projects = [], [], []
-            for p in self.projects.values():
-                v = self.view(p)
-                projects.append({"id": p["id"], "name": p["name"], "brand": p["brand"]["name"], "pieces": len(p["pieces"]), "waiting": len(v["waiting"])})
-                for a in v["waiting"]:
-                    pc = next((x for x in p["pieces"] if x["id"] == a["piece"]), None) if a["piece"] else None
-                    tasks.append({"id": f"{p['id']}:{a['step']}:{a['piece'] or ''}", "project": p["id"], "project_name": p["name"], "brand": p["brand"]["name"],
-                                  "step": a["step"], "piece": a["piece"], "piece_label": pc["label"] if pc else None, "kind": a["kind"], "title": a["title"],
-                                  "question": a["question"], "since": p["since"].get(a["step"])})
-            tasks.sort(key=lambda t: (t["since"] is None, t["since"] or 0))  # stable: the order inside a project is kept
-            for j in self.jobs.values():
-                if j["status"] == "running":
-                    jobs.append({"id": j["id"], "project": j["project"], "kind": j["kind"], "piece": j["piece"], "progress": j["progress"],
-                                 "message": j["message"], "since": j["start"], "eta": round(j["duration"] * (1 - j["progress"]), 1)})
-            return {"tasks": tasks, "jobs": jobs, "projects": projects, "now": time.time()}
+            entries = [(self.state(p), self.view(p)) for p in self.projects.values()]
+            jobs = [{"id": j["id"], "project": j["project"], "kind": j["kind"], "piece": j["piece"], "progress": j["progress"],
+                     "message": j["message"], "since": j["start"], "eta": round(j["duration"] * (1 - j["progress"]), 1)}
+                    for j in self.jobs.values() if j["status"] == "running"]
+            return workflow.tasks_payload(entries, jobs, time.time())
 
-    def create_project(self, name, src=None):
+    def create_project(self, name, src=None, brand=None, site=None):
+        """brand and site are for the real studio (it searches the brand on its site); the simulated one has one fictional brand."""
         with self.lock:
             return self._create(name, src)
 
@@ -329,10 +240,10 @@ class StubBackend:
             return {"fields": p["brief"]["fields"], "formats": self._formats(p), "left_out": self._left_out(p)}
 
     def _formats(self, p):
-        return [f for f in (x.strip().lower().replace(" ", "-") for x in p["brief"]["fields"].get("format", "").split(",")) if f in FORMATS] or ["post-4x5"]
+        return workflow.formats_of(p["brief"]["fields"].get("format", ""))
 
     def _left_out(self, p):
-        return [x.strip() for x in p["brief"]["fields"].get("format", "").split(",") if x.strip() and x.strip().lower().replace(" ", "-") not in FORMATS]
+        return workflow.left_out_of(p["brief"]["fields"].get("format", ""))
 
     def get_mandates(self, pid):
         with self.lock:

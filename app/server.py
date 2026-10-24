@@ -2,9 +2,11 @@
 
     python3 app/server.py [--port 8765] [--host 127.0.0.1]
 
-Serves app/static/ and answers /api/* (see API.md) with a backend: today the simulated one (backend_stub), tomorrow
-the one that drives scripts/studio and scripts/brandkit. Stdlib only. Listens on 127.0.0.1 unless told otherwise;
-on a central server it sits behind a proxy that terminates TLS, and `authenticate` is where its auth plugs in.
+Serves app/static/ and answers /api/* (see API.md) with a backend: STUDIO_BACKEND=studio (default) drives scripts/studio
+and scripts/brandkit and keeps its projects in STUDIO_HOME; STUDIO_BACKEND=stub is the simulated one (backend_stub).
+GET /files/<project>/<path> serves the pictures of a project (its brand/ and piece/ folders only). Stdlib only. Listens
+on 127.0.0.1 unless told otherwise; on a central server it sits behind a proxy that terminates TLS, and `authenticate`
+is where its auth plugs in.
 """
 
 import argparse
@@ -20,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from backend_stub import Conflict, NotFound, StubBackend  # noqa: E402
+from workflow import Conflict, NotFound  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 P = r"(?P<p>[\w-]+)"
@@ -30,7 +32,7 @@ I = r"(?P<i>[\w-]+)"
 ROUTES = [
     ("GET", r"/api/tasks", lambda b, m, d: b.tasks()),
     ("GET", r"/api/projects", lambda b, m, d: b.list_projects()),
-    ("POST", r"/api/projects", lambda b, m, d: b.create_project(d.get("name"), d.get("from"))),
+    ("POST", r"/api/projects", lambda b, m, d: b.create_project(d.get("name"), d.get("from"), d.get("brand"), d.get("site"))),
     ("GET", rf"/api/projects/{P}", lambda b, m, d: b.project(m["p"])),
     ("POST", rf"/api/projects/{P}/brand/learn", lambda b, m, d: b.learn(m["p"], d.get("mode", "learn"), d.get("answers"))),
     ("GET", rf"/api/projects/{P}/brand", lambda b, m, d: b.brand(m["p"])),
@@ -72,12 +74,14 @@ def make_handler(backend):
             if os.environ.get("STUDIO_LOG"):
                 super().log_message(fmt, *args)
 
-        def send(self, code, body, ctype="application/json; charset=utf-8"):
+        def send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
             data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(data)
 
@@ -115,8 +119,27 @@ def make_handler(backend):
             ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
             self.send(200, f.read_bytes(), ctype + ("; charset=utf-8" if ctype.startswith("text/") or ctype.endswith("javascript") else ""))
 
+        def files(self):
+            """A picture of a project: only inside its brand/ and piece/ folders, under the same authentication as the API."""
+            if not authenticate(self.headers):
+                return self.send(401, b"authentication required", "text/plain; charset=utf-8")
+            pid, _, rel = urllib.parse.unquote(self.path.split("?", 1)[0])[len("/files/"):].partition("/")
+            try:
+                f = backend.file(pid, rel) if hasattr(backend, "file") else None
+            except NotFound:
+                f = None
+            if f is None:  # the simulated backend has no files of its own: its pictures are in static/stub
+                return self.send(404, b"not found", "text/plain; charset=utf-8")
+            ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+            self.send(200, f.read_bytes(), ctype, {"X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"})
+
         def do_GET(self):
-            self.api("GET") if self.path.startswith("/api/") else self.static()
+            if self.path.startswith("/api/"):
+                self.api("GET")
+            elif self.path.startswith("/files/"):
+                self.files()
+            else:
+                self.static()
 
         def do_POST(self):
             self.api("POST")
@@ -132,8 +155,20 @@ class StudioServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
+def make_backend(kind=None):
+    """The backend STUDIO_BACKEND names: studio (default, the real one) or stub (the simulated one)."""
+    kind = kind or os.environ.get("STUDIO_BACKEND", "studio")
+    if kind == "stub":
+        from backend_stub import StubBackend
+        return StubBackend()
+    if kind == "studio":
+        from backend_studio import StudioBackend
+        return StudioBackend()
+    raise SystemExit(f"STUDIO_BACKEND is studio or stub, not {kind!r}")
+
+
 def serve(host="127.0.0.1", port=8765, backend=None):
-    httpd = StudioServer((host, port), make_handler(backend or StubBackend()))
+    httpd = StudioServer((host, port), make_handler(backend or make_backend()))
     return httpd
 
 
@@ -142,8 +177,10 @@ def main(argv=None):
     a.add_argument("--host", default="127.0.0.1")
     a.add_argument("--port", type=int, default=int(os.environ.get("STUDIO_PORT", 8765)))
     args = a.parse_args(argv)
-    httpd = serve(args.host, args.port)
-    print(f"studio: http://{args.host}:{args.port}/  (backend stub, auth {os.environ.get('STUDIO_AUTH', 'none')})", flush=True)
+    backend = make_backend()
+    httpd = serve(args.host, args.port, backend)
+    home = f", projects in {backend.home}" if hasattr(backend, "home") else ""
+    print(f"studio: http://{args.host}:{args.port}/  (backend {backend.name}{home}, auth {os.environ.get('STUDIO_AUTH', 'none')})", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

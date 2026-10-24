@@ -4,18 +4,40 @@ A page that drives the whole studio without a terminal: learn the brand (keep or
 logo), correct the prefilled brief, read and correct the instructions the agents will get, follow the divergence,
 pick a series, correct each image prompt, follow the image, compose, check, decide.
 
-**First version: the steps are simulated.** The local server answers the API with a simulated studio
-(`backend_stub.py`, the fictional brand of `examples/marrowbay`): nothing is generated, no model is called, the
-long steps follow the clock. The interface is built on the API only, so the real backend replaces the simulated one
-without touching it.
+The interface is built on the API only (`API.md`), so it does not know which backend answers. Two exist:
+
+- **the real studio** (default): `backend_studio.py` runs the tools of this repository for each step, in jobs, and
+  asks `claude -p` (Claude Code without a screen, on your plan) for the instructions and the variants, and Codex
+  (through `studio image`) for the images. Each project is a folder of `STUDIO_HOME` (default `~/ix-studio-projets`):
+  restart the server and everything is there.
+- **the simulated studio** (`STUDIO_BACKEND=stub`): `backend_stub.py`, the fictional brand of `examples/marrowbay`.
+  Nothing is generated, no model is called, the long steps follow the clock. Good to work on the interface.
 
 ## Run it
 
 ```bash
-python3 app/server.py
+python3 app/server.py                        # the real studio; projects in ~/ix-studio-projets
+STUDIO_HOME=~/mes-projets python3 app/server.py
+STUDIO_BACKEND=stub python3 app/server.py    # the simulated one
 ```
 
 Then open http://127.0.0.1:8765/. Stdlib only, Python 3.10+.
+
+Creating a project asks for the brand's name and, optionally, its site: the studio reads the site to learn the brand
+(without a site you tell it what you know, or start from nothing). A step that fails (the site cannot be read, an
+agent writes nothing, no image engine) comes back in the list as a task to run again, with the reason; the whole
+output of each job is in `<project>/logs/`.
+
+## What the real studio asks of the machine
+
+- Python 3.10+ (the studio and brandkit scripts), Node.js and Chrome (`scripts/collect` reads the site with the Chrome
+  already installed; `studio compose` takes its screenshot with it: set `CHROME=/path/to/chrome` if it is not found).
+- ffmpeg and ffprobe (`brandkit keep` measures the colours of the visuals you keep; without them the colours are not
+  measured and the page says so).
+- Claude Code, signed in (`claude -p`, model sonnet). The key `ANTHROPIC_API_KEY` is not passed to it unless
+  `STUDIO_CLAUDE_USE_API_KEY=1`: the plan pays.
+- Codex, signed in, for the images (or `OPENAI_API_KEY` / `OPENROUTER_API_KEY`; `STUDIO_IMAGE_ENGINE` forces one).
+- The first real run is yours: the tests never call `claude`, `codex` or the network.
 
 The interface uses a brand design system that is not published with this repository: put its files in
 `app/static/ds/` (`tokens.css`, `components/bundle.css`, `components/bundle.js`, `components/lib/react*.js`,
@@ -27,12 +49,15 @@ The interface uses a brand design system that is not published with this reposit
 - `server.py`: serves `static/` and answers `/api/*`; `authenticate` is the single place where an authentication
   plugs in (`STUDIO_AUTH=none` locally, `STUDIO_AUTH=token` with `STUDIO_TOKEN` as a first step; a central server
   replaces it with its own).
-- `backend_stub.py`: the simulated studio. The real backend keeps its methods and drives `scripts/studio` and
-  `scripts/brandkit`.
+- `workflow.py`: the steps, who holds the hand on each, what waits for the person: written once, fed with plain data
+  by both backends.
+- `backend_studio.py`: the real studio (drives `scripts/studio`, `scripts/brandkit`, `scripts/collect`, `claude -p`),
+  state on disk, commands through an injected runner (the tests give it a fake one).
+- `backend_stub.py`: the simulated studio.
 - `static/api.js`: the client, the only file that calls the server; it carries a token when there is one.
 
 ## Tomorrow, on a central server
 
-The same routes, behind a proxy that terminates TLS, with an authentication in `authenticate`, a backend that runs
-the studio's commands (one folder per project), and the jobs in a queue instead of the clock. Nothing in the
-interface changes but the address of the API.
+The same routes, behind a proxy that terminates TLS, with an authentication in `authenticate` (and a way for a picture
+to carry it: `/files` is behind the same hook), and the jobs in a queue instead of threads. Nothing in the interface
+changes but the address of the API.

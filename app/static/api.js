@@ -26,7 +26,7 @@
     health: () => call("GET", "/api/health"),
     tasks: () => call("GET", "/api/tasks"),
     projects: () => call("GET", "/api/projects"),
-    createProject: (name, from) => call("POST", "/api/projects", { name, from }),
+    createProject: (name, from, brand, site) => call("POST", "/api/projects", { name, from, brand, site }),
     project: (p) => call("GET", P(p)),
     learnBrand: (p, mode, answers) => call("POST", P(p) + "/brand/learn", { mode, answers }),
     brand: (p) => call("GET", P(p) + "/brand"),
