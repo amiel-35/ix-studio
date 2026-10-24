@@ -147,11 +147,18 @@
       h(Button, { variant, size, disabled: ctx.busy, onClick: () => input.current && input.current.click(), "aria-label": label + " (png, jpg ou svg, 2 Mo au plus)" }, label));
   }
 
-  /* the colours of a brand, each with its state: measured and not confirmed yet, or confirmed */
+  /* the colours of a brand, each with its state: measured and not confirmed yet, or confirmed. A swatch, and the word of its role: never a hexadecimal */
+  const COLOUR_WORDS = { background: "Fond", text: "Texte", accent: "Accent", "headline colour": "Titres" };
   const Swatches = ({ colours, mini, quiet }) => colours.length === 0 ? h("p", { className: "muted small" }, "Aucune couleur pour cette marque.") :
-    h("ul", { className: "swatches" + (mini ? " mini" : ""), "aria-label": "Couleurs de la marque" }, colours.map((c) => h("li", { key: c.hex, className: "swatch" },
-      h("i", { style: { background: c.hex }, role: "img", "aria-label": "Couleur " + c.hex + (c.state === "deduced" ? ", à confirmer" : "") }),
-      h("span", { className: "mono small" }, c.hex), !mini && !quiet && c.state === "deduced" && h("span", { className: "small muted" }, "à confirmer"))));
+    h("ul", { className: "swatches" + (mini ? " mini" : ""), "aria-label": "Couleurs de la marque" }, colours.map((c, i) => {
+      const word = COLOUR_WORDS[c.role] || "";
+      return h("li", { key: c.hex + i, className: "swatch" },
+        h("i", { style: { background: c.hex }, role: "img", "aria-label": (word ? "Couleur : " + word.toLowerCase() : "Couleur " + (i + 1)) + (c.state === "deduced" ? ", à confirmer" : "") }),
+        word && h("span", { className: "small" }, word), !mini && !quiet && c.state === "deduced" && h("span", { className: "small muted" }, "à confirmer"));
+    }));
+  /* a few colours in a line, as swatches */
+  const Pastilles = ({ list }) => h("span", { className: "dots", role: "img", "aria-label": list.map((c) => c.word).filter(Boolean).join(", ") || plural(list.length, "couleur", "couleurs") },
+    list.map((c, i) => h("i", { key: c.hex + i, style: { background: c.hex } })));
 
   /* ================= a brand: sort the visuals one by one, then choose (or drop) the logo ================= */
   function BrandSort({ ctx, t }) {
@@ -294,10 +301,7 @@
         h("span", { className: "small" }, ROLE_WORDS[role] + (hex ? "" : " : à choisir"))),
       onClear && h("button", { type: "button", className: "linkbtn small", onClick: onClear, "aria-label": "Retirer la couleur d'accent" }, "Retirer"));
   }
-  const Dots = ({ palette }) => {
-    const list = ROLES.filter((r) => palette[r]);
-    return h("span", { className: "dots", role: "img", "aria-label": list.map((r) => ROLE_WORDS[r].toLowerCase() + " " + palette[r]).join(", ") }, list.map((r) => h("i", { key: r, style: { background: palette[r] } })));
-  };
+  const Dots = ({ palette }) => h(Pastilles, { list: ROLES.filter((r) => palette[r]).map((r) => ({ hex: palette[r], word: ROLE_WORDS[r].toLowerCase() })) });
 
   function BrandBrief({ ctx, t }) {
     const bid = t.brand, name = t.brand_name;
@@ -330,7 +334,7 @@
     const colourWords = (fields.colours || "").trim();
     const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
       role: "button", tabIndex: 0, className: "bit", "aria-expanded": open === p.k, "data-open": open === p.k, "data-state": stateOf(p.k),
-      "aria-label": "Corriger " + p.label + " : " + (p.palette ? (hasPal ? ROLES.filter((r) => pal[r]).map((r) => ROLE_WORDS[r].toLowerCase() + " " + pal[r]).join(", ") : "vide") : fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
+      "aria-label": "Corriger " + p.label + " : " + (p.palette ? (hasPal ? ROLES.filter((r) => pal[r]).map((r) => ROLE_WORDS[r].toLowerCase()).join(", ") : "vide") : fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
       onClick: () => setOpen(open === p.k ? null : p.k),
       onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
     }, p.palette ? (hasPal ? h(Dots, { palette: pal }) : colourWords || h("span", { className: "blank" }, "à choisir")) : (fields[p.k] || "").trim() || h("span", { className: "blank" }, "à écrire")), p.after || "");
@@ -650,7 +654,7 @@
         h("div", { className: "field" }, h("label", { htmlFor: "w-sub" }, "Sous-ligne (facultative)"), h("input", { id: "w-sub", type: "text", value: words.subline, onChange: (e) => setWords({ ...words, subline: e.target.value }) }))),
       pc.bans && pc.bans.length > 0 && h("p", { className: "small" }, "Tu avais refusé : " + pc.bans.join(" ; ") + ". Le studio le retient."),
       h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image" + (several ? ", le même pour " + formats : "")),
-        h("textarea", { id: "prompt", className: "mono", value: prompt, onChange: (e) => setPrompt(e.target.value) })),
+        h("textarea", { id: "prompt", className: "prompt", value: prompt, onChange: (e) => setPrompt(e.target.value) })),
       h("div", { className: "gestures" },
         h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(false), "aria-label": "Lancer " + (several ? "les images de " + pc.variant : "l'image de " + pc.label) }, several ? "Dessiner les " + mine.length + " images" : "Dessiner l'image"),
         more > 0 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(true), "aria-label": "Lancer les " + (mine.length + more) + " images du projet, sans relire les autres prompts" }, "Dessiner toutes les images")),
@@ -680,7 +684,7 @@
     return h("div", { className: "task" }, h(PieceHead, { pc }),
       h("div", { className: "pair" }, h(Frame, { src: pc.image, alt: "Image de " + pc.label, size: pc.size }),
       redo ? h("div", { className: "sec" },
-        h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image"), h("textarea", { id: "prompt", className: "mono", autoFocus: true, value: prompt, onChange: (e) => setPrompt(e.target.value) })),
+        h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image"), h("textarea", { id: "prompt", className: "prompt", autoFocus: true, value: prompt, onChange: (e) => setPrompt(e.target.value) })),
         h("div", { className: "gestures" },
           h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim(), onClick: again, "aria-label": "Refaire l'image avec ce prompt" }, "Refaire l'image"),
           h(Button, { variant: "ghost", size: "lg", onClick: () => setRedo(false), "aria-label": "Garder cette image" }, "Garder cette image")))
@@ -873,7 +877,7 @@
       shown && h("div", { id: "ident" }, h(Where, null, "Son brief"),
       known.length === 0 ? h("p", { className: "vide" }, "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
-          h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, id[k].value,
+          h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : id[k].value,
             id[k].state === "deduced" && h("span", { className: "sr" }, " (à confirmer)")), after || "")), "."),
       h(Where, null, "Ses assets"),
       h("div", { className: "assets" },
@@ -1413,7 +1417,7 @@
     const strip = (kind, i) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => popTo(i + 1), "aria-label": "Revenir à : " + labels[kind] }, h("span", null, labels[kind]));
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
       h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => i < fold ? strip(kind, i) : shell(kind, i)),
-        cols.length === 1 && h("div", { className: "rest" }, slow, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. ", h("span", { className: "mono" }, MOD + " K"), " pour tout trouver."))),
+        cols.length === 1 && h("div", { className: "rest" }, slow, err, h(Notice, { text: notice }), h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
       pal);
   }
 

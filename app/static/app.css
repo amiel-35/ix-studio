@@ -15,7 +15,6 @@ img { display: block; max-width: 100%; }
 .skip:focus { top: var(--space-2); }
 .muted { color: var(--text-muted); }
 .small { font-size: var(--fs-small); line-height: 1.4; }
-.mono { font-family: var(--font-mono); }
 .cap { font-size: var(--fs-caption); font-weight: var(--fw-semibold); letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--text-muted); }
 .linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-link); font-weight: var(--fw-semibold); text-decoration: underline; text-underline-offset: 3px; transition: color var(--transition-fast); }
 .linkbtn:hover { color: var(--action-hover); }
@@ -192,7 +191,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .field > label { font-weight: var(--fw-semibold); color: var(--text-strong); }
 input[type="text"], textarea, select { width: 100%; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); transition: border-color var(--transition-fast), background var(--transition-fast); }
 textarea { min-height: 96px; resize: vertical; line-height: var(--lh-body); }
-textarea.mono { font-family: var(--font-mono); font-size: var(--fs-small); line-height: 1.5; min-height: 140px; }
+textarea.prompt { min-height: 140px; }
 input:hover, textarea:hover, select:hover { border-color: var(--blue-medium); }
 .chip { background: transparent; border: 1px solid var(--border-default); border-radius: var(--radius-pill); padding: var(--space-1) var(--space-3); font-size: var(--fs-small); font-weight: var(--fw-medium); color: var(--text-body); cursor: pointer; transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast); }
 .chip:hover { border-color: var(--blue-medium); }
@@ -225,7 +224,7 @@ input:hover, textarea:hover, select:hover { border-color: var(--blue-medium); }
 .check { font-size: var(--fs-body-lg); color: var(--text-strong); font-weight: var(--fw-semibold); }
 .notes > li { padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle); }
 .journal > li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-3); padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle); font-size: var(--fs-small); }
-.journal time { font-family: var(--font-mono); color: var(--text-muted); }
+.journal time { font-variant-numeric: tabular-nums; color: var(--text-muted); }
 .journal .why { grid-column: 2; color: var(--text-muted); }
 
 
@@ -234,7 +233,7 @@ input:hover, textarea:hover, select:hover { border-color: var(--blue-medium); }
 .pal-item { display: flex; justify-content: space-between; gap: var(--space-4); align-items: baseline; width: 100%; text-align: left; background: none; border: 0; border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); cursor: pointer; color: var(--text-strong); transition: background var(--transition-fast); }
 .pal-item:hover, .pal-item:focus-visible, .pal-item[aria-selected="true"] { background: var(--action-subtle-bg); }
 .pal-item:focus-visible { outline-offset: -2px; }
-.pal-hint { flex: none; font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-muted); }
+.pal-hint { flex: none; font-size: var(--fs-caption); color: var(--text-muted); }
 .scrim { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: center; align-items: flex-start; padding: 12vh var(--space-4) 0; background: color-mix(in srgb, var(--surface-light) 82%, transparent); }
 .palette { width: min(580px, 100%); background: var(--surface-page); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; }
 input.pal-input { border: 0; border-bottom: 1px solid var(--border-subtle); border-radius: 0; padding: var(--space-4); font-size: var(--fs-body-lg); background: transparent; }
