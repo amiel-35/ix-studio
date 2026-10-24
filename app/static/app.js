@@ -742,6 +742,14 @@
     return h(Decide, { ctx, pid, id });
   }
 
+  /* which project and which step a task belongs to, said above it: the core must not make you wonder where you are */
+  const KIND_STEP = { brief: "brief", mandates: "mandates", "diverge-launch": "diverge", "diverge-pick": "diverge", prompt: "image", compose: "piece", decide: "decide" };
+  function whereLine(t) {
+    if (t.scope === "brand") return (t.brand_name || "") + " · La marque";
+    const key = t.step === "check" ? "piece" : t.step || KIND_STEP[t.kind], s = SEVEN.find((x) => x.key === key);
+    return (t.project_name || "") + " · " + (s ? s.label : "La série");
+  }
+
   /* ================= the core: one thing, two gestures ================= */
   function Core({ ctx, t }) {
     const k = t.kind, key = t.id;
@@ -1369,7 +1377,7 @@
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
-        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, err, h(Core, { ctx, t, key: t._k }))), pal);
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h("p", { className: "ou small muted" }, whereLine(t)), err, h(Core, { ctx, t, key: t._k }))), pal);
     }
 
     /* ----- the columns ----- */
