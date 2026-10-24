@@ -883,6 +883,11 @@
     const a = b.assets, id = b.identity;
     const known = BRIEF_BITS.filter(([k]) => id[k].state !== "absent");
     const logo = a.logo;
+    /* what the missing logo and colours mean now: while the site is read or the visuals are sorted, they are not missing yet */
+    const reading = b.stage === "discovering", unsorted = a.evidence.some((e) => typeof e.kept !== "boolean");
+    const noLogo = reading ? "Le studio lit le site : le logo viendra de là." : unsorted ? "Le logo se choisit pendant le tri des visuels."
+      : a.logos.length ? "Le logo reste à choisir parmi " + plural(a.logos.length, "candidat", "candidats") + "." : "Pas de logo : sans lui, la marque ne peut pas être prête.";
+    const noColours = reading ? "Le studio les cherche sur le site." : unsorted ? "Elles se mesurent sur les visuels gardés, après le tri." : "Pas encore de couleur.";
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, b.name),
         h("p", { className: "sub" }, (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site")),
@@ -898,7 +903,7 @@
         h(Count, { n: p.waiting }))),
       h("button", { type: "button", className: "groupe fold", "aria-expanded": shown, "aria-controls": "ident", onClick: () => setFold(!shown) }, h("span", null, "Identité et assets"), h("span", { className: "small" }, shown ? "Replier" : "Voir")),
       shown && h("div", { id: "ident" }, h(Where, null, "Son brief"),
-      known.length === 0 ? h("p", { className: "vide" }, "Pas encore de brief : il se fait en une phrase.")
+      known.length === 0 ? h("p", { className: "vide" }, reading ? "Le studio lit le site : le brief se pré-remplit avec ce qu'il y trouve." : "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
           h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : id[k].value,
             id[k].state === "deduced" && h("span", { className: "sr" }, " (à confirmer)")), after || "")), "."),
@@ -906,14 +911,14 @@
       h("div", { className: "assets" },
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Logo"),
           logo ? h("div", { className: "logobox" }, h("img", { src: logo.preview, alt: "Logo de " + b.name }), h("span", { className: "small muted" }, logo.state === "deduced" ? "à confirmer" : "confirmé"))
-            : h("p", { className: "small muted" }, "Pas de logo : sans lui, la marque ne peut pas être prête."),
+            : h("p", { className: "small muted" }, noLogo),
           h("div", null, h(LogoDrop, { ctx, bid, label: logo ? "Changer de logo" : "Déposer un logo", variant: logo ? "ghost" : "secondary", onDone: (r) => ctx.notify("Logo déposé : " + r.name + " a un logo.") }))),
-        h("div", { className: "asset" }, h("span", { className: "cap" }, "Couleurs"), a.colours.length ? h(Swatches, { colours: a.colours, mini: true }) : h("p", { className: "small muted" }, "Pas encore de couleur."),
+        h("div", { className: "asset" }, h("span", { className: "cap" }, "Couleurs"), a.colours.length ? h(Swatches, { colours: a.colours, mini: true }) : h("p", { className: "small muted" }, noColours),
           a.colours.some((c) => c.state === "deduced") && h("span", { className: "small muted" }, "à confirmer"),
-          a.colours.length < 2 && h("span", { className: "small muted" }, "Il en faut deux, une pour le fond et une pour le texte.")),
+          a.colours.length < 2 && !reading && !unsorted && h("span", { className: "small muted" }, "Il en faut deux, une pour le fond et une pour le texte.")),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Visuels gardés" + (a.visuals.length ? " · " + a.visuals.length : "")),
           a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
-            : h("p", { className: "small muted" }, b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))));
+            : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))));
   }
 
   /* ---------- 3. a project: its seven steps, what waits ---------- */
