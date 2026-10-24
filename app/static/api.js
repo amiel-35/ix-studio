@@ -22,6 +22,7 @@
   }
 
   const P = (p) => "/api/projects/" + encodeURIComponent(p);
+  const B = (b) => "/api/brands/" + encodeURIComponent(b);
   Object.assign(api, {
     health: () => call("GET", "/api/health"),
     tasks: () => call("GET", "/api/tasks"),
@@ -43,6 +44,18 @@
     drawImage: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/image"),
     compose: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/compose"),
     decide: (p, i, verdict, words) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/decide", { verdict, words }),
+    /* The studio holds brands, a brand holds projects. (`brand(p)` above is the old route of a project's brand; `getBrand(b)` is a brand.) */
+    brands: () => call("GET", "/api/brands"),
+    getBrand: (b) => call("GET", B(b)),
+    createBrand: (name, site) => call("POST", "/api/brands", { name, site }),
+    updateBrand: (b, fields) => call("PUT", B(b), fields), // fields: any of { name, site, description }
+    discover: (b) => call("POST", B(b) + "/discover"),
+    keepBrand: (b, kept, logo) => call("POST", B(b) + "/keep", { kept, logo }),
+    brandBrief: (b) => call("GET", B(b) + "/brief"),
+    saveBrandBrief: (b, fields) => call("PUT", B(b) + "/brief", { fields }), // fields: { what, who, voice, signature, never, colours }
+    confirmBrand: (b, keys) => call("POST", B(b) + "/confirm", { keys }), // no keys: every value to confirm
+    createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
+    updateProject: (p, fields) => call("PUT", P(p), fields), // fields: { name }
     job: (j) => call("GET", "/api/jobs/" + encodeURIComponent(j)),
     /* Follows a job until it ends; onProgress(job) at each step. Resolves with the finished job. */
     async waitJob(job, onProgress, every = 400) {

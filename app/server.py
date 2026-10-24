@@ -4,7 +4,8 @@
 
 Serves app/static/ and answers /api/* (see API.md) with a backend: STUDIO_BACKEND=studio (default) drives scripts/studio
 and scripts/brandkit and keeps its projects in STUDIO_HOME; STUDIO_BACKEND=stub is the simulated one (backend_stub).
-GET /files/<project>/<path> serves the pictures of a project (its brand/ and piece/ folders only). Stdlib only. Listens
+GET /files/<project>/<path> serves the pictures of a project (its piece/ folder, and the brand/ folder of its brand) and
+GET /files/_marques/<brand>/<path> those of a brand (its brand/ folder). Stdlib only. Listens
 on 127.0.0.1 unless told otherwise; on a central server it sits behind a proxy that terminates TLS, and `authenticate`
 is where its auth plugs in.
 """
@@ -25,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from workflow import Conflict, NotFound  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
+B = r"(?P<b>[\w-]+)"
 P = r"(?P<p>[\w-]+)"
 I = r"(?P<i>[\w-]+)"
 
@@ -33,7 +35,18 @@ ROUTES = [
     ("GET", r"/api/tasks", lambda b, m, d: b.tasks()),
     ("GET", r"/api/projects", lambda b, m, d: b.list_projects()),
     ("POST", r"/api/projects", lambda b, m, d: b.create_project(d.get("name"), d.get("from"), d.get("brand"), d.get("site"))),
+    ("GET", r"/api/brands", lambda b, m, d: b.list_brands()),
+    ("POST", r"/api/brands", lambda b, m, d: b.create_brand(d.get("name"), d.get("site"))),
+    ("GET", rf"/api/brands/{B}", lambda b, m, d: b.brand_view(m["b"])),
+    ("PUT", rf"/api/brands/{B}", lambda b, m, d: b.update_brand(m["b"], d.get("name"), d.get("site"), d.get("description"))),
+    ("POST", rf"/api/brands/{B}/discover", lambda b, m, d: b.discover(m["b"])),
+    ("POST", rf"/api/brands/{B}/keep", lambda b, m, d: b.keep_brand(m["b"], d.get("kept", []), d.get("logo"))),
+    ("GET", rf"/api/brands/{B}/brief", lambda b, m, d: b.get_brand_brief(m["b"])),
+    ("PUT", rf"/api/brands/{B}/brief", lambda b, m, d: b.put_brand_brief(m["b"], d.get("fields", {}))),
+    ("POST", rf"/api/brands/{B}/confirm", lambda b, m, d: b.confirm(m["b"], d.get("keys"))),
+    ("POST", rf"/api/brands/{B}/projects", lambda b, m, d: b.create_project_in(m["b"], d.get("name"), d.get("from"))),
     ("GET", rf"/api/projects/{P}", lambda b, m, d: b.project(m["p"])),
+    ("PUT", rf"/api/projects/{P}", lambda b, m, d: b.update_project(m["p"], d.get("name"))),
     ("POST", rf"/api/projects/{P}/brand/learn", lambda b, m, d: b.learn(m["p"], d.get("mode", "learn"), d.get("answers"))),
     ("GET", rf"/api/projects/{P}/brand", lambda b, m, d: b.brand(m["p"])),
     ("POST", rf"/api/projects/{P}/brand/keep", lambda b, m, d: b.keep(m["p"], d.get("kept", []), d.get("logo"))),
@@ -120,7 +133,7 @@ def make_handler(backend):
             self.send(200, f.read_bytes(), ctype + ("; charset=utf-8" if ctype.startswith("text/") or ctype.endswith("javascript") else ""))
 
         def files(self):
-            """A picture of a project: only inside its brand/ and piece/ folders, under the same authentication as the API."""
+            """A picture of a project or of a brand: only inside their own folders, under the same authentication as the API."""
             if not authenticate(self.headers):
                 return self.send(401, b"authentication required", "text/plain; charset=utf-8")
             pid, _, rel = urllib.parse.unquote(self.path.split("?", 1)[0])[len("/files/"):].partition("/")

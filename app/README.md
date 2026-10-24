@@ -8,9 +8,10 @@ The interface is built on the API only (`API.md`), so it does not know which bac
 
 - **the real studio** (default): `backend_studio.py` runs the tools of this repository for each step, in jobs, and
   asks `claude -p` (Claude Code without a screen, on your plan) for the instructions and the variants, and Codex
-  (through `studio image`) for the images. Each project is a folder of `STUDIO_HOME` (default `~/ix-studio-projets`):
-  restart the server and everything is there.
-- **the simulated studio** (`STUDIO_BACKEND=stub`): `backend_stub.py`, the fictional brand of `examples/marrowbay`.
+  (through `studio image`) for the images. The studio holds brands and a brand holds projects: each brand is a folder of `STUDIO_HOME`
+  (default `~/ix-studio-projets`) with its projects inside; restart the server and everything is there. A home from before
+  the brands (one folder per project) is opened into brands the first time (see `API.md`).
+- **the simulated studio** (`STUDIO_BACKEND=stub`): `backend_stub.py`, three fictional brands in three stages (the first is `examples/marrowbay`).
   Nothing is generated, no model is called, the long steps follow the clock. Good to work on the interface.
 
 ## Run it
@@ -26,7 +27,7 @@ Then open http://127.0.0.1:8765/. Stdlib only, Python 3.10+.
 Creating a project asks for the brand's name and, optionally, its site: the studio reads the site to learn the brand
 (without a site you tell it what you know, or start from nothing). A step that fails (the site cannot be read, an
 agent writes nothing, no image engine) comes back in the list as a task to run again, with the reason; the whole
-output of each job is in `<project>/logs/`.
+output of each job is in the `logs/` folder of its brand or project.
 
 ## What the real studio asks of the machine
 
