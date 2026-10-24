@@ -109,6 +109,21 @@
     useEffect(() => () => { if (ctx.cmdsRef.current === mine.current) ctx.cmdsRef.current = []; }, []);
   }
 
+  /* a passage of a brief is being corrected: Escape closes that, and only that (not the task under it), then the focus goes back to the passage,
+     so that the next Escape is a deliberate one */
+  function useEscapeClose(ctx, open, setOpen) {
+    useEffect(() => {
+      if (!open) return;
+      const f = (ev) => {
+        if (ev.key !== "Escape" || ctx.overlayRef.current) return;
+        ev.stopPropagation(); ev.preventDefault(); setOpen(null);
+        setTimeout(() => { const el = document.querySelector('[data-bit="' + open + '"]'); if (el) el.focus(); }, 0);
+      };
+      window.addEventListener("keydown", f, true);
+      return () => window.removeEventListener("keydown", f, true);
+    }, [open]);
+  }
+
   /* ---------- building blocks ---------- */
   /* the one heading of a screen: it takes the focus when the screen opens, so the screen reader says where we are */
   function Head({ children, sr, focus = true }) {
@@ -352,12 +367,7 @@
         if (b.done && b.needs.includes("colours") && !b.needs.includes("logo")) setOpen("colours"); // the one thing missing: the pickers are open
       }).catch(ctx.fail);
     }, [bid]);
-    useEffect(() => {
-      if (!open) return;
-      const f = (ev) => { if (ev.key === "Escape" && !ctx.overlayRef.current) { ev.stopPropagation(); ev.preventDefault(); setOpen(null); } };
-      window.addEventListener("keydown", f, true);
-      return () => window.removeEventListener("keydown", f, true);
-    }, [open]);
+    useEscapeClose(ctx, open, setOpen);
     useCmds(ctx, []);
     if (!fields) return h("div", { className: "task" }, h(Wait, { text: "Chargement du brief de la marque." }));
     if (data.done && !t.reopen && !data.needs.includes("colours")) return h(NeedLogo, { ctx, bid, name });
@@ -370,7 +380,7 @@
     const hasPal = ROLES.some((r) => pal[r]);
     const colourWords = (fields.colours || "").trim();
     const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
-      role: "button", tabIndex: 0, className: "bit", "aria-expanded": open === p.k, "data-open": open === p.k, "data-state": stateOf(p.k),
+      role: "button", tabIndex: 0, className: "bit", "data-bit": p.k, "aria-expanded": open === p.k, "data-open": open === p.k, "data-state": stateOf(p.k),
       "aria-label": "Corriger " + p.label + " : " + (p.palette ? (hasPal ? ROLES.filter((r) => pal[r]).map((r) => ROLE_WORDS[r].toLowerCase()).join(", ") : "vide") : fields[p.k] || "vide") + (stateOf(p.k) === "deduced" ? " (déduit par le studio, à confirmer)" : ""),
       onClick: () => setOpen(open === p.k ? null : p.k),
       onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
@@ -479,12 +489,7 @@
     const [open, setOpen] = useState(null);
     const [extra, setExtra] = useState(false);
     useEffect(() => { api.brief(pid).then((b) => { setData(b); setFields(b.fields); }).catch(ctx.fail); }, [pid]);
-    useEffect(() => {
-      if (!open) return;
-      const f = (ev) => { if (ev.key === "Escape" && !ctx.overlayRef.current) { ev.stopPropagation(); setOpen(null); } };
-      window.addEventListener("keydown", f);
-      return () => window.removeEventListener("keydown", f);
-    }, [open]);
+    useEscapeClose(ctx, open, setOpen);
     useCmds(ctx, data ? [{ id: "extra", label: extra ? "Cacher la mise en page et la langue" : "Corriger la mise en page ou la langue", run: () => setExtra(!extra) }] : []);
     if (!fields) return h("div", { className: "task" }, h(Wait, { text: "Chargement du brief." }));
     const set = (k, v) => setFields({ ...fields, [k]: v });
@@ -503,7 +508,7 @@
       return v ? (BRIEF_SHOW[p.k] || dot)(v) : h("span", { className: "blank" }, p.empty || "à écrire");
     };
     const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
-      role: "button", tabIndex: 0, className: "bit", "aria-expanded": open === p.k, "aria-label": "Corriger " + p.label + " : " + (fields[p.k] || "vide"),
+      role: "button", tabIndex: 0, className: "bit", "data-bit": p.k, "aria-expanded": open === p.k, "aria-label": "Corriger " + p.label + " : " + (fields[p.k] || "vide"),
       "data-open": open === p.k, onClick: () => setOpen(open === p.k ? null : p.k),
       onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
     }, shown(p)), p.after || "");
@@ -1392,6 +1397,7 @@
         if (ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey || overlayRef.current) return;
         const t = ev.target, tag = t && t.tagName, k = ev.key;
         if (tag === "TEXTAREA" || tag === "SELECT" || tag === "INPUT" || (t && t.isContentEditable)) return;
+        if (k === "Escape" && ev.repeat) return; // a key held down must not unwind every column, one after the other
         if (diveRef.current) { if (k === "Escape" || (k === "ArrowLeft" && !arrowsRef.current)) { ev.preventDefault(); back(); } return; } // a core that uses the left arrow itself (the sort of visuals) says so in arrowsRef
         if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Escape"].includes(k)) return;
         const n = columnsOf(selRef.current).length;
