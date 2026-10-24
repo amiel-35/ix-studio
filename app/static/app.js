@@ -754,8 +754,10 @@
           h(Button, { variant: "ghost", size: "lg", onClick: () => setBack(false), "aria-label": "Ne pas renvoyer" }, "Annuler")))
         : h("div", { className: "gestures" },
           !pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: () => send("keep"), "aria-label": "Garder cette pièce" }, "Garder"),
-          h(Button, { variant: pc.decision ? "primary" : "secondary", size: "lg", onClick: () => setBack(true), "aria-label": pc.decision ? "Revenir sur cette décision et renvoyer la pièce" : "Renvoyer la pièce en disant pourquoi" }, "Renvoyer"),
-          h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger")))));
+          // a piece already kept comes back to be taken out: "Télécharger" leads, "Renvoyer" (going back on the decision) is the second gesture
+          pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger"),
+          h(Button, { variant: "secondary", size: "lg", onClick: () => setBack(true), "aria-label": pc.decision ? "Revenir sur cette décision et renvoyer la pièce" : "Renvoyer la pièce en disant pourquoi" }, "Renvoyer"),
+          !pc.decision && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger")))));
   }
 
   /* a piece opened from the series, wherever it stands */
