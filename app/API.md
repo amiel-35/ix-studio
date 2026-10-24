@@ -48,8 +48,9 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 - **step**: `{key, label, status, hand, since, job}`. `key` is one of `brand`, `brief`, `mandates`, `diverge`,
   `image`, `piece`, `check`, `decide`. `status`: `todo`, `running`, `waiting` (waits for the person), `done`.
   `hand`: who holds it now, `studio` or `person`. `since`: when the hand last changed on this step (epoch seconds, or null).
-  `job`: the running job's id, or null. **Step 1 (`brand`, "la marque de ce projet") has one rule**: it is `done` if and only if the brand is
-  `ready`; otherwise it is `waiting` on the brand's side (`running`, hand `studio`, with the brand's reading as its `job`, while the studio reads
+  `job`: the running job's id, or null. **Step 1 (`brand`, "la marque de ce projet") has one rule**: it is `done` when the brand is
+  `ready`, or once the project's brief is validated (the brand it uses is then fixed in its piece, and a brand that changes
+  afterwards does not send it back); otherwise it is `waiting` on the brand's side (`running`, hand `studio`, with the brand's reading as its `job`, while the studio reads
   the site), its tasks are the brand's (sort, brief, confirm: they are in `GET /api/tasks`, not in the project's `waiting`), and step 2 (`brief`)
   is `todo`. No neutral stand-in values: nothing is produced from a brand nobody has looked at.
 - **ask**: what waits for the person on a project, `{step, piece, kind, title, question}`. `kind` names the task (`brief`, `mandates`,

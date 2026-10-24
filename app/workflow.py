@@ -7,7 +7,7 @@ The state a backend gives (a dict):
 
     id, name, type         the project and its type (`campagne`, the only one for now)
     brand, brand_name      the brand it belongs to: its id and its name
-    brand_stage            the brand's stage (see `brand_stage`); the project's step 1 is done if and only if it is `ready`
+    brand_stage            the brand's stage (see `brand_stage`); the project's step 1 is done when it is `ready`, or once the project's brief is validated
     brand_job              the brand's running discovery job, if any: {id, kind, piece, progress, message, start}
     brand_waiting          the brand's tasks (see `brand_asks`), to say what the project waits for
     can_learn              the studio can search the brand (it has a site to read)
@@ -91,8 +91,10 @@ def project_view(s: dict, now: float) -> dict:
 
     # Step 1, one rule: the brand of the project is ready (a logo, nothing left to confirm). Otherwise the hand is on the
     # brand's side: its own tasks (sort, brief, confirm) are in the list, not in the project's, and step 2 waits.
+    # Once the project's brief is validated, the brand it uses is fixed in its piece: a brand that changes afterwards
+    # (a new site read, a value to confirm) does not send an advanced project back to step 1.
     bj = s.get("brand_job")
-    if s.get("brand_ready"):
+    if s.get("brand_ready") or s.get("brief_confirmed"):
         step("brand", "done", "person")
     elif bj:
         step("brand", "running", "studio", bj)

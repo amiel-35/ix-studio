@@ -418,5 +418,27 @@ class Api(unittest.TestCase):
         cm.exception.close()
 
 
+
+class StepOneRule(unittest.TestCase):
+    """Step 1 is done when the brand is ready, or once the project's brief is validated: an advanced project does not go
+    back to step 1 because its brand changed afterwards."""
+
+    def view(self, **kw):
+        import workflow
+        s = {"id": "p", "name": "p", "brand": "b", "since": {}, "running": [], "brief_confirmed": False, "mandates_confirmed": False,
+             "pieces": [], "variants": [], "brand_ready": False}
+        s.update(kw)
+        return {x["key"]: x["status"] for x in workflow.project_view(s, 0)["steps"]}
+
+    def test_brand_not_ready_blocks_a_new_project(self):
+        st = self.view()
+        self.assertNotEqual(st["brand"], "done")
+        self.assertEqual(st["brief"], "todo")
+
+    def test_a_validated_brief_keeps_step_one_done(self):
+        st = self.view(brief_confirmed=True)
+        self.assertEqual(st["brand"], "done")
+        self.assertNotEqual(st["brief"], "todo")
+
 if __name__ == "__main__":
     unittest.main()
