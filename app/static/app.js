@@ -72,6 +72,7 @@
      no capital left over where the sentence goes on ("c'est Une brasserie", "à les caves") */
   const dot = (v) => String(v || "").trim().replace(/[.\s]+$/, "");
   const ARTICLE = /^(?:[LD]['’]|(?:Une?|Le|La|Les|Des|Du|De|Ce|Cet|Cette|Ces|Notre|Nos|Votre|Vos|Leur|Leurs|Mon|Ma|Mes|Son|Sa|Ses|Ton|Ta|Tes|Chaque|Tous|Toutes|Tout)(?=\s|$))/;
+  const lc1 = (x) => x.charAt(0).toLowerCase() + x.slice(1);
   const lowerFirst = (v) => ARTICLE.test(v) ? v.charAt(0).toLowerCase() + v.slice(1) : v;
   const lowerVerb = (v) => /^[A-ZÀ-Ý][a-zà-ÿ]+(?:er|ir|re)(?=\s|$)/.test(v) ? v.charAt(0).toLowerCase() + v.slice(1) : lowerFirst(v);
   /* "à" and an article melt: à les artisans, aux artisans */
@@ -967,10 +968,13 @@
             onClick: open, "aria-label": (i + 1) + ". " + s.label + " : " + word + (count ? ", " + count : "") + (status === "done" ? ". Voir ce qui a été décidé" : serie ? ". Voir les pièces" : ". Ouvrir la tâche de la marque") }, inner)
             : h("div", { className: "etape" }, inner));
       })),
-      p.brand_stage !== "ready" && h("p", { className: "vide" }, "Le projet attend sa marque" + (p.brand_waiting.length ? " : " + p.brand_waiting.map((x) => taskTitle({ scope: "brand", brand_name: p.brand_name, title: x.title }).toLowerCase()).join(", ") : "") + "."),
       p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
       h(Where, null, "Ce qui attend"),
-      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false })) : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
+      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false }))
+        : st("brand") !== "done" ? h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
+          brandTask ? h(React.Fragment, null, "Il lui faut : ", h("button", { type: "button", className: "linkbtn", onClick: () => ctx.openTask(brandTask), "aria-label": "Ouvrir la tâche de la marque : " + taskTitle(brandTask) }, lc1(taskTitle(brandTask))), ".")
+            : p.brand_stage === "discovering" ? "Le studio lit le site de la marque." : "")
+        : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
   }
 
   /* ---------- 4. the detail of a step already done: what was decided, and a way to reopen it ---------- */
