@@ -42,6 +42,9 @@ img { display: block; max-width: 100%; }
 .desc { padding: 0 var(--space-5) var(--space-2); font-size: var(--fs-small); color: var(--text-body); }
 .vide { padding: var(--space-3) var(--space-5); color: var(--text-muted); font-size: var(--fs-small); }
 .groupe { padding: var(--space-5) var(--space-5) var(--space-1); font-size: var(--fs-caption); font-weight: var(--fw-semibold); letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--text-muted); }
+.groupe.fold { display: flex; justify-content: space-between; align-items: center; width: 100%; background: none; border: 0; border-top: 1px solid var(--border-subtle); margin-top: var(--space-4); padding-top: var(--space-4); padding-bottom: var(--space-3); cursor: pointer; text-align: left; transition: color var(--transition-fast); }
+.groupe.fold .small { text-transform: none; letter-spacing: 0; font-weight: var(--fw-semibold); color: var(--text-link); }
+.groupe.fold:hover .small { color: var(--action-hover); }
 .groupe.split { display: flex; justify-content: space-between; align-items: center; padding-top: var(--space-4); padding-bottom: 0; }
 .add { width: 32px; height: 32px; margin-right: calc(-1 * var(--space-2)); display: grid; place-items: center; background: none; border: 0; border-radius: var(--radius-md); cursor: pointer; color: var(--text-link); font-size: 22px; font-weight: var(--fw-regular); line-height: 1; transition: background var(--transition-fast); }
 .add:hover:not(:disabled) { background: var(--action-subtle-bg); color: var(--action-hover); }
@@ -158,7 +161,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .app.narrow .col > * { max-width: none; }
 .app.narrow .coeur { padding: var(--space-6) var(--space-4); }
 .app.narrow .colhead { padding-left: var(--space-4); padding-right: var(--space-4); }
-.app.narrow .row, .app.narrow .etape, .app.narrow .groupe, .app.narrow .vide, .app.narrow .bphrase, .app.narrow .assets, .app.narrow .working, .app.narrow .form, .app.narrow .bodyc, .app.narrow .journal, .app.narrow .take, .app.narrow .serie, .app.narrow .machine { padding-left: var(--space-4); padding-right: var(--space-4); }
+.app.narrow .row, .app.narrow .etape, .app.narrow .groupe, .app.narrow .groupe.fold, .app.narrow .vide, .app.narrow .bphrase, .app.narrow .assets, .app.narrow .working, .app.narrow .form, .app.narrow .bodyc, .app.narrow .journal, .app.narrow .take, .app.narrow .serie, .app.narrow .machine { padding-left: var(--space-4); padding-right: var(--space-4); }
 .app.narrow .pieces { margin: 0; width: 100%; }
 .app.narrow .autres { margin-left: var(--space-4); margin-right: var(--space-4); }
 

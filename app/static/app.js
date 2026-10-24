@@ -850,7 +850,9 @@
     const b = useLive(ctx, () => api.getBrand(bid), bid);
     const jobs = ctx.data.jobs.filter((j) => j.brand === bid && !j.project);
     const level = ctx.level(1);
+    const [fold, setFold] = useState(null); // the identity and the assets, folded under a title; open of itself only while the brand has no project to show
     if (!b) return h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("p", { className: "vide" }, "Un instant."));
+    const shown = fold === null ? b.projects.length === 0 : fold;
     const a = b.assets, id = b.identity;
     const known = BRIEF_BITS.filter(([k]) => id[k].state !== "absent");
     const logo = a.logo;
@@ -867,7 +869,8 @@
         label: p.name + ", " + (p.done ? "terminé" : "étape " + p.rank + " sur 7, " + p.step_label.toLowerCase()) + (p.waiting ? ", " + plural(p.waiting, "tâche", "tâches") : "") },
         h("span", { className: "main" }, h("span", { className: "nom" }, p.name), h("span", { className: "meta" }, p.done ? "Terminé" : "Étape " + p.rank + " sur 7 · " + p.step_label), h(Segments, { rank: p.rank, done: p.done })),
         h(Count, { n: p.waiting }))),
-      h(Where, null, "Son brief"),
+      h("button", { type: "button", className: "groupe fold", "aria-expanded": shown, "aria-controls": "ident", onClick: () => setFold(!shown) }, h("span", null, "Identité et assets"), h("span", { className: "small" }, shown ? "Replier" : "Voir")),
+      shown && h("div", { id: "ident" }, h(Where, null, "Son brief"),
       known.length === 0 ? h("p", { className: "vide" }, "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
           h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, id[k].value,
@@ -883,7 +886,7 @@
           a.colours.length < 2 && h("span", { className: "small muted" }, "Il en faut deux, une pour le fond et une pour le texte.")),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Visuels gardés" + (a.visuals.length ? " · " + a.visuals.length : "")),
           a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
-            : h("p", { className: "small muted" }, b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire."))));
+            : h("p", { className: "small muted" }, b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))));
   }
 
   /* ---------- 3. a project: its seven steps, what waits ---------- */
