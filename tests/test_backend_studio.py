@@ -1350,6 +1350,35 @@ class Runner(unittest.TestCase):
             workflow.field("x", "maybe")
         self.assertEqual(workflow.field("x", "absent"), {"value": "", "state": "absent", "source": ""})
 
+    def test_the_machine_is_looked_at_never_run(self):
+        probe = backend_studio.probe_machine
+        none = dict(env={}, which=lambda n: None, isfile=lambda p: False, glob_=lambda p: [])
+        self.assertEqual(probe(**none), {"chrome": False, "claude": False, "image": False})
+        have = lambda *names: lambda n: "/usr/bin/" + n if n in names else None
+        self.assertEqual(probe(**{**none, "which": have("claude", "codex", "chromium")}), {"chrome": True, "claude": True, "image": True})
+        self.assertEqual(probe(**{**none, "isfile": lambda p: p.endswith("Google Chrome")})["chrome"], True)  # the Chrome of a Mac
+        self.assertEqual(probe(**{**none, "env": {"CHROME": "/x/chrome"}, "isfile": lambda p: p == "/x/chrome"})["chrome"], True)
+        self.assertEqual(probe(**{**none, "env": {"CHROME": "/x/chrome"}, "which": have("chromium")})["chrome"], False)  # CHROME says where, and it is not there
+        self.assertEqual(probe(**{**none, "env": {"OPENAI_API_KEY": "k"}})["image"], True)
+        self.assertEqual(probe(**{**none, "env": {"OPENAI_API_KEY": "k"}}, image_engine="codex")["image"], False)  # the engine asked for is the one that counts
+        self.assertEqual(probe(**{**none, "which": have("codex")}, image_engine="none")["image"], False)
+        self.assertEqual(probe(**{**none, "env": {"STUDIO_CLAUDE_BIN": "/opt/claude"}, "which": lambda n: n if n == "/opt/claude" else None})["claude"], True)
+        home = Path(tempfile.mkdtemp(prefix="ixs-home-"))
+        try:
+            b = StudioBackend(home, runner=lambda *a, **k: Result(1, "", "never called"), probe=lambda: {"chrome": True, "claude": False, "image": True})
+            httpd = server.serve("127.0.0.1", 0, b)
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_address[1]}/api/machine") as r:
+                    got = json.loads(r.read())
+            finally:
+                httpd.shutdown()
+                httpd.server_close()
+            self.assertEqual((got["ok"], [m["key"] for m in got["missing"]]), (False, ["claude"]))
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+        self.assertEqual(workflow.machine_view({"chrome": True, "claude": True, "image": True}), {"ok": True, "missing": []})
+
     def test_the_workflow_helpers(self):
         self.assertEqual(workflow.formats_of("Post 4x5, story, film 30s"), ["post-4x5", "story"])
         self.assertEqual(workflow.formats_of(""), ["post-4x5"])

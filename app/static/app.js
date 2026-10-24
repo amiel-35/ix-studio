@@ -806,6 +806,9 @@
       h(Row, { col: 0, select: true, sel: !sel.brand && sel.panel !== "newBrand" ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Le studio")), h(Count, { n: tasks.length })),
       h(JobLine, { jobs }),
+      ctx.machine.missing.length > 0 && h("div", { className: "machine", role: "status", "data-machine": "missing" },
+        h("p", { className: "cap" }, "Il manque à ce poste"),
+        h("ul", null, ctx.machine.missing.map((m) => h("li", { key: m.key, className: "small" }, h("strong", null, m.label), " : ", m.say)))),
       h(Where, null, "Ce qui t'attend"),
       !loaded ? h("p", { className: "vide" }, "Un instant.") : tasks.length === 0 ? h("p", { className: "vide" }, jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend.")
         : tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 0, t, place: true })),
@@ -1137,6 +1140,7 @@
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
     const [palette, setPalette] = useState(false);
+    const [machine, setMachine] = useState({ ok: true, missing: [] }); // what the machine lacks (Chrome, Claude Code, an image engine); said in the studio's column
     const [rev, setRev] = useState(0);
     const [, setTick] = useState(0);
     const narrow = useNarrow();
@@ -1172,6 +1176,12 @@
       } catch (e) { setError("Le serveur du studio ne répond pas."); return null; }
     }, [log]);
     useEffect(() => { refresh(); }, []);
+    useEffect(() => {
+      const look = () => api.machine().then(setMachine).catch(() => { /* an older server has no such route: nothing is said */ });
+      look();
+      const t = setInterval(look, 60000);
+      return () => clearInterval(t);
+    }, []);
     const running = data.jobs.length > 0;
     useEffect(() => { const t = setInterval(refresh, running ? 700 : 4000); return () => clearInterval(t); }, [refresh, running]);
     useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(t); }, []);
@@ -1241,7 +1251,7 @@
     const notify = useCallback((text) => setNotice(text), []);
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
-    const ctx = { data, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
+    const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
       selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";

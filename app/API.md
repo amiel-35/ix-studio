@@ -78,6 +78,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | Method and path | What it does |
 | --- | --- |
 | `GET /api/health` | `{ok, backend, auth}`, no authentication |
+| `GET /api/machine` | what the machine lacks to run the studio for real: `{ok, missing: [{key, label, say}]}`, `key` being `chrome` (reads a site, composes a piece), `claude` (Claude Code, writes the instructions and the variants) or `image` (an image engine: Codex, or `OPENAI_API_KEY` / `OPENROUTER_API_KEY`); `say` is what to install, in one sentence. The tools are looked for (as `studio compose` and `studio image` look for them), never run. The simulated backend lacks nothing, unless `STUDIO_STUB_MISSING=chrome,claude,image` says so |
 | `GET /api/tasks` | `{tasks, jobs, projects, brands, now}`: what waits for the person in every brand and project (the oldest first; see **task**), the running jobs of every brand and project (`{id, project, brand, kind, piece, progress, message, since, eta}`, `project` null for a brand's reading, `eta` in seconds), the projects (`{id, name, brand, brand_name, can_learn, pieces, waiting}`) and the brands (`{id, name, site, stage, projects, waiting}`) |
 | `GET /api/brands` | the brands: `[{id, name, site, stage, projects: [{id, name, type, rank, step_label, done, waiting}], waiting}]` (`waiting`: the number of the brand's tasks) |
 | `POST /api/brands` `{name, site?}` | a new brand (the name is required; a site is a public web address: `ftp:` and local or private addresses are refused with 400). A site starts the reading (a job, in `jobs` of the answer); no site, the brief of the brand is its first task. Answers the brand |
@@ -156,5 +157,5 @@ project moves to `marques/<b>/projets/<p>/` with `brand` the brand's id and `typ
 (`brand`, `learn`, `brand_name`, `site`) set aside under `legacy` in its `project.json`. A project called `marques` becomes `marques-projet`.
 
 Environment: `STUDIO_BACKEND` (`studio` or `stub`), `STUDIO_HOME` (the brands and their projects, default `~/ix-studio-projets`), `STUDIO_IMAGE_ENGINE`
-(`auto`, `openai`, `codex`, `none`), `STUDIO_CLAUDE_BIN` (the `claude` command), `STUDIO_CLAUDE_USE_API_KEY=1` (keep `ANTHROPIC_API_KEY` for
+(`auto`, `openai`, `codex`, `none`), `STUDIO_CLAUDE_BIN` (the `claude` command), `STUDIO_STUB_MISSING` (simulated backend: tools it lacks, `chrome,claude,image`), `STUDIO_CLAUDE_USE_API_KEY=1` (keep `ANTHROPIC_API_KEY` for
 `claude -p`; without it the key is dropped from its environment so that the plan pays), `STUDIO_AUTH`, `STUDIO_TOKEN`, `STUDIO_PORT`.

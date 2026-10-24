@@ -54,6 +54,7 @@
   const B = (b) => "/api/brands/" + encodeURIComponent(b);
   Object.assign(api, {
     health: () => call("GET", "/api/health"),
+    machine: () => call("GET", "/api/machine"), // what the machine lacks to run the studio for real: { ok, missing: [{ key, label, say }] }
     tasks: () => call("GET", "/api/tasks"),
     projects: () => call("GET", "/api/projects"),
     project: (p) => call("GET", P(p)),

@@ -17,6 +17,7 @@ then `ready`. A site whose host contains "fail" makes the reading fail (a `job-f
 import base64
 import copy
 import itertools
+import os
 import threading
 import time
 import urllib.parse
@@ -83,8 +84,10 @@ def job_view(j):
 class StubBackend:
     name = "stub"
 
-    def __init__(self, static_url="stub", speed=1.0):
+    def __init__(self, static_url="stub", speed=1.0, missing=None):
         self.lock = threading.RLock()
+        # tools the simulated machine lacks (`chrome`, `claude`, `image`), to see what the studio says: STUDIO_STUB_MISSING=chrome,image
+        self.missing = set(missing if missing is not None else (os.environ.get("STUDIO_STUB_MISSING") or "").replace(" ", "").split(",")) - {""}
         self.speed = speed  # 0.01 in tests: the jobs end at once
         self.static = static_url
         self.brands, self.projects, self.jobs = {}, {}, {}
@@ -316,6 +319,10 @@ class StubBackend:
     # ---------- routes: health, tasks, jobs ----------
     def health(self):
         return {"ok": True, "backend": self.name}
+
+    def machine(self):
+        """What the machine lacks to run the studio for real: nothing, unless STUDIO_STUB_MISSING says so."""
+        return workflow.machine_view({k: k not in self.missing for k, _, _ in workflow.MACHINE})
 
     def tasks(self):
         """What waits for the person, in every brand and project, the oldest first; the running jobs; the projects and the brands, for the breadcrumb."""

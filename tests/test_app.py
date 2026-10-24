@@ -586,5 +586,28 @@ class StepOneRule(unittest.TestCase):
         self.assertEqual(st["brand"], "done")
         self.assertNotEqual(st["brief"], "todo")
 
+class Machine(unittest.TestCase):
+    """What the machine lacks, said by the simulated studio on request (STUDIO_STUB_MISSING): the line of the studio's column."""
+
+    def serve(self, missing):
+        httpd = server.serve("127.0.0.1", 0, StubBackend(speed=0.01, missing=missing))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (httpd.shutdown(), httpd.server_close()))
+        return f"http://127.0.0.1:{httpd.server_address[1]}"
+
+    def get(self, base, path):
+        with urllib.request.urlopen(base + path) as r:
+            return json.loads(r.read())
+
+    def test_nothing_is_missing_unless_it_is_simulated(self):
+        self.assertEqual(self.get(self.serve([]), "/api/machine"), {"ok": True, "missing": []})
+        got = self.get(self.serve(["image", "chrome"]), "/api/machine")
+        self.assertEqual((got["ok"], [m["key"] for m in got["missing"]]), (False, ["chrome", "image"]))  # in the order they are told
+        self.assertEqual(sorted(got["missing"][0]), ["key", "label", "say"])
+        self.assertIn("Google Chrome", got["missing"][0]["say"])
+        self.assertIn("Codex", got["missing"][1]["say"])
+        self.assertEqual(self.get(self.serve(["claude"]), "/api/machine")["missing"][0]["label"], "Claude Code")
+
+
 if __name__ == "__main__":
     unittest.main()

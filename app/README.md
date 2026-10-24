@@ -48,6 +48,9 @@ output of each job is in the `logs/` folder of its brand or project.
 - Codex, signed in, for the images (or `OPENAI_API_KEY` / `OPENROUTER_API_KEY`; `STUDIO_IMAGE_ENGINE` forces one).
 - The first real run is yours: the tests never call `claude`, `codex` or the network.
 
+When Chrome, Claude Code or an image engine is missing, the studio's column says so, with what to install (`GET /api/machine`). To see that line without removing anything:
+`STUDIO_BACKEND=stub STUDIO_STUB_MISSING=chrome,image python3 app/server.py`.
+
 The interface uses a brand design system that is not published with this repository: put its files in
 `app/static/ds/` (`tokens.css`, `components/bundle.css`, `components/bundle.js`, `components/lib/react*.js`,
 `fonts/`). Without them the page has no style and no components.

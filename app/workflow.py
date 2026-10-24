@@ -426,6 +426,18 @@ def palette_of(colours) -> dict:
     return out
 
 
+# the tools the studio asks of the machine, in the order they are told, and what to do when one is missing (said to the person, in the studio's column)
+MACHINE = [("chrome", "Chrome", "le studio s'en sert pour lire un site et pour composer une pièce. Installe Google Chrome (ou donne son chemin dans CHROME)."),
+           ("claude", "Claude Code", "il écrit les consignes et les variantes. Installe Claude Code (la commande claude), puis connecte-toi."),
+           ("image", "Un moteur d'image", "il dessine les images. Installe Codex et connecte-toi, ou donne OPENAI_API_KEY (ou OPENROUTER_API_KEY).")]
+
+
+def machine_view(found: dict) -> dict:
+    """What the machine lacks: `{ok, missing: [{key, label, say}]}`, from `found` (`chrome`, `claude`, `image`: each present or not)."""
+    missing = [{"key": k, "label": label, "say": say} for k, label, say in MACHINE if not found.get(k)]
+    return {"ok": not missing, "missing": missing}
+
+
 def zip_of(files) -> bytes:
     """A zip (the standard library's) of `[(name, bytes)]`: the pieces are png files, already compressed, so they are stored as they are."""
     buf = io.BytesIO()

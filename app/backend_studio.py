@@ -138,6 +138,22 @@ def check_variant(path: Path, vid: str):
     return True, ""
 
 
+def probe_machine(env=None, which=shutil.which, isfile=os.path.isfile, glob_=None, image_engine="auto") -> dict:
+    """What this machine has of the tools the studio asks of it: `{chrome, claude, image}`, each True or False. Nothing is run. The ways of finding
+    Chrome are those of `studio compose`, and the engines those of `studio image`; `env`, `which`, `isfile` and `glob_` are injectable for the tests."""
+    import glob as _glob
+    env = os.environ if env is None else env
+    glob_ = glob_ or _glob.glob
+    if env.get("CHROME"):
+        chrome = isfile(env["CHROME"])
+    else:
+        chrome = bool(glob_("/opt/pw-browsers/chromium*/chrome-linux*/chrome")) or any(which(n) for n in ("google-chrome", "chromium", "chromium-browser")) \
+            or isfile("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+    engines = {"openai": bool(env.get("OPENAI_API_KEY")), "openrouter": bool(env.get("OPENROUTER_API_KEY")), "codex": bool(which("codex")), "none": False}
+    image = any(engines.values()) if image_engine == "auto" else engines.get(image_engine, False)
+    return {"chrome": chrome, "claude": bool(which(env.get("STUDIO_CLAUDE_BIN") or "claude")), "image": image}
+
+
 def read_json(path, default=None):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -173,12 +189,13 @@ def dig(doc, path):
 class StudioBackend:
     name = "studio"
 
-    def __init__(self, home=None, runner=run_command, claude_model="sonnet", image_engine=None):
+    def __init__(self, home=None, runner=run_command, claude_model="sonnet", image_engine=None, probe=None):
         self.home = Path(home or os.environ.get("STUDIO_HOME") or Path.home() / "ix-studio-projets").expanduser()
         self.home.mkdir(parents=True, exist_ok=True)
         self.runner = runner
         self.claude_model = claude_model
         self.image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE", "auto")
+        self.probe = probe or (lambda: probe_machine(image_engine=self.image_engine))  # what the machine has, asked when the interface asks
         self._state = threading.RLock()  # short: reading and writing project.json and marque.json
         self._locks = {}  # one lock per project (and per brand) for the long operations that rewrite files (keep, pick, compose, decide)
         self._log_lock = threading.Lock()
@@ -714,6 +731,10 @@ class StudioBackend:
         return {"ok": True, "backend": self.name, "tools": {"claude": bool(which(os.environ.get("STUDIO_CLAUDE_BIN") or "claude")),
                                                               "codex": bool(which("codex")), "node": bool(which("node")),
                                                               "ffmpeg": bool(which("ffmpeg"))}}
+
+    def machine(self):
+        """What the machine lacks to run the studio: Chrome, Claude Code, an image engine. The tools are looked for, never run."""
+        return workflow.machine_view(self.probe())
 
     def list_projects(self):
         out = []
