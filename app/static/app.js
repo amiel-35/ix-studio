@@ -41,6 +41,7 @@
     if (n("image")) parts.push("dessine " + plural(n("image"), "image", "images"));
     if (n("diverge")) parts.push("écrit les variantes");
     if (n("learn")) parts.push("lit la marque");
+    if (n("mandates")) parts.push("prépare les consignes");
     const left = Math.max(...jobs.map((j) => j.eta || 0));
     return "Le studio " + parts.join(" et ") + ", " + eta(left);
   }
@@ -60,7 +61,7 @@
   const rankOf = (step) => { const k = step === "check" ? "piece" : step; const i = SEVEN.findIndex((s) => s.key === k); return i < 0 ? null : i + 1; };
   const STEP_LABELS = { brand: "Apprendre la marque", brief: "Le brief", mandates: "Les consignes aux agents", diverge: "La divergence", series: "La série" };
   const SHORT = { "brand-how": "La marque", "brand-sort": "Les visuels", brief: "Le brief", mandates: "Les consignes", "diverge-launch": "La divergence", "diverge-pick": "Les variantes",
-    prompt: "Le prompt", compose: "La composition", decide: "La décision" };
+    prompt: "Le prompt", compose: "La composition", decide: "La décision", "job-failed": "À relancer" };
 
   /* the journal of decisions, per project, on this side */
   const loadJournal = (pid) => { try { return JSON.parse(localStorage.getItem("studio-journal:" + pid) || "[]"); } catch (e) { return []; } };
@@ -92,9 +93,11 @@
       h("i", { style: { background: c.hex }, role: "img", "aria-label": "Couleur " + c.hex }), h("span", { className: "mono small" }, c.hex))));
 
   /* ================= 1. brand: how to learn it ================= */
-  function BrandHow({ ctx, pid }) {
+  function BrandHow({ ctx, pid, failure }) {
     const [say, setSay] = useState(false);
     const [answers, setAnswers] = useState("");
+    const info = ctx.data.projects.find((x) => x.id === pid);
+    const canLearn = !info || info.can_learn !== false; // the studio searches a brand on its site: without a site it cannot
     useCmds(ctx, []);
     const go = (mode) => ctx.act(async (snap) => {
       await api.learnBrand(pid, mode, mode === "answer" ? answers : undefined);
@@ -111,11 +114,29 @@
           h(Button, { variant: "ghost", size: "lg", onClick: () => setSay(false), "aria-label": "Revenir aux trois façons d'apprendre la marque" }, "Retour")));
     }
     return h("div", { className: "task" }, h(Head, null, "Comment le studio apprend la marque ?"),
+      failure && h(Callout, { tone: "risk", label: "La lecture du site a échoué" }, failure),
       h("p", { className: "lead" }, "Il lit le site et les images, puis te propose quoi garder. Ou tu lui racontes la marque toi-même."),
+      !canLearn && h("p", { className: "small muted" }, "Aucun site n'est renseigné pour cette marque : le studio ne peut pas la chercher. Raconte-la toi-même, ou pars de rien."),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: () => go("learn"), "aria-label": "Laisser le studio chercher la marque" }, "Laisse le studio chercher"),
-        h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: () => setSay(true), "aria-label": "Raconter la marque moi-même" }, "Je raconte la marque")),
+        h(Button, { variant: canLearn ? "primary" : "secondary", size: "lg", disabled: ctx.busy || !canLearn, onClick: () => go("learn"), "aria-label": failure ? "Relancer la recherche de la marque" : "Laisser le studio chercher la marque" }, failure ? "Relance la recherche" : "Laisse le studio chercher"),
+        h(Button, { variant: canLearn ? "secondary" : "primary", size: "lg", disabled: ctx.busy, onClick: () => setSay(true), "aria-label": "Raconter la marque moi-même" }, "Je raconte la marque")),
       h("p", { className: "aside" }, "Ou ", h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: () => go("create"), "aria-label": "Partir de rien, sans visuel à trier" }, "pars de rien"), " : pas de visuel à trier, tu poseras la marque dans le brief."));
+  }
+
+  /* a job that failed: the reason in a line, and a way to run it again (for the brand, the other two ways stay open) */
+  function JobFailed({ ctx, pid, step, piece, title, question }) {
+    useCmds(ctx, []);
+    const reason = String(question || "").replace(/^Le dernier essai a échoué : /, "").replace(/\.$/, "");
+    if (step === "brand") return h(BrandHow, { ctx, pid, failure: reason });
+    const retry = () => ctx.act(async (snap) => {
+      if (step === "diverge") await api.diverge(pid); else await api.drawImage(pid, piece);
+      ctx.log(pid, "toi", "Relancé : " + title, reason);
+      await ctx.answered(pid, "C'est relancé.", { before: snap, any: false });
+    });
+    return h("div", { className: "task" }, h(Head, null, title),
+      h(Callout, { tone: "risk", label: "Ça n'a pas marché" }, reason),
+      h("div", { className: "gestures" },
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: retry, "aria-label": "Relancer : " + title }, "Relancer")));
   }
 
   /* ================= 2. brand: sort the visuals one by one, then the logo, then the colours ================= */
@@ -568,7 +589,7 @@
     const S = (k) => (p.steps.find((s) => s.key === k) || {}).status;
     if (step === "brand") { const st = S("brand"); return st === "done" ? h(BrandDone, { ctx, pid }) : st === "waiting" ? h(BrandSort, { ctx, pid }) : st === "running" ? h(Busy, { text: "Le studio lit le site et les images." }) : h(BrandHow, { ctx, pid }); }
     if (step === "brief") return S("brand") !== "done" ? h(Blocked, { ctx, text: "Le brief s'ouvre quand la marque est triée." }) : h(Brief, { ctx, pid });
-    if (step === "mandates") return S("brief") !== "done" ? h(Blocked, { ctx, text: "Les consignes s'ouvrent quand le brief est validé." }) : h(Mandates, { ctx, pid });
+    if (step === "mandates") return S("brief") !== "done" ? h(Blocked, { ctx, text: "Les consignes s'ouvrent quand le brief est validé." }) : S("mandates") === "running" ? h(Busy, { text: "Un agent prépare les consignes." }) : h(Mandates, { ctx, pid });
     const st = S("diverge");
     if (st === "running") return h(Busy, { text: "Les quatre agents écrivent." });
     if (st === "waiting") return h(DivergePick, { ctx, pid });
@@ -598,6 +619,8 @@
   function Projects({ ctx, focus }) {
     const [name, setName] = useState("");
     const [from, setFrom] = useState("");
+    const [brand, setBrand] = useState("");
+    const [site, setSite] = useState("");
     const projects = ctx.data.projects;
     const nameRef = useRef(null), fromRef = useRef(null);
     useEffect(() => { const el = focus === "from" ? fromRef.current : nameRef.current; if (el) el.focus(); }, []);
@@ -605,7 +628,7 @@
     const create = (e) => {
       e.preventDefault();
       ctx.act(async (snap) => {
-        const p = await api.createProject(name.trim(), from || undefined);
+        const p = await api.createProject(name.trim(), from || undefined, from ? undefined : brand.trim(), from ? undefined : site.trim() || undefined);
         ctx.setPid(p.id);
         ctx.log(p.id, "toi", from ? "Déclinaison créée : " + p.name : "Projet créé : " + p.name, from ? "Reprend la marque et le brief de l'original" : "");
         await ctx.answered(p.id, from ? "Déclinaison créée : " + p.name + "." : "Projet créé : " + p.name + ".", { before: snap });
@@ -614,11 +637,14 @@
     return h("div", { className: "task" }, h(Head, null, "Nouveau projet"),
       h("form", { className: "sec", onSubmit: create },
         h("div", { className: "field" }, h("label", { htmlFor: "np-name" }, "Nom du projet"), h("input", { id: "np-name", ref: nameRef, type: "text", value: name, onChange: (e) => setName(e.target.value), autoComplete: "off", placeholder: "Par exemple : la campagne de rentrée" })),
+        !from && h("div", { className: "field" }, h("label", { htmlFor: "np-brand" }, "Nom de la marque"), h("input", { id: "np-brand", type: "text", value: brand, onChange: (e) => setBrand(e.target.value), autoComplete: "off" })),
+        !from && h("div", { className: "field" }, h("label", { htmlFor: "np-site" }, "Site de la marque (facultatif)"), h("input", { id: "np-site", type: "text", inputMode: "url", value: site, onChange: (e) => setSite(e.target.value), autoComplete: "off", placeholder: "ma-marque.example", "aria-describedby": "np-site-hint" }),
+          h("span", { id: "np-site-hint", className: "small muted" }, "Le studio lit ce site pour apprendre la marque. Sans site, tu la lui racontes toi-même.")),
         projects.length > 0 && h("div", { className: "field" }, h("label", { htmlFor: "np-from" }, "Partir d'un projet existant"),
           h("select", { id: "np-from", ref: fromRef, value: from, onChange: (e) => setFrom(e.target.value), "aria-describedby": "np-hint" },
             h("option", { value: "" }, "Non, on part de zéro"), projects.map((p) => h("option", { key: p.id, value: p.id }, p.name))),
           h("span", { id: "np-hint", className: "small muted" }, "Une déclinaison reprend la marque et le brief de l'original : tu ne corriges que ce qui change.")),
-        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "lg", disabled: ctx.busy || !name.trim(), "aria-label": from ? "Créer la déclinaison" : "Créer le projet" }, from ? "Créer la déclinaison" : "Créer le projet"))),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "lg", disabled: ctx.busy || !name.trim() || (!from && !brand.trim()), "aria-label": from ? "Créer la déclinaison" : "Créer le projet" }, from ? "Créer la déclinaison" : "Créer le projet"))),
       projects.length > 1 && h("div", { className: "sec" }, h("p", { className: "cap" }, "Projet en cours pour la série, le journal et les étapes"),
         h("ul", { className: "rows" }, projects.map((p) => h("li", { key: p.id }, h("button", { type: "button", className: "row-btn", "aria-current": p.id === ctx.pid ? "true" : undefined, onClick: () => { ctx.setPid(p.id); ctx.go({ kind: "home" }); },
           "aria-label": "Prendre ce projet : " + p.name }, h("span", { className: "t" }, p.name), h("span", { className: "m" }, p.id === ctx.pid ? "En cours" : plural(p.waiting, "tâche", "tâches"))))))));
@@ -734,8 +760,12 @@
       try {
         const r = await api.tasks();
         skew.current = r.now * 1000 - Date.now();
-        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id)).forEach((j) =>
-          log(j.project, "studio", j.kind === "learn" ? "Lecture de la marque terminée" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : "Image prête : " + j.piece, ""));
+        const STEP_OF = { learn: "brand", mandates: "mandates", diverge: "diverge", image: "image" };
+        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id)).forEach((j) => {
+          const failed = r.tasks.find((t) => t.kind === "job-failed" && t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null));
+          if (failed) log(j.project, "studio", "Échec : " + failed.title, failed.question);
+          else log(j.project, "studio", j.kind === "learn" ? "Lecture de la marque terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : "Image prête : " + j.piece, "");
+        });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
         setData({ ...r, loaded: true });
@@ -754,7 +784,7 @@
       if (v.pid) setPid(v.pid);
       window.scrollTo(0, 0);
     }, []);
-    const openTask = useCallback((t, keepNotice) => go({ kind: "task", pid: t.project, step: t.step, piece: t.piece, tkind: t.kind, title: t.title, label: t.piece_label, key: t.id }, keepNotice), [go]);
+    const openTask = useCallback((t, keepNotice) => go({ kind: "task", pid: t.project, step: t.step, piece: t.piece, tkind: t.kind, title: t.title, question: t.question, label: t.piece_label, key: t.id }, keepNotice), [go]);
 
     /* an action runs under `busy`; `snap` is the set of tasks before it, to know which ones are new afterwards */
     const snap = useCallback(() => new Set(tasksRef.current.map((t) => t.id)), []);
@@ -796,6 +826,7 @@
       crumb = trail(SHORT[k] + (view.label ? " · " + view.label : ""));
       body = k === "brand-how" ? h(BrandHow, { ctx, pid: p, key }) : k === "brand-sort" ? h(BrandSort, { ctx, pid: p, key }) : k === "brief" ? h(Brief, { ctx, pid: p, key })
         : k === "mandates" ? h(Mandates, { ctx, pid: p, key }) : k === "diverge-launch" ? h(DivergeLaunch, { ctx, pid: p, key }) : k === "diverge-pick" ? h(DivergePick, { ctx, pid: p, key })
+        : k === "job-failed" ? h(JobFailed, { ctx, pid: p, step: view.step, piece: view.piece, title: view.title, question: view.question, key })
         : k === "prompt" ? h(Prompt, { ctx, pid: p, id: view.piece, key }) : k === "compose" ? h(Compose, { ctx, pid: p, id: view.piece, key }) : h(Decide, { ctx, pid: p, id: view.piece, key });
     }
 
