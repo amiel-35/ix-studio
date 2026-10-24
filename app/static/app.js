@@ -47,6 +47,17 @@
   const FORMAT_WORDS = { "post-4x5": "post 4×5", "post-1x1": "post carré", story: "story", "poster-a3": "affiche A3", "poster-3x2": "affiche 3×2", linkedin: "bandeau 1200×627" };
   const fmtKey = (t) => t.trim().toLowerCase().replace(/ /g, "-");
   const fmtWord = (t) => FORMAT_WORDS[fmtKey(t)] || t.trim();
+  /* the seven steps of a project, in plain words: what the project page shows, and what places a task */
+  const SEVEN = [
+    { key: "brand", label: "La marque", say: "Le studio trouve des visuels ; tu gardes ce qui est la marque et tu choisis le logo." },
+    { key: "brief", label: "Le brief", say: "Ce que la pièce doit faire, pour qui, et dans quels formats." },
+    { key: "mandates", label: "Les consignes", say: "Ce que les agents vont recevoir, relu avant qu'ils écrivent." },
+    { key: "diverge", label: "La divergence", say: "Quatre agents écrivent chacun une variante ; tu en gardes une ou plusieurs." },
+    { key: "image", label: "Les images", say: "Une image par pièce et par format, après relecture de son prompt." },
+    { key: "piece", label: "La composition", say: "Chaque pièce est composée, puis vérifiée." },
+    { key: "decide", label: "La décision", say: "Tu gardes chaque pièce, ou tu la renvoies en disant pourquoi." },
+  ];
+  const rankOf = (step) => { const k = step === "check" ? "piece" : step; const i = SEVEN.findIndex((s) => s.key === k); return i < 0 ? null : i + 1; };
   const STEP_LABELS = { brand: "Apprendre la marque", brief: "Le brief", mandates: "Les consignes aux agents", diverge: "La divergence", series: "La série" };
   const SHORT = { "brand-how": "La marque", "brand-sort": "Les visuels", brief: "Le brief", mandates: "Les consignes", "diverge-launch": "La divergence", "diverge-pick": "Les variantes",
     prompt: "Le prompt", compose: "La composition", decide: "La décision" };
@@ -532,11 +543,21 @@
     useEffect(() => { api.project(pid).then(setP).catch(ctx.fail); }, [pid]);
     useCmds(ctx, []);
     if (!p) return h("div", { className: "task" }, h(Wait, null));
-    const word = (s) => (s ? ({ todo: "À venir", waiting: "Attend ta réponse", running: "Le studio travaille", done: "Fait" })[s.status] : "");
-    const by = (k) => p.steps.find((s) => s.key === k);
-    const rows = [["brand", "Apprendre la marque"], ["brief", "Le brief"], ["mandates", "Les consignes aux agents"], ["diverge", "La divergence"]].map(([k, t]) => ({ key: k, title: t, meta: word(by(k)), aria: "Rouvrir : " + t + ", " + word(by(k)).toLowerCase(), onClick: () => ctx.go({ kind: "step", pid, step: k }) }));
-    rows.push({ key: "series", title: "La série", meta: p.pieces.length ? plural(p.pieces.length, "pièce", "pièces") : "Pas encore de pièce", aria: "Voir la série", onClick: () => ctx.go({ kind: "series", pid }) });
-    return h("div", { className: "task" }, h(Head, null, "Quelle étape rouvrir ?"), h(Rows, { items: rows }));
+    const st = (k) => (p.steps.find((s) => s.key === k) || {}).status || "todo";
+    const word = { todo: "À venir", waiting: "T'attend", running: "Le studio travaille", done: "Faite" };
+    const done = SEVEN.filter((s) => st(s.key) === "done").length;
+    const now = SEVEN.find((s) => st(s.key) !== "done");
+    const open = (s) => (["brand", "brief", "mandates", "diverge"].includes(s.key) ? () => ctx.go({ kind: "step", pid, step: s.key }) : p.pieces.length ? () => ctx.go({ kind: "series", pid }) : null);
+    return h("div", { className: "task" },
+      h(Head, null, done === 7 ? "Le projet est fini" : "Étape " + (SEVEN.indexOf(now) + 1) + " sur 7 : " + now.label.toLowerCase()),
+      h("p", { className: "lead muted" }, plural(done, "étape faite", "étapes faites") + " sur 7. Chaque étape se rouvre d'un clic."),
+      h("ol", { className: "seven" }, SEVEN.map((s, i) => {
+        const go = st(s.key) === "todo" ? null : open(s);
+        const body = [h("span", { className: "n", key: "n" }, String(i + 1)), h("span", { className: "t", key: "t" }, s.label), h("span", { className: "m", key: "m" }, word[st(s.key)]), h("span", { className: "d", key: "d" }, s.say)];
+        return h("li", { key: s.key, "data-s": st(s.key), "aria-current": s === now ? "step" : undefined },
+          go ? h("button", { type: "button", className: "seven-row", onClick: go, "aria-label": (i + 1) + ". " + s.label + " : " + word[st(s.key)].toLowerCase() + ". " + s.say }, body)
+             : h("div", { className: "seven-row" }, body));
+      })));
   }
 
   function StepAny({ ctx, pid, step }) {
@@ -615,7 +636,8 @@
         h("p", { className: "lead muted" }, jobs.length ? "Le studio travaille. Ce que tu auras à faire apparaîtra ici." : projects.length ? "Le studio n'a rien à te demander pour l'instant." : "Aucun projet pour l'instant."),
         projects.length === 0 && h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "lg", onClick: () => ctx.go({ kind: "projects" }), "aria-label": "Créer un projet" }, "Créer un projet"))),
       n > 0 && h("ul", { className: "tasks", "aria-label": "Tâches" }, tasks.map((t) => {
-        const when = t.since ? ago(t.since, ctx.now()) : "";
+        const r = rankOf(t.step);
+        const when = (r ? "Étape " + r + " sur 7" : "") + (r && t.since ? " · " : "") + (t.since ? ago(t.since, ctx.now()) : "");
         return h("li", { key: t.id }, h("button", { type: "button", className: "task-row", onClick: () => ctx.openTask(t), "aria-label": t.title + (many ? ", " + t.project_name : "") + (when ? ", " + when : "") },
           h("span", { className: "t" }, t.title), h("span", { className: "m" }, (many ? t.project_name + (when ? " · " : "") : "") + when || " ")));
       })));
@@ -761,10 +783,10 @@
     /* what the breadcrumb says, and what the screen shows */
     let crumb = [{ label: "Studio créatif" }], body;
     const pi = view.pid ? info(view.pid) : null;
-    const trail = (last) => [{ label: pi.brand || "Studio", home: true }, { label: pi.name, home: true }, { label: last }];
+    const trail = (last) => [{ label: pi.brand || "Studio", home: true }, { label: pi.name, to: { kind: "steps", pid: view.pid } }, { label: last }];
     if (view.kind === "home") body = h(Home, { ctx });
     else if (view.kind === "projects") { crumb = [{ label: "Studio créatif", home: true }, { label: "Nouveau projet" }]; body = h(Projects, { ctx, focus: view.focus, key: "pr" + (view.focus || "") }); }
-    else if (view.kind === "steps") { crumb = trail("Rouvrir une étape"); body = h(Steps, { ctx, pid: view.pid }); }
+    else if (view.kind === "steps") { crumb = trail("Les étapes"); body = h(Steps, { ctx, pid: view.pid }); }
     else if (view.kind === "step") { crumb = trail(STEP_LABELS[view.step]); body = h(StepAny, { ctx, pid: view.pid, step: view.step, key: "st" + view.pid + view.step }); }
     else if (view.kind === "series") { crumb = trail("La série"); body = h(Series, { ctx, pid: view.pid }); }
     else if (view.kind === "journal") { crumb = trail("Le journal"); body = h(Journal, { ctx, pid: view.pid }); }
@@ -784,7 +806,7 @@
       if (view.kind !== "home") cmds.push({ id: "home", group: "Aller", label: "Revenir à la liste des tâches", run: () => go({ kind: "home" }) });
       data.tasks.forEach((t) => cmds.push({ id: "task:" + t.id, group: "Ouvrir une tâche", label: t.title, hint: data.projects.length > 1 ? t.project_name : "", plus: false, run: () => openTask(t) }));
       if (cp) {
-        cmds.push({ id: "steps", group: "Ce projet", label: "Rouvrir une étape", run: () => go({ kind: "steps", pid: cp }) });
+        cmds.push({ id: "steps", group: "Ce projet", label: "Les étapes du projet", run: () => go({ kind: "steps", pid: cp }) });
         ["brand", "brief", "mandates", "diverge"].forEach((s) => cmds.push({ id: "step:" + s, group: "Ce projet", label: "Rouvrir : " + STEP_LABELS[s].toLowerCase(), plus: false, run: () => go({ kind: "step", pid: cp, step: s }) }));
         cmds.push({ id: "series", group: "Ce projet", label: "Voir la série", run: () => go({ kind: "series", pid: cp }) });
         cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: () => go({ kind: "journal", pid: cp }) });
@@ -811,7 +833,8 @@
       h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu"),
       h("header", { className: "bar" },
         h("nav", { "aria-label": "Fil d'Ariane" }, h("ol", { className: "crumb" }, crumb.map((c, i) => h("li", { key: i },
-          c.home ? h("button", { type: "button", className: "crumb-link", onClick: () => go({ kind: "home" }), "aria-label": c.label + " : revenir à la liste des tâches" }, c.label) : h("span", { "aria-current": i === crumb.length - 1 ? "page" : undefined }, c.label))))),
+          c.home ? h("button", { type: "button", className: "crumb-link", onClick: () => go({ kind: "home" }), "aria-label": c.label + " : revenir à la liste des tâches" }, c.label) :
+          c.to && i < crumb.length - 1 ? h("button", { type: "button", className: "crumb-link", onClick: () => go(c.to), "aria-label": c.label + " : voir les étapes du projet" }, c.label) : h("span", { "aria-current": i === crumb.length - 1 ? "page" : undefined }, c.label))))),
         h("div", { className: "plus", ref: plusRef },
           h(Button, { variant: "ghost", size: "sm", "aria-haspopup": "menu", "aria-expanded": menu, "aria-label": "Plus : étapes, série, journal, projets", onClick: () => { setPalette(false); setMenu(!menu); } }, "Plus"),
           menu && h(PlusMenu, { cmds, wrapRef: plusRef, onClose: (back) => { setMenu(false); if (back && plusRef.current) { const b = plusRef.current.querySelector("button"); if (b) b.focus(); } } }))),

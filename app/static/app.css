@@ -132,3 +132,18 @@ input.pal-input:focus-visible { outline-offset: -2px; }
 }
 @media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); gap: var(--space-5); } }
 @media (hover: none) { .keys { display: none; } }
+
+/* the project page: the seven steps, what each is for, where it stands */
+.seven { list-style: none; margin: var(--space-5) 0 0; padding: 0; border-top: var(--rule-width) solid var(--blue-deep); max-width: 44rem; }
+.seven li { border-bottom: var(--border-width) solid var(--border-subtle); }
+.seven-row { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: var(--space-1) var(--space-3); align-items: baseline; width: 100%; text-align: left; background: none; border: 0; padding: var(--space-4) var(--space-3); }
+button.seven-row { cursor: pointer; transition: background var(--transition-fast); }
+button.seven-row:hover { background: var(--surface-accent); }
+.seven-row .n { font-family: var(--font-mono); font-size: var(--fs-small); color: var(--text-faint); }
+.seven-row .t { font-family: var(--font-display); font-size: var(--fs-body-lg); font-weight: var(--fw-semibold); color: var(--text-strong); }
+button.seven-row .t { color: var(--text-link); }
+.seven-row .m { font-size: var(--fs-small); color: var(--text-muted); text-align: right; }
+.seven-row .d { grid-column: 2 / -1; font-size: var(--fs-small); color: var(--text-muted); }
+.seven li[data-s="done"] .m { color: var(--status-success); }
+.seven li[aria-current="step"] .n, .seven li[aria-current="step"] .m { color: var(--text-accent); font-weight: var(--fw-semibold); }
+.seven li[data-s="todo"] .t { color: var(--text-muted); }
