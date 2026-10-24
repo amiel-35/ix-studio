@@ -200,6 +200,11 @@ input:hover, textarea:hover, select:hover { border-color: var(--blue-medium); }
 /* a visual, a piece: framed by a line, at the ratio it will have */
 .frame { --ratio: .8; width: min(100%, calc(50vh * var(--ratio))); aspect-ratio: var(--ratio); background: var(--surface-sunken); border: 1px solid var(--border-default); overflow: hidden; }
 .frame img { width: 100%; height: 100%; object-fit: contain; }
+button.frame { display: block; padding: 0; cursor: zoom-in; transition: border-color var(--transition-fast); }
+button.frame:hover { border-color: var(--blue-medium); }
+.zoom { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: var(--space-8) var(--space-6) var(--space-6); background: var(--surface-page); cursor: zoom-out; }
+.zoom img { max-width: calc(100vw - 2 * var(--space-6)); max-height: calc(100vh - var(--space-8) - var(--space-6)); max-height: calc(100dvh - var(--space-8) - var(--space-6)); width: auto; height: auto; border: 1px solid var(--border-default); background: var(--surface-sunken); }
+.zoom-close { position: fixed; top: var(--space-4); right: var(--space-4); cursor: auto; }
 .pair { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-6); align-items: start; }
 .pair .frame { width: calc(46vh * var(--ratio)); max-width: 100%; }
 .side > * + * { margin-top: var(--space-5); }

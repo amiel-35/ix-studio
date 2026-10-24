@@ -104,9 +104,30 @@
   }
   const Notice = ({ text }) => text ? h("p", { className: "notice", role: "status" }, h(Badge, { tone: "success" }, "Fait"), h("span", null, text)) : null;
   const Wait = ({ text }) => h("p", { className: "muted", role: "status" }, text || "Un instant.");
+  /* a piece or an image at the ratio it will have; a click opens it full screen (a click, Escape or "Fermer" brings it back) */
   function Frame({ src, alt, size }) {
+    const [big, setBig] = useState(false);
     const ratio = size ? size[0] / size[1] : 4 / 5;
-    return h("div", { className: "frame", style: { "--ratio": ratio } }, h("img", { src, alt }));
+    return h(React.Fragment, null,
+      h("button", { type: "button", className: "frame zoomable", style: { "--ratio": ratio }, onClick: () => setBig(true), "aria-label": "Voir en grand : " + alt }, h("img", { src, alt: "" })),
+      big && h(Zoom, { src, alt, onClose: () => setBig(false) }));
+  }
+  function Zoom({ src, alt, onClose }) {
+    const close = useRef(null);
+    useEffect(() => {
+      const prev = document.activeElement;
+      const b = close.current && close.current.querySelector("button"); if (b) b.focus();
+      const f = (ev) => {
+        if (ev.metaKey || ev.ctrlKey) return; // the palette key still answers
+        ev.stopPropagation(); // nothing under the picture reacts to the keys (the left arrow, Escape) while it is open
+        if (ev.key === "Escape") { ev.preventDefault(); onClose(); } else if (ev.key === "Tab") ev.preventDefault();
+      };
+      window.addEventListener("keydown", f, true);
+      return () => { window.removeEventListener("keydown", f, true); if (prev && prev.isConnected && prev.focus) prev.focus(); };
+    }, []);
+    return h("div", { className: "zoom", role: "dialog", "aria-modal": "true", "aria-label": alt, onClick: onClose },
+      h("img", { src, alt }),
+      h("div", { className: "zoom-close", ref: close }, h(Button, { variant: "secondary", size: "md", onClick: onClose, "aria-label": "Fermer l'image en grand" }, "Fermer")));
   }
   /* ================= a failed reading, or a failed job ================= */
   function JobFailed({ ctx, t }) {
