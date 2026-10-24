@@ -509,7 +509,10 @@
     const submit = () => ctx.act(async (snap) => {
       await api.saveMandates(pid, m.items, m.common);
       ctx.log(pid, "toi", "Consignes aux agents relues et validées", "Mandats : " + m.items.map((x) => x.mandate).join(" ; "));
-      await ctx.answered(pid, "Consignes validées : la divergence peut partir.", { before: snap });
+      if (m.confirmed) { await ctx.answered(pid, "Consignes enregistrées.", { before: snap }); return; } // reopened: what was written stays, nothing starts again
+      await api.diverge(pid); // « C'est bon » is the one gesture: the instructions are validated and the four agents start
+      ctx.log(pid, "toi", "Divergence lancée", "Quatre agents écrivent chacun leur variante, à l'aveugle");
+      await ctx.answered(pid, "Consignes validées : quatre agents écrivent chacun leur variante.", { before: snap, any: false });
     });
     return h("div", { className: "task" }, h(Head, null, "Voilà ce que les quatre agents vont recevoir"),
       edit ? h("div", { className: "sec" },
@@ -520,8 +523,9 @@
           h("p", { className: "lead" }, m.common),
           h("ul", { className: "plain" }, m.items.map((it) => h("li", { key: it.id }, h("span", { className: "cap" }, "Agent " + it.id.toUpperCase()), h("span", null, it.mandate))))),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: submit, "aria-label": m.confirmed ? "Enregistrer les consignes aux agents" : "Valider les consignes aux agents" }, m.confirmed ? "Enregistrer" : "C'est bon"),
-        h(Button, { variant: "secondary", size: "lg", onClick: () => setEdit(!edit), "aria-label": edit ? "Arrêter de corriger" : "Corriger les consignes" }, edit ? "Arrêter de corriger" : "Corriger")));
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: submit, "aria-label": m.confirmed ? "Enregistrer les consignes aux agents" : "Valider les consignes et lancer la divergence" }, m.confirmed ? "Enregistrer" : "C'est bon"),
+        h(Button, { variant: "secondary", size: "lg", onClick: () => setEdit(!edit), "aria-label": edit ? "Arrêter de corriger" : "Corriger les consignes" }, edit ? "Arrêter de corriger" : "Corriger")),
+      !m.confirmed && h("p", { className: "small muted" }, "« C'est bon » lance aussitôt la divergence : chaque agent écrit sa variante, sans voir celles des autres."));
   }
 
   /* ================= 5. divergence: launch, then pick ================= */
