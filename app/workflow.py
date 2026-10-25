@@ -5,10 +5,12 @@ plain data and get its view from here. Nothing in this file touches a disk, a cl
 
 The state a backend gives (a dict):
 
-    id, name, brand        the project and its brand's name
+    id, name, type         the project and its type (`campagne`, the only one for now)
+    brand, brand_name      the brand it belongs to: its id and its name
+    brand_stage            the brand's stage (see `brand_stage`); the project's step 1 is done when it is `ready`, or once the project's brief is validated
+    brand_job              the brand's running discovery job, if any: {id, kind, piece, progress, message, start}
+    brand_waiting          the brand's tasks (see `brand_asks`), to say what the project waits for
     can_learn              the studio can search the brand (it has a site to read)
-    learned, kept          the brand is learned; the person sorted its visuals
-    evidence               how many visuals wait to be sorted
     brief_confirmed        the person read the brief
     mandates_confirmed     the person read the instructions to the agents
     variants               how many variants are written
@@ -19,22 +21,47 @@ The state a backend gives (a dict):
 """
 
 import copy
+import io
+import ipaddress
+import re
+import unicodedata
+import urllib.parse
+import zipfile
+from typing import NamedTuple
 
 
 class NotFound(Exception):
     pass
 
 
+class Download(NamedTuple):
+    """What a download route answers instead of JSON: the file itself (its type, its name, its bytes). The server sends it as an attachment."""
+    name: str
+    ctype: str
+    data: bytes
+
+
 class Conflict(Exception):
     pass
 
 
-STEPS = [("brand", "Apprendre la marque"), ("brief", "Le brief"), ("mandates", "Les consignes aux agents"),
+STEPS = [("brand", "La marque de ce projet"), ("brief", "Le brief"), ("mandates", "Les consignes aux agents"),
          ("diverge", "La divergence"), ("image", "Les images"), ("piece", "Les pièces"), ("check", "La vérification"),
          ("decide", "La décision")]
 FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1920), "poster-a3": (1240, 1754),
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
+SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
+         ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
 KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image"}
+
+
+def slug(text: str) -> str:
+    t = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:32]
+
+
+def one_line(text) -> str:
+    return " ".join(str(text or "").split())
 
 
 def fmt_key(token: str) -> str:
@@ -59,7 +86,7 @@ def project_view(s: dict, now: float) -> dict:
     """The project as the interface reads it: its steps, its pieces, what waits for the person, the running jobs."""
     st, asks = {}, []
     since = s.get("since", {})
-    running = s.get("running", [])
+    running = [j for j in s.get("running", []) if j["kind"] != "learn"]
 
     def job_of(kind, piece=None):
         return next((j for j in running if j["kind"] == kind and (piece is None or j.get("piece") == piece)), None)
@@ -72,24 +99,17 @@ def project_view(s: dict, now: float) -> dict:
         asks.append({"step": key, "piece": piece, "kind": "job-failed", "title": title,
                      "question": "Le dernier essai a échoué : " + (f.get("error") or "raison inconnue") + "."})
 
-    j = job_of("learn")
-    if j:
-        step("brand", "running", "studio", j)
-    elif not s["learned"]:
-        step("brand", "todo", "person")
-        f = failed_of(s, "learn")
-        if f:
-            retry("brand", None, "Relancer la lecture de la marque", f)
-        else:
-            asks.append({"step": "brand", "piece": None, "kind": "brand-how", "title": "Choisir comment apprendre la marque",
-                         "question": "Comment apprendre la marque : le studio cherche, tu réponds, ou on part de rien ?"})
-    elif not s["kept"]:
-        step("brand", "waiting", "person")
-        n = s["evidence"]
-        asks.append({"step": "brand", "piece": None, "kind": "brand-sort", "title": f"Trier {n} visuels de la marque" if n else "Valider une marque sans visuel",
-                     "question": f"Garder ou écarter {n} visuels, et choisir le logo."})
-    else:
+    # Step 1, one rule: the brand of the project is ready (a logo, nothing left to confirm). Otherwise the hand is on the
+    # brand's side: its own tasks (sort, brief, confirm) are in the list, not in the project's, and step 2 waits.
+    # Once the project's brief is validated, the brand it uses is fixed in its piece: a brand that changes afterwards
+    # (a new site read, a value to confirm) does not send an advanced project back to step 1.
+    bj = s.get("brand_job")
+    if s.get("brand_ready") or s.get("brief_confirmed"):
         step("brand", "done", "person")
+    elif bj:
+        step("brand", "running", "studio", bj)
+    else:
+        step("brand", "waiting", "person")
     prev = st["brand"]["status"] == "done"
     if not prev:
         step("brief", "todo", "person")
@@ -139,38 +159,346 @@ def project_view(s: dict, now: float) -> dict:
             step("image", "done", "studio")
         else:
             step("image", "waiting", "person")
+        prompts = {}  # one prompt task per variant: its formats share the prompt, and the image of each is drawn from it
         for pc in pcs:
             if not pc["image"] and not job_of("image", pc["id"]):
                 f = failed_of(s, "image", pc["id"])
                 if f:
                     retry("image", pc["id"], f"Relancer l'image de {pc['label']}", f)
                 else:
-                    asks.append({"step": "image", "piece": pc["id"], "kind": "prompt", "title": f"Relire le prompt de {pc['label']}",
-                                 "question": f"Relire le prompt de l'image de {pc['label']}, puis la lancer."})
+                    vid = pc.get("variant") or pc["id"]
+                    if vid not in prompts:
+                        prompts[vid] = {"step": "image", "piece": pc["id"], "variant": vid, "pieces": [], "kind": "prompt"}
+                        asks.append(prompts[vid])  # where its first piece stands in the list
+                    prompts[vid]["pieces"].append(pc["id"])
             elif pc["image"] and not pc["composed"]:
                 asks.append({"step": "piece", "piece": pc["id"], "kind": "compose", "title": f"Composer et vérifier {pc['label']}",
                              "question": f"Composer et vérifier {pc['label']}."})
             elif pc["composed"] and not pc["decision"]:
                 asks.append({"step": "decide", "piece": pc["id"], "kind": "decide", "title": f"Décider de {pc['label']}",
                              "question": f"Garder {pc['label']}, ou recommencer en disant pourquoi."})
+        for vid, a in prompts.items():
+            n = len(a["pieces"])
+            a["title"] = f"Relire le prompt de {vid}" + (f" ({n} formats)" if n > 1 else "")
+            a["question"] = f"Relire le prompt de l'image de {vid}" + (f", le même pour ses {n} formats" if n > 1 else "") + ", puis la lancer."
         step("piece", "done" if all(pc["composed"] for pc in pcs) else "waiting" if any(pc["image"] for pc in pcs) else "todo", "person")
         step("check", st["piece"]["status"], "studio", at=since.get("piece"))
         step("decide", "done" if all(pc["decision"] for pc in pcs) else "waiting" if any(pc["composed"] for pc in pcs) else "todo", "person")
     jobs = [{"id": j["id"], "kind": j["kind"], "piece": j.get("piece"), "progress": j["progress"], "message": j["message"], "since": j["start"]} for j in running]
-    return {"id": s["id"], "name": s["name"], "brand": s["brand"], "can_learn": s.get("can_learn", True),
-            "steps": [st[k] for k, _ in STEPS], "pieces": copy.deepcopy(pcs), "waiting": asks, "jobs": jobs, "now": now}
+    return {"id": s["id"], "name": s["name"], "type": s.get("type", "campagne"), "brand": s["brand"], "brand_name": s.get("brand_name", ""),
+            "brand_stage": s.get("brand_stage"), "brand_waiting": [{"kind": a["kind"], "title": a["title"]} for a in s.get("brand_waiting", [])],
+            "can_learn": s.get("can_learn", True), "steps": [st[k] for k, _ in STEPS], "pieces": copy.deepcopy(pcs), "waiting": asks,
+            "jobs": jobs, "now": now}
 
 
-def tasks_payload(entries: list, jobs: list, now: float) -> dict:
-    """What waits for the person in every project, the oldest first (stable: the order inside a project is kept), the running jobs
-    and the projects. `entries` is a list of (state, view)."""
-    tasks, projects = [], []
+def rank_of(steps: dict) -> tuple:
+    """(rank, label): the step of the seven in progress (the first that is not done), from the `steps` of project_view (a list).
+    All done: the last."""
+    by = {x["key"]: x for x in steps}
+    for n, (key, label) in enumerate(SEVEN, 1):
+        if by[key]["status"] != "done":
+            return n, label
+    return len(SEVEN), SEVEN[-1][1]
+
+
+def project_summary(view: dict) -> dict:
+    """The line of a project inside its brand: `{id, name, type, rank, step_label, done, waiting}` (`rank`: the step in progress, out of seven;
+    `done`: all seven are done, which `rank` alone cannot tell from the last one in progress)."""
+    rank, label = rank_of(view["steps"])
+    by = {x["key"]: x for x in view["steps"]}
+    done = all(by[k]["status"] == "done" for k, _ in SEVEN)
+    return {"id": view["id"], "name": view["name"], "type": view.get("type", "campagne"), "rank": rank, "step_label": label, "done": done,
+            "waiting": len(view["waiting"])}
+
+
+# ---------------------------------------------------------------- the brand
+# One brand, many projects. The brand is learned once (a site read, visuals sorted, a brief of the brand, what is deduced
+# confirmed); its projects use it. The state a backend gives (a dict):
+#
+#     id, name, site         the brand and its site ("" when none)
+#     discovered, kept       the site was read; the person sorted the visuals and chose the logo
+#     logo                   a logo is chosen
+#     brief_done             the person filled in (or read) the brief of the brand
+#     migrated               the brand came out of several projects of the old format: it is to confirm until the person does
+#     deduced                the keys (FIELDS, `logo`) whose value was deduced and is not confirmed
+#     unsorted               how many visuals wait to be sorted
+#     colours_ok             the brand has the colours a piece needs: at least two, one for the background and one for the text
+#     running                the running discovery job (or None)
+#     failed                 the last discovery failed and was not run again: {error, at} (or None)
+#     since                  {task kind: epoch seconds} when each task came to the person
+
+BRAND_STAGES = ("new", "discovering", "to_sort", "to_brief", "to_confirm", "ready")
+FIELDS = [("what", "ce qu'elle est"), ("who", "pour qui"), ("voice", "sa voix"), ("signature", "sa signature"),
+          ("never", "ce qu'elle ne dit jamais"), ("colours", "ses couleurs")]
+FIELD_KEYS = [k for k, _ in FIELDS]
+CONFIRMABLE = FIELD_KEYS + ["logo"]
+LABEL = dict(FIELDS, logo="son logo")
+FIELD_STATES = ("absent", "deduced", "confirmed")
+
+
+def field(value="", state="absent", source=""):
+    """A value of the brand's identity: what it says, how sure it is (absent, deduced or confirmed) and where it comes from."""
+    if state not in FIELD_STATES:
+        raise ValueError(f"state is one of {', '.join(FIELD_STATES)}")
+    return {"value": value if state != "absent" else "", "state": state, "source": source if state != "absent" else ""}
+
+
+def identity_of(values: dict) -> dict:
+    """The six fields of the identity, each present: those the backend does not give are absent."""
+    return {k: values.get(k) or field() for k in FIELD_KEYS}
+
+
+def split_words(text) -> list:
+    """The words of a `voice` or `never` field: separated by commas, semicolons or lines."""
+    return [w.strip() for w in re.split(r"[,;\n]+", str(text or "")) if w.strip()]
+
+
+def brand_stage(b: dict) -> str:
+    """Where the brand stands. The first that holds:
+
+    discovering   a discovery job runs
+    to_sort       the site was read and the visuals are not sorted, or no logo is chosen yet
+    new           no site, nothing read, no brief: nothing at all yet
+    to_brief      the brief of the brand is not done (or there is no logo and nothing to sort it from: a site is needed, or the
+                  colours are not enough: a background and a text colour)
+    to_confirm    values were deduced and not confirmed (or the brand is migrated and the person has not looked)
+    ready         a logo, a background and a text colour, nothing to confirm
+    """
+    if b.get("running"):
+        return "discovering"
+    if b.get("discovered") and (not b.get("kept") or not b.get("logo")):
+        return "to_sort"
+    if not b.get("brief_done"):
+        return "new" if not b.get("site") and not b.get("discovered") else "to_brief"
+    if b.get("deduced") or b.get("migrated"):
+        return "to_confirm"
+    if not b.get("logo") or not b.get("colours_ok"):
+        return "to_brief"
+    return "ready"
+
+
+def brand_needs(b: dict) -> list:
+    """What a brand still lacks to be ready, beside the brief and the confirmations: `logo`, `colours` (a background and a text colour)."""
+    return [k for k, ok in (("logo", b.get("logo")), ("colours", b.get("colours_ok"))) if not ok]
+
+
+def brand_ready(b: dict) -> bool:
+    return brand_stage(b) == "ready"
+
+
+def brand_asks(b: dict) -> list:
+    """What waits for the person on the brand: `{kind, title, question}`, `kind` in brand-sort, brand-brief, brand-confirm, job-failed.
+    A failed discovery comes first (running it again makes it go); then the task of the stage. The titles say "la marque": the brand's
+    name is beside them (`brand_name`)."""
+    asks, stage = [], brand_stage(b)
+    f = b.get("failed")
+    if f and stage != "discovering":
+        asks.append({"kind": "job-failed", "title": "Relancer la lecture du site de la marque",
+                     "question": "Le dernier essai a échoué : " + (f.get("error") or "raison inconnue") + "."})
+    if stage == "to_sort":
+        n = b.get("unsorted", 0)
+        if n:
+            asks.append({"kind": "brand-sort", "title": f"Trier {n} visuels de la marque", "question": f"Garder ou écarter {n} visuels, et choisir le logo."})
+        else:
+            asks.append({"kind": "brand-sort", "title": "Choisir le logo de la marque",
+                         "question": "Aucun logo n'est choisi : en prendre un parmi ceux trouvés, ou relancer la lecture du site."})
+    elif stage in ("new", "to_brief"):
+        if b.get("brief_done") and not b.get("logo"):  # nothing left but the logo, and nothing to sort it from
+            asks.append({"kind": "brand-brief", "title": "Trouver le logo de la marque",
+                         "question": "La marque n'a pas de logo : déposer son fichier, ou donner l'adresse de son site pour que le studio le cherche."})
+        elif b.get("brief_done"):  # a logo, and not the two colours a piece needs
+            asks.append({"kind": "brand-brief", "title": "Choisir les couleurs de la marque",
+                         "question": "Il faut au moins deux couleurs : une pour le fond, une pour le texte (un accent en plus, si elle en a un)."})
+        else:
+            asks.append({"kind": "brand-brief", "title": "Écrire le brief de la marque",
+                         "question": "Dire ce qu'elle est, pour qui, sa voix, sa signature et ce qu'elle ne dit jamais. Le studio a pré-rempli ce qu'il a trouvé."})
+    elif stage == "to_confirm":
+        what = ", ".join(LABEL[k] for k in b.get("deduced", []))
+        look = "Elle vient de plusieurs projets : la regarder" + (", et confirmer ce que le studio a déduit (" + what + ")." if what else " et la confirmer.") if b.get("migrated") \
+            else f"Confirmer ce que le studio a déduit : {what}."
+        asks.append({"kind": "brand-confirm", "title": "Confirmer la marque", "question": look})
+    return asks
+
+
+def brand_tasks(b: dict) -> list:
+    """The tasks of the brand as the list `GET /api/tasks` shows them. `id` is `@<brand>:<kind>`: it stays the same as long as the task waits."""
+    return [{"id": f"@{b['id']}:{a['kind']}", "scope": "brand", "brand": b["id"], "brand_name": b["name"], "project": None, "kind": a["kind"],
+             "title": a["title"], "question": a["question"], "since": b.get("since", {}).get(a["kind"])} for a in brand_asks(b)]
+
+
+def brand_payload(b: dict, meta: dict, identity: dict, assets: dict, projects: list, jobs: list, now: float) -> dict:
+    """The brand as the interface reads it. `meta`: description and the like, given by the backend."""
+    return {"id": b["id"], "name": b["name"], "site": b.get("site", ""), "description": meta.get("description", ""), "stage": brand_stage(b),
+            "can_discover": bool(b.get("site")), "identity": identity_of(identity), "assets": assets, "projects": projects,
+            "waiting": brand_tasks(b), "jobs": jobs, "now": now}
+
+
+def brand_line(b: dict, projects: list) -> dict:
+    """The brand in the list of brands: its stage, its projects in short, the number of its tasks."""
+    return {"id": b["id"], "name": b["name"], "site": b.get("site", ""), "stage": brand_stage(b), "projects": projects, "waiting": len(brand_asks(b))}
+
+
+def tasks_payload(entries: list, jobs: list, now: float, brands: list = ()) -> dict:
+    """What waits for the person, the oldest first (stable: the order inside a project is kept), the running jobs, the projects
+    and the brands. `entries` is a list of (project state, view); `brands` a list of (brand state, its projects in short)."""
+    tasks, projects, brand_lines = [], [], []
+    for b, pro in brands:
+        tasks += brand_tasks(b)
+        brand_lines.append(brand_line(b, pro))
     for s, v in entries:
-        projects.append({"id": s["id"], "name": s["name"], "brand": s["brand"], "can_learn": s.get("can_learn", True), "pieces": len(s["pieces"]), "waiting": len(v["waiting"])})
+        projects.append({"id": s["id"], "name": s["name"], "brand": s["brand"], "brand_name": s.get("brand_name", ""), "can_learn": s.get("can_learn", True),
+                         "pieces": len(s["pieces"]), "waiting": len(v["waiting"])})
         for a in v["waiting"]:
             pc = next((x for x in s["pieces"] if x["id"] == a["piece"]), None) if a["piece"] else None
-            tasks.append({"id": f"{s['id']}:{a['step']}:{a['piece'] or ''}", "project": s["id"], "project_name": s["name"], "brand": s["brand"],
-                          "step": a["step"], "piece": a["piece"], "piece_label": pc["label"] if pc else None, "kind": a["kind"], "title": a["title"],
-                          "question": a["question"], "since": s.get("since", {}).get(a["step"])})
+            t = {"id": f"{s['id']}:{a['step']}:{a['piece'] or ''}", "scope": "project", "project": s["id"], "project_name": s["name"],
+                 "brand": s["brand"], "brand_name": s.get("brand_name", ""), "step": a["step"], "piece": a["piece"],
+                 "piece_label": a.get("variant") or (pc["label"] if pc else None), "kind": a["kind"], "title": a["title"],
+                 "question": a["question"], "since": s.get("since", {}).get(a["step"])}
+            if a.get("variant"):  # a prompt: the task of a variant, for the pieces of it that wait for their image
+                t.update(variant=a["variant"], pieces=a["pieces"])
+            tasks.append(t)
     tasks.sort(key=lambda t: (t["since"] is None, t["since"] or 0))
-    return {"tasks": tasks, "jobs": jobs, "projects": projects, "now": now}
+    return {"tasks": tasks, "jobs": jobs, "projects": projects, "brands": brand_lines, "now": now}
+
+
+COLOUR_ROLES = ("background", "text", "accent")
+HEX = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def luminance(h: str) -> float:
+    rgb = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def parse_palette(raw) -> list:
+    """The colours a person chose with the pickers, `[{hex, role}]`, checked: a background and a text colour that differ (an accent is optional),
+    each role once, each colour as #rrggbb. Returns the list in the order background, text, accent, hex in lower case; a ValueError (a 400) says what is wrong."""
+    if not isinstance(raw, list) or not all(isinstance(x, dict) for x in raw):
+        raise ValueError("colours: a list of {hex, role}")
+    by = {}
+    for x in raw:
+        role, h = x.get("role"), str(x.get("hex") or "")
+        if role not in COLOUR_ROLES:
+            raise ValueError(f"colours: a role is one of {', '.join(COLOUR_ROLES)}")
+        if not HEX.fullmatch(h):
+            raise ValueError("colours: a colour is #rrggbb")
+        if role in by:
+            raise ValueError(f"colours: {role} is given twice")
+        by[role] = h.lower()
+    for role in ("background", "text"):
+        if role not in by:
+            raise ValueError("colours: a background and a text colour are needed (an accent is optional)")
+    if by["background"] == by["text"]:
+        raise ValueError("colours: the text colour must differ from the background")
+    return [{"hex": by[r], "role": r} for r in COLOUR_ROLES if r in by]
+
+
+def palette_of(colours) -> dict:
+    """What the studio proposes for the pickers, from the colours a brand has (`[{hex, role}]`): `{background, text, accent}`, each a hex or None.
+    A colour that carries one of the three roles keeps it; of the others, the lightest is the background and the one that reads best on it is the
+    text. An accent is never guessed."""
+    out, rest = {r: None for r in COLOUR_ROLES}, []
+    for c in colours or []:
+        h = str(c.get("hex") or "").lower()
+        if not HEX.fullmatch(h):
+            continue
+        if c.get("role") in COLOUR_ROLES and out[c["role"]] is None:
+            out[c["role"]] = h
+        elif h not in rest:
+            rest.append(h)
+    rest = [h for h in rest if h not in out.values()]
+    if out["background"] is None and rest:
+        if out["text"] is None and len(rest) == 1:
+            only = rest.pop()
+            out["background" if luminance(only) > .5 else "text"] = only
+        else:
+            out["background"] = max(rest, key=luminance)
+            rest.remove(out["background"])
+    if out["text"] is None and rest:
+        ref = out["background"]
+        out["text"] = max(rest, key=lambda h: contrast(h, ref)) if ref else min(rest, key=luminance)
+    return out
+
+
+# the tools the studio asks of the machine, in the order they are told, and what to do when one is missing (said to the person, in the studio's column)
+MACHINE = [("chrome", "Chrome", "le studio s'en sert pour lire un site et pour composer une pièce. Installe Google Chrome (ou donne son chemin dans CHROME)."),
+           ("claude", "Claude Code", "il écrit les consignes et les variantes. Installe Claude Code (la commande claude), puis connecte-toi."),
+           ("image", "Un moteur d'image", "il dessine les images. Installe Codex et connecte-toi, ou donne OPENAI_API_KEY (ou OPENROUTER_API_KEY).")]
+
+
+def machine_view(found: dict) -> dict:
+    """What the machine lacks: `{ok, missing: [{key, label, say}]}`, from `found` (`chrome`, `claude`, `image`: each present or not)."""
+    missing = [{"key": k, "label": label, "say": say} for k, label, say in MACHINE if not found.get(k)]
+    return {"ok": not missing, "missing": missing}
+
+
+def zip_of(files) -> bytes:
+    """A zip (the standard library's) of `[(name, bytes)]`: the pieces are png files, already compressed, so they are stored as they are."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as z:
+        for name, data in files:
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+LOGO_MAX = 2 * 1024 * 1024  # bytes: a logo is a small file
+LOGO_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/svg+xml": "svg"}
+
+
+def logo_ext(data: bytes, ctype: str = "") -> str:
+    """The extension (`png`, `jpg` or `svg`) of a logo file that was dropped, or a ValueError (a 400) saying what is wrong. The type given by
+    the browser must be one of the three and the content must really be it (the first bytes, for a picture; a `<svg` root without script, for
+    a drawing), so that nothing else is ever stored under the name of a logo."""
+    ext = LOGO_TYPES.get((ctype or "").split(";")[0].strip().lower())
+    if not ext:
+        raise ValueError("logo: a png, jpg or svg file")
+    if not data:
+        raise ValueError("logo: the file is empty")
+    if len(data) > LOGO_MAX:
+        raise ValueError(f"logo: the file is too big ({LOGO_MAX // (1024 * 1024)} MB at most)")
+    if ext == "png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("logo: this is not a png file")
+    if ext == "jpg" and not data.startswith(b"\xff\xd8\xff"):
+        raise ValueError("logo: this is not a jpg file")
+    if ext == "svg":
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("logo: this is not an svg file") from None
+        low = text.lower()
+        if "<svg" not in low:
+            raise ValueError("logo: this is not an svg file")
+        if "<script" in low or "javascript:" in low or "<!entity" in low or "<foreignobject" in low or re.search(r"\son[a-z]+\s*=", low):
+            raise ValueError("logo: an svg with a script or an external entity is refused")
+    return ext
+
+
+def normalise_site(raw: str) -> str:
+    """The address of a brand's site, as https://host/path, or "" when none is given. Refuses what is not a public web address."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw
+    u = urllib.parse.urlsplit(raw)
+    host = (u.hostname or "").lower()
+    if u.scheme not in ("http", "https") or not host:
+        raise ValueError("site: give a web address (https://…)")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None:
+        local = ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_unspecified
+    else:
+        local = host == "localhost" or host.endswith((".local", ".localhost", ".internal")) or "." not in host
+    if local:
+        raise ValueError("site: a private or local address cannot be read")
+    port = f":{u.port}" if u.port else ""
+    return urllib.parse.urlunsplit((u.scheme, host + port, u.path or "/", u.query, ""))  # no credentials, no fragment
