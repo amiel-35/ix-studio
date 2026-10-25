@@ -501,7 +501,13 @@ def build_parser():
 
 
 def main(argv=None):
-    a = build_parser().parse_args(argv)
+    p = build_parser()
+    a, extra = p.parse_known_args(argv)
+    # before Python 3.13, ids given after an option (`keep <dir> --no-previews ev-1 ev-2`) are not taken by `ids`: they are, here
+    if extra and getattr(a, "fn", None) is cmd_keep and not any(x.startswith("-") for x in extra):
+        a.ids = list(a.ids) + extra
+    elif extra:
+        p.error("unrecognized arguments: " + " ".join(extra))
     try:
         a.fn(a)
     except BrandError as e:
