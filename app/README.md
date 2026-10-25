@@ -37,6 +37,13 @@ write its brief and drop its logo, a png, jpg or svg of 2 MB at most). A brand i
 agent writes nothing, no image engine) comes back in the list as a task to run again, with the reason; the whole
 output of each job is in the `logs/` folder of its brand or project.
 
+**The judge.** Once a piece is composed and checked, a judge reads it (its image and its words, the brief, the brand's voice): five
+headings in words, never a score (the target, what works, what catches, what has no source, the brand), shown in the decision screen
+beside the mechanical checks. It blocks nothing: you keep or send back without waiting for it. "Juger une pièce", in the studio's
+column, judges a piece on its own: drop a png or jpg (10 MB at most), write the brief it answers, choose a brand if it has one; the
+verdict comes with a flat page to download, and the past judgements stay listed there (`STUDIO_HOME/jugements/`). The real judge
+is `claude -p` reading the picture in a folder of its own; the simulated one gives a fixed verdict.
+
 ## What the real studio asks of the machine
 
 - Python 3.10+ (the studio and brandkit scripts), Node.js and Chrome (`scripts/collect` reads the site with the Chrome

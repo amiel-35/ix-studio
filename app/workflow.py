@@ -21,8 +21,10 @@ The state a backend gives (a dict):
 """
 
 import copy
+import html
 import io
 import ipaddress
+import json
 import re
 import unicodedata
 import urllib.parse
@@ -52,7 +54,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check"}
 
 
 def slug(text: str) -> str:
@@ -177,6 +179,10 @@ def project_view(s: dict, now: float) -> dict:
             elif pc["composed"] and not pc["decision"]:
                 asks.append({"step": "decide", "piece": pc["id"], "kind": "decide", "title": f"Décider de {pc['label']}",
                              "question": f"Garder {pc['label']}, ou recommencer en disant pourquoi."})
+            if pc["composed"] and not job_of("judge", pc["id"]) and (pc.get("judge") or {}).get("status") != "done":
+                f = failed_of(s, "judge", pc["id"])  # the judge blocks nothing: its failure is one more task, beside the decision
+                if f:
+                    retry("check", pc["id"], f"Relancer le juge de {pc['label']}", f)
         for vid, a in prompts.items():
             n = len(a["pieces"])
             a["title"] = f"Relire le prompt de {vid}" + (f" ({n} formats)" if n > 1 else "")
@@ -502,3 +508,178 @@ def normalise_site(raw: str) -> str:
         raise ValueError("site: a private or local address cannot be read")
     port = f":{u.port}" if u.port else ""
     return urllib.parse.urlunsplit((u.scheme, host + port, u.path or "/", u.query, ""))  # no credentials, no fragment
+
+
+# ---------------------------------------------------------------- the judge
+# One judge, five headings, in words, without a score. It reads the brief, the piece (its image and its words) and the brand's voice when there
+# is one. It blocks nothing, nothing starts after it, and it does not judge the morals of the brand or of its product. Both backends give it the
+# same entries and read its answer with `parse_verdict`: the agent of the real one writes it, the simulated one has a fixed one.
+#
+# A verdict (what the API gives, and what the agent writes, as JSON):
+#
+#     target      {reached, why}: the person aimed at is reached (`yes`), partly (`partly`) or not (`no`), and why, from their point of view;
+#                 `unjudgeable` when the brief does not say who it is for ("non jugeable sur la cible : il manque la cible")
+#     works       what works: [{where, say}]
+#     snags       what catches: a double meaning, a hierarchy that does not read, a cliché, an image that does not answer the headline
+#     unsourced   a fact one could check (a figure, a label, a guarantee, a dated promise, a ranking) that is in none of the entries: not false,
+#                 only nothing was given to believe it. The price, the product's name or the town are not aimed at
+#     brand       the voice and the tone, only when the brand is known (null otherwise); colours, type, contrast, banned words, hierarchy and
+#                 signature stay with the mechanical checks
+#     missing     what the brief lacks, in words (["la cible", "le message"]): the rest is judged all the same
+#
+# Every annotation says what it aims at in words ("le titre en haut", "le bandeau du bas"), never with a drawn zone.
+
+JUDGE_BRIEF = [("objective", "l'objectif"), ("audience", "la cible"), ("message", "le message"), ("cta", "l'appel à l'action"),
+               ("fixed", "ce qui ne bouge pas")]  # `fixed` (respect the assets or not) is optional
+JUDGE_NEEDED = ("objective", "audience", "message", "cta")
+JUDGE_REACHED = ("yes", "partly", "no", "unjudgeable")
+JUDGE_LISTS = ("works", "snags", "unsourced", "brand")
+JUDGE_ITEMS = 8  # annotations kept per heading
+JUDGE_MAX = 10 * 1024 * 1024  # bytes: a piece dropped to be judged (a png or a jpg)
+JUDGE_TYPES = {"image/png": "png", "image/jpeg": "jpg"}
+
+
+def judge_brief(raw) -> dict:
+    """The brief a judge reads, from what the person filled in (or a project's brief): the five keys, one line each. Unknown keys are left out."""
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise ValueError("brief: an object")
+    return {k: one_line(raw.get(k))[:600] for k, _ in JUDGE_BRIEF}
+
+
+def judge_missing(brief: dict) -> list:
+    """What the brief lacks to be judged in full, in words: the target cannot be judged without `audience`, the rest goes on without what is missing."""
+    return [label for k, label in JUDGE_BRIEF if k in JUDGE_NEEDED and not (brief.get(k) or "").strip()]
+
+
+def _notes(raw, what):
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError(f"{what}: a list of {{where, say}}")
+    out = []
+    for x in raw:
+        if not isinstance(x, dict):
+            raise ValueError(f"{what}: each annotation is {{where, say}}")
+        where, say = one_line(x.get("where"))[:120], one_line(x.get("say"))[:400]
+        if not where or not say:
+            raise ValueError(f"{what}: each annotation says where (in words) and what")
+        out.append({"where": where, "say": say})
+    return out[:JUDGE_ITEMS]
+
+
+def parse_verdict(raw, has_brand: bool, brief: dict) -> dict:
+    """The verdict of a judge, checked and put in its one shape (see above), or a ValueError that says what is wrong. `raw` is the JSON the agent
+    wrote (a string, a fenced block is accepted) or a dict. What the backend knows wins over what the agent says: no brand, no `brand` heading;
+    no target in the brief, the target is `unjudgeable` with the sentence that says so. A score, if the agent gives one, is left out."""
+    if isinstance(raw, (str, bytes)):
+        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        a, b = text.find("{"), text.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("no JSON object in the verdict")
+        try:
+            raw = json.loads(text[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"the verdict is not readable JSON ({err})") from None
+    if not isinstance(raw, dict):
+        raise ValueError("the verdict is a JSON object")
+    t = raw.get("target")
+    if not isinstance(t, dict) or t.get("reached") not in JUDGE_REACHED or not one_line(t.get("why")):
+        raise ValueError(f"target: {{reached, why}}, reached one of {', '.join(JUDGE_REACHED)}")
+    missing = judge_missing(brief)
+    if "la cible" in missing:
+        target = {"reached": "unjudgeable", "why": "non jugeable sur la cible : il manque la cible"}
+    else:
+        target = {"reached": t["reached"], "why": one_line(t["why"])[:600]}
+    out = {"target": target}
+    for k in ("works", "snags", "unsourced"):
+        if k not in raw:
+            raise ValueError(f"{k}: missing (an empty list says there is nothing)")
+        out[k] = _notes(raw[k], k)
+    if has_brand:
+        if not isinstance(raw.get("brand"), list):
+            raise ValueError("brand: a list of {where, say} (the brand is known)")
+        out["brand"] = _notes(raw["brand"], "brand")
+    else:
+        out["brand"] = None
+    out["missing"] = missing
+    return out
+
+
+REACHED_WORDS = {"yes": "atteinte", "partly": "en partie", "no": "pas atteinte", "unjudgeable": "non jugeable"}
+JUDGE_HEADINGS = [("works", "Ce qui marche"), ("snags", "Ce qui accroche"), ("unsourced", "Sans provenance"), ("brand", "La marque")]
+
+
+def judge_md(v: dict) -> str:
+    """judge.md, the notes `studio check` reads beside its mechanical checks: one line per annotation, never marked major (the judge blocks nothing)."""
+    lines = [f"- cible, {REACHED_WORDS[v['target']['reached']]} : {v['target']['why']}"]
+    for k, label in JUDGE_HEADINGS:
+        for n in v.get(k) or []:
+            lines.append(f"- {label.lower()}, {n['where']} : {n['say']}")
+    if v.get("missing"):
+        lines.append("- brief incomplet : il manque " + ", ".join(v["missing"]))
+    return "# Notes du juge\n\n" + "\n".join(lines) + "\n"
+
+
+def judge_page(v: dict, image: str, title: str, brand_name: str = "", when: str = "") -> str:
+    """The flat page of a judgement: the piece at the top, the list under it. `image` is its address (a data: URI keeps the page whole on its own).
+    It takes the design system's tokens when it is opened from the studio, and stays readable without them."""
+    e = html.escape
+    def items(k):
+        ns = v.get(k) or []
+        return "".join(f"<li><span class=\"cap\">{e(n['where'])}</span> {e(n['say'])}</li>" for n in ns) or "<li class=\"muted\">Rien à signaler.</li>"
+    rows = [f"<section><h2>La cible</h2><p><strong>{e(REACHED_WORDS[v['target']['reached']].capitalize())}.</strong> {e(v['target']['why'])}</p></section>"]
+    rows += [f"<section><h2>{label}</h2><ul>{items(k)}</ul></section>" for k, label in JUDGE_HEADINGS if k != "brand" or v.get("brand") is not None]
+    if v.get("missing"):
+        rows.insert(0, f"<p class=\"muted\">Brief incomplet : il manque {e(', '.join(v['missing']))}. Le reste est jugé.</p>")
+    sub = " · ".join(x for x in (brand_name, when) if x)
+    return ("<!doctype html>\n<html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            f"<title>{e(title)}</title><link rel=\"stylesheet\" href=\"/ds/tokens.css\"><style>"
+            "body{margin:0;background:var(--surface-page,#fff);color:var(--text-body,#222);font-family:var(--font-body,system-ui,sans-serif);line-height:1.5}"
+            "main{max-width:640px;margin:0 auto;padding:32px 16px}h1{font-family:var(--font-display,inherit);font-size:var(--fs-h3,1.5rem);margin:0 0 4px}"
+            "h2{font-size:var(--fs-caption,.8rem);text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted,#666);margin:24px 0 8px}"
+            "img{display:block;max-width:100%;border:1px solid var(--border-subtle,#ddd);margin:16px 0}ul{list-style:none;padding:0;margin:0}"
+            "li{padding:8px 0;border-top:1px solid var(--border-subtle,#eee)}.cap{display:block;font-size:var(--fs-small,.85rem);color:var(--text-muted,#666)}"
+            ".muted{color:var(--text-muted,#666)}p{margin:0}</style></head><body><main>"
+            f"<h1>{e(title)}</h1>" + (f"<p class=\"muted\">{e(sub)}</p>" if sub else "") + f"<img src=\"{e(image)}\" alt=\"La pièce jugée\">"
+            + "".join(rows) + "</main></body></html>\n")
+
+
+def judge_image_ext(data: bytes, ctype: str = "") -> str:
+    """The extension (`png` or `jpg`) of a piece dropped to be judged, or a ValueError (a 400): the type given by the browser must be one of the two
+    and the first bytes must agree, the file not empty and not too big. Like a logo, without the svg."""
+    ext = JUDGE_TYPES.get((ctype or "").split(";")[0].strip().lower())
+    if not ext:
+        raise ValueError("piece: a png or jpg file")
+    if not data:
+        raise ValueError("piece: the file is empty")
+    if len(data) > JUDGE_MAX:
+        raise ValueError(f"piece: the file is too big ({JUDGE_MAX // (1024 * 1024)} MB at most)")
+    if ext == "png" and not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ValueError("piece: this is not a png file")
+    if ext == "jpg" and not data.startswith(b"\xff\xd8\xff"):
+        raise ValueError("piece: this is not a jpg file")
+    return ext
+
+
+def judge_meta(raw) -> dict:
+    """What comes with a piece dropped to be judged (the `X-Judge` header, JSON): `{name?, brand?, brief}`, checked."""
+    if raw in (None, ""):
+        raw = {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise ValueError("X-Judge: JSON {name, brand, brief}") from None
+    if not isinstance(raw, dict):
+        raise ValueError("X-Judge: JSON {name, brand, brief}")
+    brand = raw.get("brand") or None
+    if brand is not None and not re.fullmatch(r"[\w-]+", str(brand)):
+        raise ValueError("brand: an id of a brand")
+    return {"name": one_line(raw.get("name"))[:120], "brand": brand, "brief": judge_brief(raw.get("brief"))}
+
+
+def judge_view(job_status, verdict, error=None) -> dict:
+    """Where the judge of a piece stands, for the interface: `{status, verdict, error}`; `status` is `running`, `done` or `failed`."""
+    return {"status": job_status, "verdict": verdict, "error": error}

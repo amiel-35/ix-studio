@@ -24,12 +24,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import workflow  # noqa: E402
 from workflow import Conflict, Download, NotFound  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 B = r"(?P<b>[\w-]+)"
 P = r"(?P<p>[\w-]+)"
 I = r"(?P<i>[\w-]+)"
+J = r"(?P<j>[\w-]+)"
 
 # (method, path pattern, backend call taking (backend, match groups, json body))
 ROUTES = [
@@ -71,13 +73,19 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/pieces/{I}/image", lambda b, m, d: b.image(m["p"], m["i"])),
     ("POST", rf"/api/projects/{P}/pieces/{I}/compose", lambda b, m, d: b.compose(m["p"], m["i"])),
     ("POST", rf"/api/projects/{P}/pieces/{I}/decide", lambda b, m, d: b.decide(m["p"], m["i"], d.get("verdict"), d.get("words", ""))),
+    ("POST", rf"/api/projects/{P}/pieces/{I}/judge", lambda b, m, d: b.judge_piece(m["p"], m["i"])),
+    ("GET", r"/api/judgements", lambda b, m, d: b.list_judgements()),
+    ("POST", r"/api/judgements", lambda b, m, d: b.create_judgement(d["raw"], d["type"], d["name"], d["meta"])),
+    ("GET", rf"/api/judgements/{J}", lambda b, m, d: b.judgement(m["j"])),
+    ("POST", rf"/api/judgements/{J}/run", lambda b, m, d: b.run_judgement(m["j"])),
+    ("GET", rf"/api/judgements/{J}/page", lambda b, m, d: b.judgement_page(m["j"])),
     ("GET", r"/api/jobs/(?P<j>[\w-]+)", lambda b, m, d: b.job(m["j"])),
 ]
 
 
-# the routes that take a file, not JSON: the body is the file itself, its type is the request's Content-Type and its name an X-Filename header
-RAW_ROUTES = {rf"/api/brands/{B}/logo"}
-RAW_MAX = 2 * 1024 * 1024  # bytes (workflow.LOGO_MAX); a bigger body is refused
+# the routes that take a file, not JSON: the body is the file itself, its type is the request's Content-Type and its name an X-Filename header;
+# what comes with it, if anything, is an X-Judge header (JSON, URL-encoded). Each with the size beyond which the body is refused (bytes)
+RAW_ROUTES = {rf"/api/brands/{B}/logo": workflow.LOGO_MAX, r"/api/judgements": workflow.JUDGE_MAX}
 RAW_DRAIN = 16 * 1024 * 1024  # a refused body up to this size is read and thrown away, so the answer reaches the browser; beyond, the connection closes
 
 
@@ -121,15 +129,17 @@ def make_handler(backend):
                 return self.send(401, {"error": "authentication required"})
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                if method == "POST" and any(re.fullmatch(pat, path) for pat in RAW_ROUTES):
-                    if n > RAW_MAX:
+                raw_max = next((mx for pat, mx in RAW_ROUTES.items() if re.fullmatch(pat, path)), None) if method == "POST" else None
+                if raw_max is not None:
+                    if n > raw_max:
                         if n <= RAW_DRAIN:
                             self.rfile.read(n)
                         else:
                             self.close_connection = True
-                        return self.send(400, {"error": f"the file is too big ({RAW_MAX // (1024 * 1024)} MB at most)"})
+                        return self.send(400, {"error": f"the file is too big ({raw_max // (1024 * 1024)} MB at most)"})
                     name = urllib.parse.unquote(self.headers.get("X-Filename") or "")
-                    body = {"raw": self.rfile.read(n) if n else b"", "type": self.headers.get("Content-Type") or "", "name": name}
+                    body = {"raw": self.rfile.read(n) if n else b"", "type": self.headers.get("Content-Type") or "", "name": name,
+                            "meta": urllib.parse.unquote(self.headers.get("X-Judge") or "")}
                 else:
                     body = json.loads(self.rfile.read(n) or b"{}") if n else {}
                     if not isinstance(body, dict):

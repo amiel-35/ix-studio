@@ -256,3 +256,10 @@ input.pal-input:focus-visible { outline-offset: -2px; }
 @media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); gap: var(--space-5); } }
 @media (hover: none) { .keys { display: none; } }
 
+
+/* the judge: five headings in words, with the mechanical checks; no colour of alert, no heading set above the others */
+.juge { display: grid; gap: var(--space-2); border-top: 1px solid var(--border-subtle); padding-top: var(--space-4); }
+.verdict { display: grid; gap: var(--space-4); width: 100%; }
+.verdict section { display: grid; gap: var(--space-1); }
+.annots > li { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border-subtle); }
+.form .sentence { font-size: var(--fs-body-lg); line-height: 1.6; }

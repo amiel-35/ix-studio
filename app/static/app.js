@@ -45,6 +45,7 @@
     if (n("diverge")) parts.push("écrit les variantes");
     if (n("learn")) parts.push("lit la marque");
     if (n("mandates")) parts.push("prépare les consignes");
+    if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     const left = Math.max(...jobs.map((j) => j.eta || 0));
     return "Le studio " + parts.join(" et ") + ", " + eta(left);
   }
@@ -167,6 +168,7 @@
     const retry = () => ctx.act(async (snap) => {
       if (t.scope === "brand") await api.discover(t.brand);
       else if (t.step === "diverge") await api.diverge(t.project);
+      else if (t.step === "check") await api.judgePiece(t.project, t.piece);
       else await api.drawImage(t.project, t.piece);
       ctx.log(owner(t), "toi", "Relancé : " + taskTitle(t), reason);
       await ctx.answered(owner(t), "C'est relancé.", { before: snap, any: false });
@@ -619,6 +621,21 @@
       readOnly && h("p", { className: "small muted" }, "La série est lancée. Pour la refaire, relance la divergence."));
   }
 
+  /* ================= the judge: five headings, in words, never a score ================= */
+  const REACHED = { yes: "Atteinte", partly: "En partie", no: "Pas atteinte" };
+  const JUDGE_HEADS = [["works", "Ce qui marche"], ["snags", "Ce qui accroche"], ["unsourced", "Sans provenance"], ["brand", "La marque"]];
+  const cap1 = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  function Verdict({ v }) {
+    const heads = JUDGE_HEADS.filter(([k]) => k !== "brand" || v.brand !== null); // the brand is judged only when it is known
+    return h("div", { className: "verdict" },
+      v.missing.length > 0 && h("p", { className: "small muted" }, "Brief incomplet : il manque " + v.missing.join(", ") + ". Le reste est jugé."),
+      h("section", null, h("h3", { className: "cap" }, "La cible"),
+        v.target.reached === "unjudgeable" ? h("p", null, cap1(dot(v.target.why)) + ".") : h("p", null, h("strong", null, REACHED[v.target.reached] + ". "), v.target.why)),
+      heads.map(([k, label]) => h("section", { key: k }, h("h3", { className: "cap" }, label),
+        v[k].length ? h("ul", { className: "annots" }, v[k].map((n, i) => h("li", { key: i }, h("span", { className: "small muted" }, cap1(n.where)), h("span", null, n.say))))
+          : h("p", { className: "small muted" }, "Rien à signaler."))));
+  }
+
   /* ================= 6. a piece: prompt, composition, decision ================= */
   const stageOf = (pc, jobs) => {
     if ((jobs || []).some((j) => j.kind === "image" && j.piece === pc.id)) return "running";
@@ -738,7 +755,8 @@
   }
 
   function Decide({ ctx, pid, id }) {
-    const [pc] = usePiece(ctx, pid, id);
+    const [pc, setPc] = usePiece(ctx, pid, id);
+    useEffect(() => { if (pc && pc.judge && pc.judge.status === "running") api.piece(pid, id).then(setPc).catch(() => { /* the next look will say */ }); }, [ctx.rev]); // the judge ends: its verdict comes in
     const [notes, setNotes] = useState(false);
     const [back, setBack] = useState(false);
     const [words, setWords] = useState("");
@@ -749,6 +767,7 @@
         { before: snap, prefer: (t) => t.piece === id, any: false, sibling: verdict === "keep" ? (t) => t.kind === "decide" && t.piece !== id : undefined });
     });
     const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le png.");
+    const rejudge = () => ctx.act(async () => { await api.judgePiece(pid, id); setPc(await api.piece(pid, id)); await ctx.refresh(); }, "Le studio relance le juge.");
     useCmds(ctx, pc ? [
       !pc.decision && { id: "keep", label: "Garder " + pc.label, run: () => send("keep") },
       { id: "take", label: "Télécharger " + pc.label + " en png", run: take },
@@ -765,6 +784,11 @@
       h("p", { className: "check" }, line, alerts.length > 0 && h(React.Fragment, null, " ",
         h("button", { type: "button", className: "linkbtn", "aria-expanded": notes, onClick: () => setNotes(!notes), "aria-label": notes ? "Cacher les alertes" : "Voir les " + plural(alerts.length, "alerte", "alertes") }, notes ? "Cacher" : "Voir les alertes"))),
       notes && h("ul", { className: "notes" }, alerts.map((n, i) => h("li", { key: i }, n.say))),
+      pc.judge && h("div", { className: "juge", "aria-live": "polite" }, h("p", { className: "cap" }, "Le juge"),
+        pc.judge.status === "running" ? h("p", { className: "small muted" }, "Le juge relit la pièce. Tu peux trancher sans l'attendre.")
+          : pc.judge.status === "failed" ? h("p", { className: "small" }, "Le juge n'a pas pu la relire : " + dot(pc.judge.error) + ". ",
+            h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: rejudge, "aria-label": "Relancer le juge sur " + pc.label }, "Relancer"))
+          : h(Verdict, { v: pc.judge.verdict })),
       pc.decision && h("p", { className: "small" }, h(Badge, { tone: "success" }, "Gardée"), " ", pc.decision.words || "Sans commentaire."),
       back ? h("div", { className: "sec" },
         h("div", { className: "field" }, h("label", { htmlFor: "words" }, "Qu'est-ce qui ne va pas ?"),
@@ -869,11 +893,12 @@
   /* ---------- 1. the studio: what waits everywhere, then the brands ---------- */
   function StudioCol({ ctx }) {
     const { tasks, brands, jobs, loaded } = ctx.data, { sel } = ctx;
+    const judgements = useLive(ctx, () => api.judgements(), "judgements");
     const level = ctx.level(0);
     const total = (b) => b.waiting + b.projects.reduce((n, p) => n + p.waiting, 0);
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h("h2", { className: "sr" }, "Le studio")),
-      h(Row, { col: 0, select: true, sel: !sel.brand && sel.panel !== "newBrand" ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
+      h(Row, { col: 0, select: true, sel: !sel.brand && !sel.panel && !sel.judgement ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Le studio")), h(Count, { n: tasks.length })),
       h(JobLine, { jobs }),
       ctx.machine.missing.length > 0 && h("div", { className: "machine", role: "status", "data-machine": "missing" },
@@ -888,8 +913,16 @@
       loaded && brands.length === 0 && h("p", { className: "vide" }, "Aucune marque. Le « + » en crée une."),
       brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
         label: b.name + ", " + (BRAND_STAGE[b.stage] || b.stage).toLowerCase() + (total(b) ? ", " + plural(total(b), "tâche", "tâches") : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))));
+        h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))),
+      h(Where, null, "Le juge"),
+      h(Row, { col: 0, select: true, sel: sel.panel === "newJudge" ? level : null, onClick: ctx.newJudge, label: "Juger une pièce : déposer une image et son brief" },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, "Une image, son brief, un verdict"))),
+      (judgements || []).map((j) => h(Row, { key: j.id, col: 0, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
+        label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))));
   }
+  const JUDGEMENT_WORD = { running: "Le juge relit", done: "Jugée", failed: "Le juge a échoué" };
+  const day = (sec) => sec ? new Date(sec * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
 
   /* ---------- 2. a brand: its brief, its assets, its projects ---------- */
   const BRIEF_BITS = [["what", ", c'est "], ["who", ". Elle parle "], ["voice", ". Sa voix : "], ["signature", ". Sa signature : « ", " »"], ["never", ". Elle ne dit jamais : "], ["colours", ". Ses couleurs : "]];
@@ -1136,6 +1169,85 @@
           h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.closeDetail(), "aria-label": "Fermer sans enregistrer" }, "Annuler"))));
   }
 
+  /* ---------- the judge on its own: a piece dropped with the brief it answers, then its verdict ---------- */
+  const JUDGE_MAX = 10 * 1024 * 1024;
+  const JPARTS = [...PARTS.filter((p) => p.k !== "format" && p.k !== "fixed" && p.k !== "cta"),
+    { k: "cta", before: ". Pour finir : « ", after: " »", label: "l'appel à l'action" },
+    { k: "fixed", before: ". Les assets : ", label: "le cadre (respecter ou non les assets)", empty: "rien de dit, c'est facultatif", area: true }];
+  const JNEEDED = { objective: "l'objectif", audience: "la cible", message: "le message", cta: "l'appel à l'action" };
+
+  function JudgeForm({ ctx }) {
+    const [file, setFile] = useState(null);
+    const [url, setUrl] = useState(null);
+    const [fields, setFields] = useState({ objective: "", audience: "", message: "", cta: "", fixed: "" });
+    const [open, setOpen] = useState(null);
+    const [brand, setBrand] = useState("");
+    const input = useRef(null);
+    useEscapeClose(ctx, open, setOpen);
+    useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+    const pick = (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      ev.target.value = "";
+      if (!f) return;
+      if (!/^image\/(png|jpeg)$/.test(f.type)) { ctx.fail(new Error("Une pièce à juger se dépose en png ou en jpg.")); return; }
+      if (f.size > JUDGE_MAX) { ctx.fail(new Error("Ce fichier fait plus de 10 Mo.")); return; }
+      setFile(f); setUrl(URL.createObjectURL(f));
+    };
+    const set = (k, v) => setFields({ ...fields, [k]: v });
+    const missing = Object.keys(JNEEDED).filter((k) => !fields[k].trim());
+    const piece = (p) => h(React.Fragment, { key: p.k }, p.before, h("span", {
+      role: "button", tabIndex: 0, className: "bit", "data-bit": p.k, "aria-expanded": open === p.k, "aria-label": "Écrire " + p.label + " : " + (fields[p.k] || "vide"),
+      "data-open": open === p.k, onClick: () => setOpen(open === p.k ? null : p.k),
+      onKeyDown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); setOpen(open === p.k ? null : p.k); } },
+    }, fields[p.k].trim() ? (BRIEF_SHOW[p.k] || dot)(fields[p.k]) : h("span", { className: "blank" }, p.empty || "à écrire")), p.after || "");
+    const cur = JPARTS.find((p) => p.k === open);
+    const launch = () => ctx.act(async () => {
+      const jg = await api.judge(file, { brand: brand || null, brief: fields });
+      ctx.touch(); await ctx.refresh();
+      ctx.selectJudgement(jg.id, "Le juge relit " + jg.name + ".");
+    }, "Le studio envoie la pièce au juge.");
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Le juge"), h("h2", { className: "titre" }, "Juger une pièce")),
+      h("div", { className: "sec form" },
+        h("input", { ref: input, type: "file", className: "sr", accept: "image/png,image/jpeg", onChange: pick, tabIndex: -1, "aria-hidden": "true" }),
+        url && h("figure", { className: "frame wide" }, h("img", { src: url, alt: "La pièce à juger : " + file.name })),
+        h("div", null, h(Button, { variant: file ? "ghost" : "secondary", size: "md", disabled: ctx.busy, onClick: () => input.current && input.current.click(), "aria-label": (file ? "Changer d'image" : "Déposer l'image de la pièce") + " (png ou jpg, 10 Mo au plus)" }, file ? "Changer d'image" : "Déposer l'image")),
+        h("p", { className: "small muted" }, "Le brief d'origine, celui auquel la pièce répond. Touche un passage pour l'écrire."),
+        h("p", { className: "sentence" }, JPARTS.map(piece), "."),
+        cur && h("div", { className: "editor" },
+          h("label", { htmlFor: "jed", className: "small" }, "Écrire " + cur.label),
+          cur.area ? h("textarea", { id: "jed", autoFocus: true, value: fields[cur.k], onChange: (e) => set(cur.k, e.target.value) })
+            : h("input", { id: "jed", type: "text", autoFocus: true, value: fields[cur.k], onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
+          h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer : " + cur.label }, "Fait"))),
+        h("div", { className: "field" }, h("label", { htmlFor: "jb" }, "Sa marque (facultatif)"),
+          h("select", { id: "jb", value: brand, onChange: (e) => setBrand(e.target.value), "aria-describedby": "jb-hint" }, h("option", { value: "" }, "Sans marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
+          h("span", { id: "jb-hint", className: "small muted" }, "Avec une marque, le juge regarde aussi sa voix et son ton.")),
+        h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy || !file, onClick: launch, "aria-label": "Lancer le juge sur cette pièce" }, "Lancer le juge"),
+          h(Button, { variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Ne pas juger de pièce" }, "Annuler")),
+        !file ? h("p", { className: "small muted", role: "status" }, "Il manque l'image.")
+          : missing.length > 0 && h("p", { className: "small muted", role: "status" }, "Il manque " + missing.map((k) => JNEEDED[k]).join(", ") + " : le juge le dira et jugera le reste.")));
+  }
+
+  function JudgementCol({ ctx, jid }) {
+    const jg = useLive(ctx, () => api.judgement(jid), jid);
+    if (!jg) return h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("p", { className: "vide" }, "Un instant."));
+    const b = jg.brief;
+    const again = () => ctx.act(async () => { await api.runJudgement(jid); ctx.touch(); await ctx.refresh(); ctx.notify("Le juge relit " + jg.name + "."); }, "Le studio relance le juge.");
+    const page = () => ctx.act(async () => { const f = await api.judgementPage(jid); saveFile(f); ctx.notify(f.name + " est téléchargée."); }, "Le studio prépare la page.");
+    const said = [b.objective && "Je veux " + BRIEF_SHOW.objective(b.objective), b.audience && "Pour " + BRIEF_SHOW.audience(b.audience), b.message && "Le message : " + dot(b.message),
+      b.cta && "Pour finir : « " + dot(b.cta) + " »", b.fixed && "Les assets : " + dot(b.fixed)].filter(Boolean);
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("h2", { className: "titre" }, jg.name),
+        h("p", { className: "sub" }, [jg.brand_name || "Sans marque", day(jg.at)].filter(Boolean).join(" · "))),
+      h("div", { className: "bodyc" },
+        jg.image && h("figure", { className: "frame wide" }, h("img", { src: jg.image, alt: "La pièce jugée : " + jg.name })),
+        said.length > 0 && h("p", { className: "small muted" }, said.join(". ") + "."),
+        jg.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce.")
+          : jg.status === "failed" ? h(React.Fragment, null, h(Callout, { tone: "risk", label: "Le juge n'a pas pu la relire" }, jg.error || "raison inconnue"),
+            h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
+          : h(React.Fragment, null, h(Verdict, { v: jg.verdict }),
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page")))));
+  }
+
   /* ================= the palette and the menu ================= */
   function matches(c, q) {
     const words = norm(q).split(/\s+/).filter(Boolean);
@@ -1182,10 +1294,12 @@
   /* ================= the application ================= */
   /* what each column is, from left to right, for a selection: the studio always, then a brand (or the form of a new one), a project (or the
      form that edits or creates), the detail of a step (or its form) */
-  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null };
+  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null, judgement: null };
   function columnsOf(sel) {
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
+    if (sel.panel === "newJudge") { c.push("newJudge"); return c; }
+    if (sel.judgement) { c.push("judgement"); return c; }
     if (!sel.brand) return c;
     c.push("brand");
     if (sel.panel === "editBrand") { c.push("editBrand"); return c; }
@@ -1195,7 +1309,7 @@
     if (sel.detail) c.push(sel.detail.kind);
     return c;
   }
-  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
+  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
   /* the width of the window, to know how many columns fit side by side */
   function useWidth() {
@@ -1249,12 +1363,12 @@
       try {
         const r = await api.tasks();
         skew.current = r.now * 1000 - Date.now();
-        const STEP_OF = { learn: "brand", mandates: "mandates", diverge: "diverge", image: "image" };
-        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id)).forEach((j) => {
+        const STEP_OF = { learn: "brand", mandates: "mandates", diverge: "diverge", image: "image", judge: "check" };
+        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id) && !j.judgement).forEach((j) => { // a piece judged on its own has no journal
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
@@ -1282,6 +1396,8 @@
     const selectProject = useCallback((id, text, brand) => move((s) => ({ ...EMPTY, brand: brand || s.brand, project: id }), text), [move]);
     const selectStep = useCallback((key) => move((s) => ({ ...s, detail: { kind: "step", key }, panel: null, task: null })), [move]);
     const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
+    const newJudge = useCallback(() => move(() => ({ ...EMPTY, panel: "newJudge" })), [move]);
+    const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judgement: id }), text), [move]);
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
     const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
@@ -1348,7 +1464,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -1363,6 +1479,7 @@
       data.brands.forEach((b) => cmds.push({ id: "brand:" + b.id, group: "Aller à une marque", label: b.name, run: () => selectBrand(b.id) }));
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
       cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
+      cmds.push({ id: "new-judge", group: "Créer", label: "Juger une pièce", run: newJudge });
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
       if (sel.brand && sel.project) {
@@ -1461,12 +1578,13 @@
     }
 
     /* ----- the columns ----- */
-    const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+    const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
+      : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
     const shell = (kind, i) => {
       const last = i === cols.length - 1;
