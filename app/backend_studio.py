@@ -1761,6 +1761,8 @@ class StudioBackend:
             + "Each of works, snags, unsourced" + (", brand" if has_brand else "") + ' is a list of {"where": "...", "say": "..."} (an empty list when '
             'there is nothing). "where" names what it aims at in words, as one would point at it ("le titre en haut", "le bandeau du bas", '
             '"l\'image"), never coordinates nor a drawn zone. Keep each list short: what matters, at most five.\n'
+            "What the brief says does not move (its line \"ce qui ne bouge pas\") is imposed: never count it as a snag, and do not ask for "
+            "what it rules out (an empty square where the logo goes, for instance, is the brief's choice, not a fault of the piece).\n"
             + (f"The brief lacks {', '.join(missing)}: do not ask anything. "
                + ('Set target to {"reached": "unjudgeable", "why": "non jugeable sur la cible : il manque la cible"} and ' if "la cible" in missing else "Say it where it matters and ")
                + "judge the rest.\n" if missing else "")
