@@ -261,5 +261,9 @@ input.pal-input:focus-visible { outline-offset: -2px; }
 .juge { display: grid; gap: var(--space-2); border-top: 1px solid var(--border-subtle); padding-top: var(--space-4); }
 .verdict { display: grid; gap: var(--space-4); width: 100%; }
 .verdict section { display: grid; gap: var(--space-1); }
+/* the readers: side by side, each under its persona, without a synthesis */
+.lecteurs { display: grid; gap: var(--space-2); border-top: 1px solid var(--border-subtle); padding-top: var(--space-4); width: 100%; }
+.lecteurs .cote { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: flex-start; }
+.lecteur { flex: 1 1 200px; display: grid; gap: var(--space-2); }
 .annots > li { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border-subtle); }
 .form .sentence { font-size: var(--fs-body-lg); line-height: 1.6; }

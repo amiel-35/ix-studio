@@ -67,6 +67,7 @@ class Fake:
         self.judge = "ok"  # what the judge writes: ok (a verdict), none (nothing), bad (a verdict that does not hold)
         self.judge_hold = None  # an Event: the judge waits for it
         self.inputs = ""  # the inputs.md the last judge read
+        self.readers = []  # the inputs.md each reader read
 
     def tool_env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
@@ -126,6 +127,8 @@ class Fake:
         prompt = argv[2]
         if "./verdict.json" in prompt:
             return self.judge_agent(prompt, cwd)
+        if "./reading.json" in prompt:
+            return self.reader_agent(cwd)
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -147,6 +150,18 @@ class Fake:
         v = {"target": {"reached": "maybe"}} if self.judge == "bad" else JUDGED
         (Path(cwd) / "verdict.json").write_text(json.dumps(v, ensure_ascii=False), encoding="utf-8")
         return Result(0, "verdict.json\n", "")
+
+    def reader_agent(self, cwd):
+        """A reader: what it read is kept (`readers`); a persona that says "fail" writes nothing."""
+        text = (Path(cwd) / "inputs.md").read_text(encoding="utf-8")
+        with self.lock:
+            self.readers.append(text)
+        if "fail" in text:
+            return Result(1, "", "the reader gave up")
+        r = {"aimed": "partly", "why": "Je me reconnais un peu.", "understand": "Une boisson.", "retain": "La bouteille.", "bother": "", "unread": "Le bas.",
+             "lacks": "Le goût.", "buy": "oui"}
+        (Path(cwd) / "reading.json").write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
+        return Result(0, "reading.json\n", "")
 
     def image(self, argv):
         d = Path(argv[3])
@@ -181,7 +196,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         f = self.fake
         f.agents_fail, f.claude_down, f.image_fails, f.collect_fails, f.hold, f.fake_png, f.extra_screen = set(), False, False, False, None, True, False
-        f.judge, f.judge_hold = "ok", None
+        f.judge, f.judge_hold, f.readers = "ok", None, []
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,

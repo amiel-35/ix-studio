@@ -77,11 +77,13 @@
     compose: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/compose"),
     decide: (p, i, verdict, words) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/decide", { verdict, words }),
     judgePiece: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/judge"), // the judge of a composed piece, run again
+    runReader: (p, i, n) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/readers/" + n + "/run"), // reader n of a composed piece, run again alone
     /* a piece judged on its own: dropped with the brief it answers and, if any, its brand */
     judgements: () => call("GET", "/api/judgements"),
     judgement: (j) => call("GET", "/api/judgements/" + encodeURIComponent(j)),
-    judge: (file, meta) => upload("/api/judgements", file, meta), // a png or jpg File; meta: { brand, brief: { objective, audience, message, cta, fixed } }. Answers the judgement
+    judge: (file, meta) => upload("/api/judgements", file, meta), // a png or jpg File; meta: { brand, brief: { objective, audience, message, cta, fixed, personas } }. Answers the judgement
     runJudgement: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/run"),
+    runJudgementReader: (j, n) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/readers/" + n + "/run"), // reader n, run again alone
     judgementPage: (j) => download("/api/judgements/" + encodeURIComponent(j) + "/page"), // the flat page of the verdict, an html file
     /* The studio holds brands, a brand holds projects. (The routes of a project's brand, `/api/projects/{p}/brand…`, are kept by the studio but the interface no longer uses them.) */
     brands: () => call("GET", "/api/brands"),

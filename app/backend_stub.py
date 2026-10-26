@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -76,6 +76,15 @@ VERDICT = {"target": {"reached": "partly", "why": "Un citadin pressé comprend v
                      {"where": "le bandeau du bas", "say": "L'appel à l'action est plus petit que la sous-ligne : l'œil s'arrête avant de le lire."}],
            "unsourced": [{"where": "la sous-ligne", "say": "« petite cuvée » : rien dans le brief ni dans la marque ne dit la taille des cuvées."}],
            "brand": [{"where": "le titre en haut", "say": "Direct et pince-sans-rire, c'est bien sa voix ; la chaleur qu'elle revendique manque un peu."}]}
+
+
+# the simulated reader's one reading, plausible and fixed, whatever its persona (a persona whose text contains "fail" makes its reader fail)
+READING = {"aimed": "partly", "why": "Je vois une boisson et un marché, ça me parle un peu, mais rien ne me dit que c'est pour quelqu'un comme moi.",
+           "understand": "Je comprends que c'est une boisson au thé, fermentée, qu'on trouve au marché.",
+           "retain": "La bouteille ambrée dans la lumière du matin.",
+           "bother": "« plus rien » : je ne sais pas si c'est le goût qui s'en va ou autre chose.",
+           "unread": "Le bandeau du bas : je ne l'ai pas lu, il est trop petit.",
+           "lacks": "Ce que ça a comme goût, en vrai, et où est ce marché."}
 
 
 def default_brief():
@@ -190,8 +199,8 @@ class StubBackend:
         for k in keys:
             p["since"][k] = time.time()
 
-    def _job(self, kind, brand=None, project=None, piece=None, judgement=None):
-        j = {"id": self._new_id("job"), "kind": kind, "brand": brand, "project": project, "piece": piece, "judgement": judgement, "start": time.time(),
+    def _job(self, kind, brand=None, project=None, piece=None, judgement=None, reader=None):
+        j = {"id": self._new_id("job"), "kind": kind, "brand": brand, "project": project, "piece": piece, "judgement": judgement, "reader": reader, "start": time.time(),
              "duration": DURATION[kind] * self.speed, "status": "running", "progress": 0.0, "message": "", "result": None, "error": None}
         self.jobs[j["id"]] = j
         if project:
@@ -206,7 +215,8 @@ class StubBackend:
                 continue
             j["progress"] = min(1.0, (now - j["start"]) / j["duration"])
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
-                            "image": "le modèle d'image dessine", "judge": "le juge relit la pièce"}[j["kind"]]
+                            "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
+                            "reader": "un lecteur lit la pièce"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -220,6 +230,9 @@ class StubBackend:
                 else:
                     self._discovered(b)
                 self._touch(b)
+                continue
+            if j["kind"] == "reader":
+                self._read(j)
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -617,7 +630,7 @@ class StubBackend:
             for k in ("objective", "audience", "message"):
                 if not (fields.get(k) or "").strip():
                     raise ValueError(f"brief: {k} is required")
-            p["brief"]["fields"].update({k: str(v) for k, v in fields.items()})
+            p["brief"]["fields"].update({k: workflow.personas_of(v) if k == "personas" else str(v) for k, v in fields.items()})
             p["brief"]["confirmed"] = True
             self._mark(p, "brief", "mandates")
             return {"fields": p["brief"]["fields"], "formats": self._formats(p), "left_out": self._left_out(p)}
@@ -667,7 +680,7 @@ class StubBackend:
                     v = have[vid]
                     p["pieces"].append({"id": f"{vid}-{fmt}", "label": f"{vid} en {fmt}", "variant": vid, "format": fmt, "size": FORMATS[fmt],
                                         "headline": v["headline"], "subline": v["subline"], "prompt": v["image_prompt"], "image": None,
-                                        "composed": None, "check": None, "decision": None, "judge": None, "status": "picked"})
+                                        "composed": None, "check": None, "decision": None, "judge": None, "readers": [], "status": "picked"})
             self._mark(p, "diverge", "image")
             return copy.deepcopy(p["pieces"])
 
@@ -747,7 +760,7 @@ class StubBackend:
         with self.lock:
             p = self._p(pid)
             pc = self._piece(p, i)
-            pc["image"], pc["composed"], pc["check"], pc["decision"], pc["judge"] = None, None, None, None, None
+            pc["image"], pc["composed"], pc["check"], pc["decision"], pc["judge"], pc["readers"] = None, None, None, None, None, []
             return job_view(self._job("image", project=pid, piece=i))
 
     def compose(self, pid, i):
@@ -764,6 +777,7 @@ class StubBackend:
             pc["status"] = "composed"
             self._mark(p, "image", "piece", "decide")
             self._judge(pid, pc)  # the judge reads the piece once it is composed and checked: it blocks nothing
+            pc["readers"] = [self._reader(n, x, project=pid, piece=i)[1] for n, x in enumerate(workflow.personas_of(p["brief"]["fields"].get("personas")))]
             return copy.deepcopy(pc)
 
     def _png(self, pc):
@@ -801,7 +815,7 @@ class StubBackend:
             pc["decision"] = {"verdict": verdict, "words": words, "at": time.time()}
             self._mark(p, "decide")
             if verdict == "again":
-                pc["image"], pc["composed"], pc["check"], pc["judge"], pc["status"] = None, None, None, None, "again"
+                pc["image"], pc["composed"], pc["check"], pc["judge"], pc["readers"], pc["status"] = None, None, None, None, [], "again"
                 pc["decision"] = None
                 pc["bans"] = pc.get("bans", []) + [words]
             return copy.deepcopy(pc)
@@ -834,16 +848,16 @@ class StubBackend:
         return jg
 
     def _jg_status(self, jg):
-        if any(j["judgement"] == jg["id"] and j["status"] == "running" for j in self.jobs.values()):
+        if any(j["judgement"] == jg["id"] and j["kind"] == "judge" and j["status"] == "running" for j in self.jobs.values()):
             return "running"
         return "done" if jg["verdict"] else "failed" if jg["error"] else "running"
 
     def _jg_view(self, jg):
         st = self._jg_status(jg)
-        job = next((j["id"] for j in self.jobs.values() if j["judgement"] == jg["id"] and j["status"] == "running"), None)
+        job = next((j["id"] for j in self.jobs.values() if j["judgement"] == jg["id"] and j["kind"] == "judge" and j["status"] == "running"), None)
         return {"id": jg["id"], "name": jg["name"], "brand": jg["brand"], "brand_name": jg["brand_name"], "brief": dict(jg["brief"]), "image": jg["image"],
                 "at": jg["at"], "status": st, "verdict": copy.deepcopy(jg["verdict"]) if st == "done" else None, "error": jg["error"] if st == "failed" else None,
-                "missing": workflow.judge_missing(jg["brief"]), "job": job}
+                "missing": workflow.judge_missing(jg["brief"]), "job": job, "readers": copy.deepcopy(jg["readers"])}
 
     def list_judgements(self):
         """The judgements made on their own, the newest first."""
@@ -870,6 +884,7 @@ class StubBackend:
                   "image": f"data:{mime};base64," + base64.b64encode(data).decode(), "at": time.time(), "verdict": None, "error": None}
             self.judgements[jid] = jg
             self._job("judge", judgement=jid)
+            jg["readers"] = [self._reader(n, x, judgement=jid)[1] for n, x in enumerate(m["brief"]["personas"])]
             return self._jg_view(jg)
 
     def judgement(self, jid):
@@ -886,6 +901,55 @@ class StubBackend:
                 raise Conflict("the judge is already reading this piece")
             jg["verdict"], jg["error"] = None, None
             return job_view(self._job("judge", judgement=jid))
+
+    # ---------- the readers: one per persona of the brief, beside the judge ----------
+    def _reader(self, n, persona, project=None, piece=None, judgement=None):
+        """Start reader `n`: its job and its view (running)."""
+        j = self._job("reader", project=project, piece=piece, judgement=judgement, reader=n)
+        return j, workflow.reader_view(n, persona, j, None)
+
+    def _readers_of(self, j):
+        if j["judgement"]:
+            return (self.judgements.get(j["judgement"]) or {}).get("readers") or []
+        p = self.projects.get(j["project"])
+        pc = next((x for x in p["pieces"] if x["id"] == j["piece"]), None) if p else None
+        return (pc or {}).get("readers") or []
+
+    def _read(self, j):
+        """A reader's job ends: its fixed reading, or its failure when its persona says "fail". A reader started again since keeps the new one."""
+        rs = self._readers_of(j)
+        r = next((x for x in rs if x["job"] == j["id"]), None)
+        if not r:
+            return
+        if "fail" in r["persona"].lower():
+            j["status"], j["error"] = "failed", "le lecteur n'a pas répondu (simulé)"
+            j["message"] = j["error"]
+            rs[r["n"]] = workflow.reader_view(r["n"], r["persona"], j, None)
+        else:
+            rs[r["n"]] = workflow.reader_view(r["n"], r["persona"], None, {"persona": r["persona"], "reading": workflow.parse_reading(copy.deepcopy(READING))})
+
+    def _rerun(self, rs, n, **owner):
+        if not 0 <= n < len(rs):
+            raise NotFound(f"no reader {n}")
+        if rs[n]["status"] == "running":
+            raise Conflict("this reader is already reading the piece")
+        j, rs[n] = self._reader(n, rs[n]["persona"], **owner)
+        return job_view(j)
+
+    def run_reader(self, pid, i, n):
+        """Run reader `n` of a composed piece again, alone."""
+        with self.lock:
+            self._tick()
+            pc = self._piece(self._p(pid), i)
+            if not pc["composed"]:
+                raise Conflict("this piece is not composed yet")
+            return self._rerun(pc.setdefault("readers", []), n, project=pid, piece=i)
+
+    def run_judgement_reader(self, jid, n):
+        """Run reader `n` of a judgement again, alone."""
+        with self.lock:
+            self._tick()
+            return self._rerun(self._jg(jid)["readers"], n, judgement=jid)
 
     def judgement_page(self, jid):
         """The flat page of a judgement (the piece at the top, the list under it), as a file."""

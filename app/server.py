@@ -74,10 +74,12 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/pieces/{I}/compose", lambda b, m, d: b.compose(m["p"], m["i"])),
     ("POST", rf"/api/projects/{P}/pieces/{I}/decide", lambda b, m, d: b.decide(m["p"], m["i"], d.get("verdict"), d.get("words", ""))),
     ("POST", rf"/api/projects/{P}/pieces/{I}/judge", lambda b, m, d: b.judge_piece(m["p"], m["i"])),
+    ("POST", rf"/api/projects/{P}/pieces/{I}/readers/(?P<n>[0-9])/run", lambda b, m, d: b.run_reader(m["p"], m["i"], int(m["n"]))),
     ("GET", r"/api/judgements", lambda b, m, d: b.list_judgements()),
     ("POST", r"/api/judgements", lambda b, m, d: b.create_judgement(d["raw"], d["type"], d["name"], d["meta"])),
     ("GET", rf"/api/judgements/{J}", lambda b, m, d: b.judgement(m["j"])),
     ("POST", rf"/api/judgements/{J}/run", lambda b, m, d: b.run_judgement(m["j"])),
+    ("POST", rf"/api/judgements/{J}/readers/(?P<n>[0-9])/run", lambda b, m, d: b.run_judgement_reader(m["j"], int(m["n"]))),
     ("GET", rf"/api/judgements/{J}/page", lambda b, m, d: b.judgement_page(m["j"])),
     ("GET", r"/api/jobs/(?P<j>[\w-]+)", lambda b, m, d: b.job(m["j"])),
 ]
