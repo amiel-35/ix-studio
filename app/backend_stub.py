@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "research": 4.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -123,6 +123,14 @@ COMPETITORS = {"competitors": [
      "differs": "Doux et sucré, pour les enfants aussi ; la marque est acidulée et vise les adultes."},
     {"name": "Thé Vagabond", "from": "dossier", "sells": "des thés en vrac et des infusions froides aux cafés de la ville.",
      "differs": "Il vend la feuille, à infuser soi-même ; la marque vend une boisson prête, fermentée, à boire tout de suite."}]}
+
+# research: the simulated research agent's one answer, plausible, fixed and fictional
+RESEARCH = {"research": [
+    {"url": "https://www.exemple-marque.test/", "brings": "Le site de la marque : ses couleurs, son ton, son logo.", "belonging": "officielle"},
+    {"url": "https://www.exemple-marque.test/campagnes/printemps", "brings": "Une campagne d'affichage, au ton direct et pince-sans-rire.", "belonging": "officielle"},
+    {"url": "https://presse.exemple.test/une-marque-qui-se-sert", "brings": "Un article qui nomme la marque et son agence et décrit la campagne.", "belonging": "officielle relayée"},
+    {"url": "https://blog.exemple.test/kombucha-de-port", "brings": "Un billet qui parle de son goût et de ses étiquettes.", "belonging": "probable"},
+    {"url": "https://annuaire.exemple.test/fiche/1234", "brings": "Une fiche d'annuaire qui porte un nom proche, peut-être une autre marque.", "belonging": "incertaine"}]}
 
 
 def default_brief():
@@ -255,7 +263,8 @@ class StubBackend:
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
-                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents"}[j["kind"]]
+                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents",
+                            "research": "un agent cherche sur le web"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -286,6 +295,11 @@ class StubBackend:
                 b = self.brands.get(j["brand"])
                 if b:
                     b["competitors_proposed"] = workflow.parse_competitors(copy.deepcopy(COMPETITORS))
+                continue
+            if j["kind"] == "research":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["research_proposed"] = workflow.parse_research(copy.deepcopy(RESEARCH))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -682,6 +696,36 @@ class StubBackend:
             b = self._b(bid)
             b["competitors"], b["competitors_proposed"] = texts, []
             return self._competitors_view(b)
+
+    # ---------- routes: research ----------
+    def _research_view(self, b):
+        run = self._running("research", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "research" and j["brand"] == b["id"]), None)
+        return {"research": list(b.get("research", [])), "proposed": list(b.get("research_proposed", [])),
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_research(self, bid):
+        with self.lock:
+            self._tick()
+            return self._research_view(self._b(bid))
+
+    def propose_research(self, bid):
+        """The research agent: up to ten results on the web (a job). The simulated one answers RESEARCH."""
+        with self.lock:
+            self._tick()
+            self._b(bid)
+            if self._running("research", brand=bid):
+                raise Conflict("the research is already running")
+            return job_view(self._job("research", brand=bid))
+
+    def put_research(self, bid, research):
+        """The results the person keeps: only these are the brand's (their addresses, nothing downloaded). The proposal is settled."""
+        kept = workflow.research_of(research)
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["research"], b["research_proposed"] = kept, []
+            return self._research_view(b)
 
     # ---------- routes: projects ----------
     def list_projects(self):

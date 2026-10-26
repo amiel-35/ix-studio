@@ -111,7 +111,7 @@ JSON, or stops with its reason and a non-zero code. Write the inputs from what y
 - `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
 
 The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
-The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.
+The brand's agents (personas, names, competitors, research on the web) are in the `brand-dossier` skill.
 
 ## Which tool for which job
 

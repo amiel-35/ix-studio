@@ -29,6 +29,7 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"research": [': {{"research": [{{"url": "https://cabane.fr/", "brings": "Le site, ses couleurs.", "belonging": "officielle"}}]}},
     '{{"common": ': {{"common": "Écrire en français.", "mandates": ["Un", "Deux", "Trois", "Rupture : Quatre"]}},
 }}
 for key, body in ANSWERS.items():
@@ -91,6 +92,7 @@ class Agents(unittest.TestCase):
         "personas": (BRAND, "personas", ["personas"]),
         "names": (BRAND, "names", ["names"]),
         "competitors": (BRAND, "competitors", ["competitors"]),
+        "research": ({"name": "Cabane"}, "research", ["research"]),
         "mandates": ({"dir": "piece", "language": "fr"}, "common", ["common", "mandates"]),
         "variant": ({"dir": "piece", "id": "v1", "mandate": "Un", "common": "Rien d'inventé.", "language": "fr"}, "headline", ["headline", "layout"]),
         "judge": (PIECE, "target", ["target", "works", "snags", "unsourced", "brand", "missing"]),
@@ -105,6 +107,23 @@ class Agents(unittest.TestCase):
                 got = json.loads(r.stdout)
                 for k in keys:
                     self.assertIn(k, got)
+
+    def test_the_research_agent_has_the_web_search_and_nothing_else_and_its_results_hold(self):
+        r = self.run_cmd("research", {"name": "Cabane"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"research": [{"url": "https://cabane.fr/", "brings": "Le site, ses couleurs.", "belonging": "officielle"}]})
+        argv = self.calls()[-1]["argv"]
+        self.assertIn("--tools=WebSearch", argv)
+        from importlib import util
+        spec = util.spec_from_file_location("answers", AGENTS / "answers.py")
+        answers = util.module_from_spec(spec)
+        spec.loader.exec_module(answers)
+        one = {"url": "https://a.fr/", "brings": "Un site.", "belonging": "probable"}
+        for bad in ({"research": []}, {"research": [{**one, "url": ""}]}, {"research": [{**one, "url": "a.fr"}]}, {"research": [{**one, "belonging": "sûre"}]},
+                    {"research": [{**one, "brings": ""}]}, {"research": [one, one]}, {"research": [{**one, "url": f"https://a.fr/{n}"} for n in range(11)]}, "rien"):
+            with self.assertRaises(ValueError):
+                answers.parse_research(bad)
+        self.assertEqual(answers.parse_research({"research": [{**one, "belonging": "officielle relayee"}]})[0]["belonging"], "officielle relayée")
 
     def test_the_answer_can_also_go_in_a_file(self):
         out = self.tmp / "answer.json"
@@ -146,7 +165,7 @@ class Agents(unittest.TestCase):
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 5 + ["claude-fable-5-1"] * 2)
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 6 + ["claude-fable-5-1"] * 2)
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")

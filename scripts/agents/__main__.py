@@ -6,6 +6,7 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     personas     the personas of a brand            inputs: name, site, description, brief, words, dossier        gives {"personas": [texts]}
     names        the names of a brand               inputs: name, description, brief, words                       gives {"names": [{name, why}]}
     competitors  the competitors of a brand         inputs: as personas                                           gives {"competitors": [texts]}
+    research     what the web says of a brand       inputs: name, site, description                               gives {"research": [{url, brings, belonging}]}
     mandates     the instructions of a project      inputs: dir (a piece folder of scripts/studio), words, language   gives {"common", "mandates": [four]}
     variant      one variant of a project           inputs: dir, id, mandate, common, language, work (its folder)                   writes <dir>/variants/<id>.json, gives it
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
@@ -33,11 +34,12 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
-                     parse_reading, parse_verdict)
+                     parse_reading, parse_research, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "research": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
+SEARCHES = ["--tools=WebSearch", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that searches the web and nothing else
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
 
@@ -166,10 +168,24 @@ def competitors_prompt(i) -> str:
         "- Plain French, no em dash, no emoji.")
 
 
-def answer_of(cmd, i, prompt, parse, model, runner):
+def research_prompt(i) -> str:
+    return (
+        "You search the web for what is said of a brand: its site, its campaigns, what the press writes of it. Use the web search tool. You find "
+        "addresses to look at, you do not copy their content.\n\n"
+        f"=== the brand ===\nname: {i['name']}\nsite: {i.get('site') or '(none)'}\ndescription: {one_line(i.get('description')) or '(none)'}\n"
+        "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"research": [{"url": "https://...", "brings": "...", "belonging": "officielle" | "officielle relayée" | "probable" | "incertaine"}]}\n'
+        "- research: ten at most, each a different address, each one you actually found. No result without its address, never an address you guess.\n"
+        "- brings: one sentence, in French: what it brings to know the brand (its colours, its tone, a campaign, its logo).\n"
+        "- belonging: \"officielle\" when the address is on the domain of the brand; \"officielle relayée\" when it is an article that names the brand "
+        "and its agency; \"probable\" when it is very likely about this brand; \"incertaine\" when it may be about another brand of the same name.\n"
+        "- Plain French, no em dash, no emoji.")
+
+
+def answer_of(cmd, i, prompt, parse, model, runner, flags=NOTHING):
     """A brand agent: it only answers; what it said is checked by `parse`."""
     with tempfile.TemporaryDirectory(prefix=f"ixs-{cmd}-") as work:
-        res = ask(prompt, cmd, NOTHING, work, 300, model, runner)
+        res = ask(prompt, cmd, flags, work, 300, model, runner)
     if res.code:
         raise AgentError("l'agent n'a pas répondu : " + tail(res))
     try:
@@ -403,8 +419,11 @@ def cmd_reader(i, model, runner):
     return read_piece("reader", i, reader_inputs(i["persona"], i.get("texts")), reader_prompt(i.get("language") or "fr"), "reading.json", model, runner,
                       "le lecteur n'a pas écrit sa lecture", "lecture illisible", parse_reading)
 
+def cmd_research(i, model, runner):
+    return answer_of("research", i, research_prompt(i), parse_research, model, runner, SEARCHES)
 
-COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "mandates": cmd_mandates, "variant": cmd_variant,
+
+COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "research": cmd_research, "mandates": cmd_mandates, "variant": cmd_variant,
             "judge": cmd_judge, "reader": cmd_reader}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 

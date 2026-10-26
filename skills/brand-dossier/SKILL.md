@@ -66,9 +66,9 @@ the exports yourself.
    with ASK lines left: they stay missing for every module downstream. Validation writes `history/vN/` and the
    exports.
 
-## Personas, names, competitors
+## Personas, names, competitors, research
 
-Three agents, run by the same commands as in the interface: `AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"` (from a clone `<repo>/scripts/agents`), then
+Four agents, run by the same commands as in the interface: `AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"` (from a clone `<repo>/scripts/agents`), then
 `python3 "$AG" <command> inputs.json`. The inputs are `name`, `site`, `description`, `words` (what the person says of the brand), `brief` (a list of
 `{key, value, state}` with the keys `what`, `who`, `voice`, `signature`, `never`, `colours` and the state `confirmed` or `deduced`, taken from the
 dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show and correct, never facts to file.
@@ -77,7 +77,9 @@ dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show 
 - `names`: up to eight names with their why; when the brand has only a working title. Nobody checked that a name is free.
 - `competitors`: up to six, each marked `dossier` or `supposé`; no figure.
 
-They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`) changes it.
+- `research`: given a name (the other inputs are optional), searches the web for the brand's site, campaigns and press: up to ten `{url, brings, belonging}` (`officielle`, `officielle relayée`, `probable`, `incertaine`), each with its address. Show them, let the person keep or drop each; nothing is downloaded, keep the addresses.
+
+They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_RESEARCH`) changes it.
 
 ## Reading the dossier from another module
 

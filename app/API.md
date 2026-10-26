@@ -10,7 +10,7 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
   piece dropped to be judged whose name contains `fail` makes the judge fail. Its readers give one fixed reading; a persona whose text contains `fail`
   makes its reader fail; its personas agent gives three plausible, fixed personas; its names agent five plausible, fixed names;
-  its competitors agent gives four plausible, fixed, fictional competitors.
+  its competitors agent gives four plausible, fixed, fictional competitors; its research agent five fictional results.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
@@ -70,7 +70,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     the logo), `brand-brief` (write the brief of the brand; or, once it is written, find the logo, or choose the colours), `brand-confirm` (confirm what was deduced: the question lists the values) or `job-failed`
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
-- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `mandates` (the real backend: an agent
+- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `research` (an agent searches the web for what is said of a brand), `mandates` (the real backend: an agent
   proposes the instructions), `diverge`, `image`, `judge` (the judge reads a piece: one of a project, or one dropped on its own) or `reader` (a persona reads it); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
@@ -112,6 +112,12 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   knows of the brand, or supposed), `Vend : …` (what it sells and to whom, one line), `Se distingue : …` (its angle, its tone, against the
   brand, one line). No figure (share, turnover, ranking). At most six, each its own name (`workflow.parse_competitors`, the same for both
   backends). What the person keeps is free text.
+- **research**: what the web says of a brand, `{research, proposed, job, error}`: `research` the results the person kept (only these are the
+  brand's), `proposed` those of the last `research` job not settled yet, `job` and `error` as for the personas (there is no `can_propose`: a name is
+  enough). A result is `{url, brings, belonging}`: its address (`http` or `https`, no result without one), one sentence on what it brings (colours,
+  tone, campaign, logo), and its `belonging`: `officielle` (the domain of the brand), `officielle relayée` (an article that names the brand and its
+  agency), `probable`, `incertaine`. Ten at most, no address twice (`workflow.parse_research`, the same for both backends). Nothing found is
+  downloaded: the brand keeps the address.
 
 - **reader**: a persona of the brief reading the piece, `{n, persona, status, reading, error, job}`. **A brief may name one to four personas**
   (`personas`, a list of free texts written by the person: "tu as 55 ans, artisan, …"; empty texts are left out, more than four is a 400). Each
@@ -146,6 +152,9 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `GET /api/brands/{b}/names` | the brand's **names** (see the shape) |
 | `POST /api/brands/{b}/names/propose` | an agent proposes up to eight names from the brief of the brand (what it is, for whom, its voice): a job of `kind` `names`, no search on the web. When it ends, they are in `proposed`, never in `names` by themselves. 409 while the brief of the brand is not done, or while the job runs |
 | `PUT /api/brands/{b}/names` `{names: [{name, why}], chosen?}` | the names the person keeps, or writes (the empty names and the repeated ones dropped; 400 for more than eight, or for anything but a list of objects). They replace the brand's, and `proposed` is emptied. `chosen`, one of these names (400 otherwise), **becomes the brand's name** (as `PUT /api/brands/{b}` `{name}`: its id does not change). Answers the names |
+| `GET /api/brands/{b}/research` | the brand's **research** (see the shape) |
+| `POST /api/brands/{b}/research/propose` | an agent searches the web (the search tool of `claude -p`) for the brand's site, its campaigns and what the press says of it: a job of `kind` `research`. When it ends, up to ten results are in `proposed`, never in `research` by themselves. 409 while the job runs |
+| `PUT /api/brands/{b}/research` `{research: [result]}` | the results the person keeps (400 for more than ten, a result without an address, a belonging out of the four, or anything but a list; an empty list keeps none). They replace the brand's, and `proposed` is emptied. Answers the research |
 | `GET /api/brands/{b}/competitors` | the brand's **competitors** (see the shape) |
 | `POST /api/brands/{b}/competitors/propose` | an agent proposes up to six competitors from what the studio knows of the brand (its dossier, its brief) and what it knows of the market: a job of `kind` `competitors`, no search on the web. When it ends, they are in `proposed`, never in `competitors` by themselves. 409 while the brief of the brand is not done, or while the job runs |
 | `PUT /api/brands/{b}/competitors` `{competitors: [text]}` | the competitors the person keeps, corrected or written by hand (the empty ones dropped; 400 for more than six, or for anything but a list of texts). They replace the brand's, and `proposed` is emptied. The person may write them all without the job. Answers the competitors |
@@ -211,6 +220,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `personas/propose` (the `personas` job) | `scripts/agents personas <inputs.json>` (the brand's name, site, description, the fields of its brief with their state, the person's words, the path of `<m>/brand/brand.json`; written in `<m>/work/personas/`); the command holds the prompt (`claude -p`, model `sonnet`, no tool) and checks the answer (`answers.parse_personas`: anything else is a failed job, with the command's reason); the personas go to `personas_proposed` of `marque.json`. `PUT personas` writes `personas` there |
 | `names/propose` (the `names` job) | `scripts/agents names <inputs.json>`, the brand's provisional name, its description, its brief and the person's words; checked by `answers.parse_names` (anything else is a failed job); the names go to `names_proposed` of `marque.json`. `PUT names` writes `names` there; a `chosen` name is then given as `PUT /brands/{b}` gives one |
 | `competitors/propose` (the `competitors` job) | `scripts/agents competitors <inputs.json>`, the same inputs as the personas; checked by `answers.parse_competitors` (anything else is a failed job); the competitors go to `competitors_proposed` of `marque.json`. `PUT competitors` writes `competitors` there |
+| `research/propose` (the `research` job) | `scripts/agents research <inputs.json>`, the same inputs as the personas (only the name is needed); the command holds the prompt (`claude -p`, model `sonnet`, the web search tool only) and checks the answer (`answers.parse_research`: anything else is a failed job); the results go to `research_proposed` of `marque.json`. `PUT research` writes `research` there |
 | `PUT /brands/{b}` | a new name is also given to the dossier: `brandkit answer <m>/brand identity.name <name>` |
 | `PUT brief` (the project's) | `studio brand <piece> --from-dossier <m>/brand --include-unconfirmed --force`, the colours that `brand.md` lacks are completed from the measured ones and marked `(à confirmer)` (with no colour to take them from, the answer is a 400 that says so: there is no neutral stand-in), `studio brand <piece>`; then writes `<piece>/brief.md`, `studio brief <piece>` (its refusal is the 400), then starts the `mandates` job |
 | `mandates` job | `scripts/agents mandates <inputs.json>` (the piece folder, its language, the person's words): the proposal, or a default one when the command fails |
@@ -234,5 +244,5 @@ project moves to `marques/<b>/projets/<p>/` with `brand` the brand's id and `typ
 (`brand`, `learn`, `brand_name`, `site`) set aside under `legacy` in its `project.json`. A project called `marques` becomes `marques-projet`.
 
 Environment: `STUDIO_BACKEND` (`studio` or `stub`), `STUDIO_HOME` (the brands and their projects, default `~/ix-studio-projets`), `STUDIO_IMAGE_ENGINE`
-(`auto`, `openai`, `codex`, `none`), `STUDIO_CLAUDE_BIN` (the program the agents run in place of `claude`), `STUDIO_MODEL_<COMMAND>` (the model of one agent: `STUDIO_MODEL_JUDGE`, `_READER`, `_PERSONAS`, `_NAMES`, `_COMPETITORS`, `_MANDATES`, `_VARIANT`; defaults: `claude-fable-5-1` for the judge and the readers, `sonnet` for the others; `scripts/agents <command> --model` too), `STUDIO_STUB_MISSING` (simulated backend: tools it lacks, `chrome,claude,image`), `STUDIO_CLAUDE_USE_API_KEY=1` (keep `ANTHROPIC_API_KEY` for
+(`auto`, `openai`, `codex`, `none`), `STUDIO_CLAUDE_BIN` (the program the agents run in place of `claude`), `STUDIO_MODEL_<COMMAND>` (the model of one agent: `STUDIO_MODEL_JUDGE`, `_READER`, `_PERSONAS`, `_NAMES`, `_COMPETITORS`, `_RESEARCH`, `_MANDATES`, `_VARIANT`; defaults: `claude-fable-5-1` for the judge and the readers, `sonnet` for the others; `scripts/agents <command> --model` too), `STUDIO_STUB_MISSING` (simulated backend: tools it lacks, `chrome,claude,image`), `STUDIO_CLAUDE_USE_API_KEY=1` (keep `ANTHROPIC_API_KEY` for
 `claude -p`; without it the key is dropped from its environment so that the plan pays), `STUDIO_AUTH`, `STUDIO_TOKEN`, `STUDIO_PORT`.
