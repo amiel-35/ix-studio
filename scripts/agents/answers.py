@@ -313,3 +313,49 @@ def check_variant(path: Path, vid: str):
     if v.get("fit", "contain") not in ("contain", "cover"):
         return False, f"{vid}: fit must be contain or cover"
     return True, ""
+
+
+# ---------- storyboard: the script and the shots of a film ----------
+SHOTS_MIN, SHOTS_MAX, FILM_MIN, FILM_MAX, SHOT_MAX = 5, 8, 15, 30, 8  # shots; seconds of the film; seconds of a shot
+SHOT_VISUALS = ("texte", "logo")
+
+
+def parse_storyboard(raw, colours=None) -> dict:
+    """What the storyboard agent answers, checked: `{"script", "shots": [{seconds, visual, text, colour, read}]}`, five to eight shots, a film of fifteen
+    to thirty seconds, each shot on a colour of the brand (`colours`, when they are given). `visual` is `texte` (the text on the screen) or `logo`
+    (the brand's logo, no text). A ValueError says what does not hold. The person's corrections go through the same check."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    script = one_line(raw.get("script"))[:1500] if isinstance(raw, dict) else ""
+    items = raw.get("shots") if isinstance(raw, dict) else None
+    if not script:
+        raise ValueError("il manque le script du film")
+    if not isinstance(items, list) or not SHOTS_MIN <= len(items) <= SHOTS_MAX:
+        raise ValueError(f"il faut de {SHOTS_MIN} à {SHOTS_MAX} plans")
+    allowed = {str(c).lower() for c in colours or []}
+    shots = []
+    for n, it in enumerate(items, 1):
+        it = it if isinstance(it, dict) else {}
+        sec, visual, colour = it.get("seconds"), it.get("visual"), str(it.get("colour") or "").strip().lower()
+        text, read = one_line(it.get("text"))[:90], one_line(it.get("read"))[:300]
+        if isinstance(sec, bool) or not isinstance(sec, (int, float)) or not 1 <= sec <= SHOT_MAX:
+            raise ValueError(f"plan {n} : sa durée est un nombre de secondes, de 1 à {SHOT_MAX}")
+        if visual not in SHOT_VISUALS:
+            raise ValueError(f"plan {n} : visual vaut {' ou '.join(SHOT_VISUALS)}")
+        if not re.fullmatch(r"#[0-9a-f]{6}", colour) or (allowed and colour not in allowed):
+            raise ValueError(f"plan {n} : sa couleur est une couleur de la marque (#rrggbb)")
+        if visual == "texte" and not text:
+            raise ValueError(f"plan {n} : le texte à l'écran manque")
+        if not read:
+            raise ValueError(f"plan {n} : ce qu'on lit manque")
+        shots.append({"seconds": sec, "visual": visual, "text": text if visual == "texte" else "", "colour": colour, "read": read})
+    total = sum(x["seconds"] for x in shots)
+    if not FILM_MIN <= total <= FILM_MAX:
+        raise ValueError(f"le film fait {total:g} s : il en faut de {FILM_MIN} à {FILM_MAX}")
+    return {"script": script, "shots": shots}

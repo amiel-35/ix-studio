@@ -267,3 +267,8 @@ input.pal-input:focus-visible { outline-offset: -2px; }
 .lecteur { flex: 1 1 200px; display: grid; gap: var(--space-2); }
 .annots > li { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border-subtle); }
 .form .sentence { font-size: var(--fs-body-lg); line-height: 1.6; }
+
+/* storyboard: the shots of a film, one editor each; the film is a vertical video at the width of a phone */
+#film input[type="number"] { width: 5rem; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+#film select { width: auto; }
+#film video { display: block; max-width: 100%; border-radius: var(--radius-md); background: var(--surface-card); }

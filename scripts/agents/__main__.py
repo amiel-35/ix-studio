@@ -10,6 +10,7 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     mandates     the instructions of a project      inputs: dir (a piece folder of scripts/studio), words, language   gives {"common", "mandates": [four]}
     variant      one variant of a project           inputs: dir, id, mandate, common, language, work (its folder)                   writes <dir>/variants/<id>.json, gives it
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
+    storyboard   the script and the shots of a film   inputs: name, brand, colours, brief, language                  gives {"script", "shots": [{seconds, visual, text, colour, read}]}
     reader       the reading of a piece by a persona  inputs: image, persona, texts, language                     gives the reading (aimed, why, understand, ...)
 
 The inputs are a JSON object; a path in it is read from the folder of the inputs file. `brief` (of a brand) is a list of {key, value, state}
@@ -34,10 +35,10 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from answers import (TEXT_KINDS, check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
-                     parse_reading, parse_texts, parse_verdict)
+                     parse_reading, parse_storyboard, parse_texts, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "texts": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "texts": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST, "storyboard": DEFAULT}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
@@ -436,8 +437,42 @@ def cmd_reader(i, model, runner):
                       "le lecteur n'a pas écrit sa lecture", "lecture illisible", parse_reading)
 
 
+# ---------- the film: storyboard ----------
+def storyboard_prompt(i) -> str:
+    brand = "\n".join(f"- {LABELS[k]}: {one_line(v)}" for k, v in (i.get("brand") or {}).items() if k in LABELS and one_line(v))
+    brief = "\n".join(f"- {k}: {one_line(v)}" for k, v in (i.get("brief") or {}).items() if one_line(v))
+    lang = i.get("language") or "fr"
+    return (
+        "You write the script and the shots of a short film for a brand: a vertical film of 15 to 30 seconds, made by code (texts and the logo "
+        "moving on colours of the brand). You only use what is given below: no search, no other source.\n\n"
+        f"=== the brand ===\nname: {i['name']}\n{brand or '(nothing more)'}\ncolours of the brand: {', '.join(i.get('colours') or []) or '(none given)'}\n"
+        f"=== the brief of the project (confirmed by the person) ===\n{brief or '(empty)'}\n"
+        "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"script": "...", "shots": [{"seconds": 3, "visual": "texte" | "logo", "text": "...", "colour": "#rrggbb", "read": "..."}]}\n'
+        "- script: two or three sentences: what the film says, from the first shot to the last.\n"
+        "- shots: five to eight, in order; the seconds of all the shots add up to 15 at least and 30 at most; one shot lasts from 1 to 8 seconds.\n"
+        "- visual: \"texte\" shows the text on the screen; \"logo\" shows the logo of the brand alone (text empty). The last shot is the logo.\n"
+        "- text: what is on the screen, at most 12 words, in the language of the brief; short enough to be read in the seconds of the shot.\n"
+        "- colour: one of the colours of the brand given above, never another.\n"
+        "- read: the line one reads or hears over the shot (a sentence in the language of the brief): the script of this shot.\n"
+        "- Nothing is invented: no figure, price, date, label, award, testimonial or promise that is in neither the brand nor the brief. "
+        "Never use the words the brand never says.\n"
+        f"- Plain {lang}, addressing the audience as the brief does, no em dash, no emoji.")
+
+
+def cmd_storyboard(i, model, runner):
+    with tempfile.TemporaryDirectory(prefix="ixs-storyboard-") as work:
+        res = ask(storyboard_prompt(i), "storyboard", NOTHING, work, 300, model, runner)
+    if res.code:
+        raise AgentError("l'agent n'a pas répondu : " + tail(res))
+    try:
+        return parse_storyboard(res.out, i.get("colours"))
+    except ValueError as err:
+        raise AgentError(f"réponse de l'agent illisible : {err}") from None
+
+
 COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "texts": cmd_texts, "mandates": cmd_mandates, "variant": cmd_variant,
-            "judge": cmd_judge, "reader": cmd_reader}
+            "judge": cmd_judge, "reader": cmd_reader, "storyboard": cmd_storyboard}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
 

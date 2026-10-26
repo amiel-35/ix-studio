@@ -10,7 +10,8 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
   piece dropped to be judged whose name contains `fail` makes the judge fail. Its readers give one fixed reading; a persona whose text contains `fail`
   makes its reader fail; its personas agent gives three plausible, fixed personas; its names agent five plausible, fixed names;
-  its competitors agent gives four plausible, fixed, fictional competitors; its texts agent gives four plausible, fixed texts.
+  its competitors agent gives four plausible, fixed, fictional competitors; its texts agent gives four plausible, fixed texts; its storyboard agent gives one
+  fixed storyboard of six shots, and its film is one small fixed mp4.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
@@ -70,7 +71,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     the logo), `brand-brief` (write the brief of the brand; or, once it is written, find the logo, or choose the colours), `brand-confirm` (confirm what was deduced: the question lists the values) or `job-failed`
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
-- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `texts` (an agent proposes the hooks and posts of a project), `mandates` (the real backend: an agent
+- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `texts` (an agent proposes the hooks and posts of a project), `storyboard` (an agent writes a project's film script and shots), `film` (the film is rendered by code), `mandates` (the real backend: an agent
   proposes the instructions), `diverge`, `image`, `judge` (the judge reads a piece: one of a project, or one dropped on its own) or `reader` (a persona reads it); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
@@ -117,6 +118,14 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   `error` as for the personas. A text is free text: a hook is one line (120 signs at most), a post a few lines (700 at most). Six at most, none
   twice, no em dash, and no figure that is not in the brief or in the brand (`answers.parse_texts`, the same for both backends).
 
+- **storyboard**: the script and the shots of a project's film, `{script, shots, saved, can_propose, job, error, film, film_job, film_error}`.
+  `shots` are five to eight `{seconds, visual, text, colour, read}`: `seconds` from 1 to 8 (the film makes 15 to 30), `visual` `texte` (the `text`
+  is on the screen) or `logo` (the brand's logo alone, `text` empty), `colour` one of the brand's colours (`#rrggbb`), `read` the line one reads over
+  the shot. Nothing invented: no figure or promise that is in neither the brief nor the brand. `saved` is false while the person has not read and
+  saved what the agent proposed (`PUT` saves, with the same checks, `workflow.parse_storyboard`: a 400 says what does not hold): **the film is not
+  rendered before** (409), and saving again drops the film made from the older storyboard. `can_propose` is true once the project's brief is
+  confirmed. `film` is `{url, seconds}` once rendered, `film_job` the running render, `error` and `film_error` why the last proposal or render
+  failed. One format: 9:16 vertical, 1080 x 1920, no sound.
 - **reader**: a persona of the brief reading the piece, `{n, persona, status, reading, error, job}`. **A brief may name one to four personas**
   (`personas`, a list of free texts written by the person: "tu as 55 ans, artisan, …"; empty texts are left out, more than four is a 400). Each
   persona is a reader, **in a call of its own**: it sees the piece (its image and, in a project, its words) and its own persona, not the brief,
@@ -166,6 +175,11 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/projects/{p}/brand/keep` `{kept: [ids], logo}` | **kept**: the same as the brand's `keep`, answering `{kept, discarded, logo, colours}` |
 | `GET /api/projects/{p}/brief` / `PUT` `{fields}` | the project's brief, prefilled; the person corrects it. `fields.personas` is the list of personas (see **reader**), the other fields are strings. `PUT` answers 409 while the brand is not `ready`. `GET` also gives `formats` (what the studio can make), `chosen` (the formats the brief asks for that it can make) and `left_out` (the ones it puts aside, a film for instance) |
 | `GET /api/projects/{p}/mandates` / `PUT` `{mandates, common}` | the instructions the agents will get, read and corrected before any run |
+| `GET /api/projects/{p}/storyboard` | the project's **storyboard** (see the shape) |
+| `POST /api/projects/{p}/storyboard/propose` | an agent writes the script and the shots from the confirmed brief and the brand: a job of `kind` `storyboard`; 409 while the brief is not confirmed or while it runs |
+| `PUT /api/projects/{p}/storyboard` `{script, shots}` | the storyboard the person corrected and saves (`saved` becomes true); 400 when it does not hold |
+| `POST /api/projects/{p}/storyboard/render` | render the film of the saved storyboard: a job of `kind` `film`; 409 while it is not saved or while it runs |
+| `GET /api/projects/{p}/storyboard/film` | the film, an mp4 as an attachment (409 until it is made) |
 | `POST /api/projects/{p}/diverge` | write the variants: a job |
 | `GET /api/projects/{p}/variants` | the variants |
 | `POST /api/projects/{p}/pick` `{variants: [ids]}` | the kept variants: one piece per variant and per format |
@@ -223,6 +237,8 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `PUT brief` (the project's) | `studio brand <piece> --from-dossier <m>/brand --include-unconfirmed --force`, the colours that `brand.md` lacks are completed from the measured ones and marked `(à confirmer)` (with no colour to take them from, the answer is a 400 that says so: there is no neutral stand-in), `studio brand <piece>`; then writes `<piece>/brief.md`, `studio brief <piece>` (its refusal is the 400), then starts the `mandates` job |
 | `mandates` job | `scripts/agents mandates <inputs.json>` (the piece folder, its language, the person's words): the proposal, or a default one when the command fails |
 | `diverge` | one `scripts/agents variant <inputs.json>` per mandate, in parallel, each in its own folder `<piece>/work/<id>/`, which writes `<piece>/variants/<id>.json` once checked; then `studio diverge <piece>` |
+| `storyboard/propose` (the `storyboard` job) | `scripts/agents storyboard <inputs.json>` (the brand's name and fields, its colours from `brand.md`, the confirmed brief); checked by `answers.parse_storyboard` (anything else is a failed job); kept in `project.json` as not saved |
+| `storyboard/render` (the `film` job) | `scripts/film <piece> <piece>/storyboard.json --out <piece>/film.mp4`: each shot an HTML page animated by code, in the colours, the fonts and the logo of `brand.md`, captured by headless Chrome, assembled by `ffmpeg` (both needed) |
 | `pick` | `studio pick <piece> <ids>` |
 | `pieces/{i}/image`, `POST images` | `studio image <piece>/pieces/<…> --engine auto --force` (`STUDIO_IMAGE_ENGINE` changes the engine). `images` starts one job per missing image; at most four run at the same time, the others say "en attente d'une place" |
 | `variants/{v}/text` | `studio pick <piece>/pieces/<…> <v> --headline <h> --subline <s>` for each piece of the variant that is not composed (it keeps the words in the `pick.json` of the piece; both are always given, since the command rewrites the file); a piece sent back (`again`) keeps its corrected words |

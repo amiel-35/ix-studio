@@ -36,7 +36,7 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
 from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
                      PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, TEXTS_MAX, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
-                     parse_personas, parse_reading, parse_texts, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
+                     parse_personas, parse_reading, parse_storyboard, parse_texts, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -61,7 +61,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "texts": "texts"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "texts": "texts", "storyboard": "film", "film": "film"}
 
 
 def slug(text: str) -> str:
@@ -708,6 +708,15 @@ def competitors_of(raw) -> list:
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
     return out
+
+
+# ---------- storyboard: the script and the shots of a project's film, proposed by an agent, corrected and saved by the person, then rendered ----------
+def storyboard_view(sb, brief_confirmed, job=None, error=None, film=None, film_job=None, film_error=None) -> dict:
+    """What `GET storyboard` answers, the same for both backends. `sb` is what is kept ({script, shots, saved}) or None; `saved` is False while the
+    person has not read and saved what the agent proposed: the film is not rendered before. `film` is {url, seconds} once rendered."""
+    sb = sb or {}
+    return {"script": sb.get("script", ""), "shots": list(sb.get("shots", [])), "saved": bool(sb.get("saved")), "can_propose": bool(brief_confirmed),
+            "job": job, "error": error, "film": film, "film_job": film_job, "film_error": film_error}
 
 
 # ---------- texts: the posts and hooks of a project, proposed by an agent from its brief, corrected and kept by the person ----------
