@@ -219,6 +219,37 @@ def parse_competitors(raw) -> list:
 
 
 
+# ---------- interview: the questions asked of the person, the brief the agent writes from the answers ----------
+INTERVIEW_QUESTIONS = [  # five at most; the answer to the nth one feeds the nth field of INTERVIEW_KEYS
+    "Que veux-tu obtenir avec cette pièce : faire connaître la marque, vendre, promouvoir une offre, autre chose ?",
+    "À qui parles-tu : quel segment, ou quel persona de la marque ?",
+    "Quelle idée, une seule, doit rester en tête ?",
+    "Que doit faire la personne qui la voit : acheter, venir, s'abonner, autre chose ?",
+    "Qu'est-ce qui ne bouge pas : un mot, un style, une contrainte ?",
+]
+INTERVIEW_KEYS = ("objective", "audience", "message", "cta", "fixed")
+INTERVIEW_NEEDED = ("objective", "audience")  # never guessed: empty when the person did not say, and then flagged
+
+
+def parse_interview(raw, answers: list) -> dict:
+    """What the interview agent answers, checked: `{"objective", "audience", "message", "cta", "fixed"}`, texts. Gives `{"fields", "missing"}`:
+    a field whose question got no answer is empty, whatever the agent wrote; `missing` lists the empty `objective` and `audience`. A ValueError
+    says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    if not isinstance(raw, dict) or not all(isinstance(raw.get(k, ""), str) for k in INTERVIEW_KEYS):
+        raise ValueError("il faut un objet dont les champs sont des textes")
+    said = [one_line(a) for a in answers] + [""] * len(INTERVIEW_KEYS)
+    fields = {k: one_line(raw.get(k))[:600] if said[n] else "" for n, k in enumerate(INTERVIEW_KEYS)}
+    return {"fields": fields, "missing": [k for k in INTERVIEW_NEEDED if not fields[k]]}
+
+
 def parse_proposal(text: str) -> dict:
     """What the mandates agent answers: `{"common": "...", "mandates": [four]}`, checked and put on one line each."""
     a, b = text.find("{"), text.rfind("}")

@@ -67,6 +67,9 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/brand/keep", lambda b, m, d: b.keep(m["p"], d.get("kept", []), d.get("logo"))),
     ("GET", rf"/api/projects/{P}/brief", lambda b, m, d: b.get_brief(m["p"])),
     ("PUT", rf"/api/projects/{P}/brief", lambda b, m, d: b.put_brief(m["p"], d.get("fields", {}))),
+    # interview
+    ("GET", rf"/api/projects/{P}/interview", lambda b, m, d: b.get_interview(m["p"])),
+    ("POST", rf"/api/projects/{P}/interview", lambda b, m, d: b.start_interview(m["p"], d.get("answers"))),
     ("GET", rf"/api/projects/{P}/mandates", lambda b, m, d: b.get_mandates(m["p"])),
     ("PUT", rf"/api/projects/{P}/mandates", lambda b, m, d: b.put_mandates(m["p"], d.get("items"), d.get("common"))),
     ("POST", rf"/api/projects/{P}/diverge", lambda b, m, d: b.diverge(m["p"])),

@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
-from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
+from answers import (COMPETITOR_HEAD, INTERVIEW_KEYS, INTERVIEW_QUESTIONS, parse_interview, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
                      PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
                      parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
@@ -61,7 +61,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "interview": "brief"}
 
 
 def slug(text: str) -> str:
@@ -707,4 +707,15 @@ def competitors_of(raw) -> list:
     out = [x.strip()[:2000] for x in raw if x.strip()]
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
+    return out
+
+
+# ---------- interview: a few questions, the brief of the project pre-filled from the answers, read and corrected by the person ----------
+def interview_answers_of(raw) -> list:
+    """The answers the person gives (`POST interview`): a list of texts, one per question, five at most, at least one said."""
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw) or len(raw) > len(INTERVIEW_QUESTIONS):
+        raise ValueError(f"answers: a list of {len(INTERVIEW_QUESTIONS)} texts at most")
+    out = [x.strip()[:1000] for x in raw]
+    if not any(out):
+        raise ValueError("answers: answer at least one question")
     return out

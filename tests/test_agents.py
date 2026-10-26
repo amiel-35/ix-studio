@@ -29,6 +29,7 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"objective": ': {{"objective": "Faire connaître le kombucha.", "audience": "Les citadins curieux.", "message": "Du thé qui a fait la fête.", "cta": "Venir goûter.", "fixed": "La signature."}},
     '{{"common": ': {{"common": "Écrire en français.", "mandates": ["Un", "Deux", "Trois", "Rupture : Quatre"]}},
 }}
 for key, body in ANSWERS.items():
@@ -160,6 +161,45 @@ class Agents(unittest.TestCase):
         self.assertEqual([c["key"] for c in self.calls()], [False, True])
         self.assertEqual(self.calls()[0]["argv"][0], "-p")
         self.assertIn("--restricted", self.calls()[0]["argv"])
+
+    # interview: the questions, then the brief the answers make
+    ANSWERS = ["Faire connaître", "Les citadins curieux", "Du thé qui a fait la fête", "Venir goûter", "La signature"]
+
+    def test_the_interview_gives_its_questions_without_asking_claude(self):
+        r = self.run_cmd("interview", {})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(json.loads(r.stdout)["questions"]), 5)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_interview_writes_the_brief_from_the_answers_and_shows_what_it_lacks(self):
+        r = self.run_cmd("interview", {"answers": self.ANSWERS, "brand": {"name": "Cabane", "who": "des citadins", "personas": ["Besoin : goûter"]}})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["fields"]["objective"], got["fields"]["audience"], got["missing"]), ("Faire connaître le kombucha.", "Les citadins curieux.", []))
+        prompt = self.calls()[0]["argv"][1]
+        self.assertIn("persona of the brand 1: Besoin : goûter", prompt)
+        self.assertIn("réponse (objective) : Faire connaître", prompt)
+        # nobody said the objective or the target: empty and flagged, whatever the agent wrote
+        r = self.run_cmd("interview", {"answers": ["", "", "Du thé qui a fait la fête"]})
+        got = json.loads(r.stdout)
+        self.assertEqual((got["fields"]["objective"], got["fields"]["audience"], got["fields"]["cta"], got["missing"]), ("", "", "", ["objective", "audience"]))
+        self.assertEqual(got["fields"]["message"], "Du thé qui a fait la fête.")
+        self.assertIn("réponse (objective) : (aucune)", self.calls()[-1]["argv"][1])
+
+    def test_the_interview_refuses_what_is_not_five_answers_or_none(self):
+        for bad in ({"answers": ["a"] * 6}, {"answers": "a"}, {"answers": ["", " "]}):
+            self.assertEqual(self.run_cmd("interview", bad).returncode, 1)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_interview_answer_that_does_not_read_or_that_fails_is_an_error_with_its_reason(self):
+        r = self.run_cmd("interview", {"answers": self.ANSWERS}, "bad")
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertRegex(r.stderr, "illisible|pas de JSON")
+        self.assertIn("pas de json ici", r.stderr)
+        r = self.run_cmd("interview", {"answers": self.ANSWERS}, "down")
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn("Claude Code is not signed in", r.stderr)
+        self.assertEqual(self.model_of(self.calls()[0]), "sonnet")
 
 
 if __name__ == "__main__":

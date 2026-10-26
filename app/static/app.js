@@ -48,6 +48,7 @@
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
+    if (n("interview")) parts.push("écrit le brief");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -489,12 +490,51 @@
   ];
   const REQUIRED = { objective: "l'objectif", audience: "le public", message: "le message" };
 
+  /* ---------- interview: a few questions, the studio pre-fills the brief from the answers; the person reads and corrects it in the form below ---------- */
+  const INTERVIEW_WORDS = { objective: "l'objectif", audience: "la cible", message: "le message", cta: "l'appel à l'action", fixed: "ce qui ne bouge pas" };
+  function Interview({ ctx, pid, iv, onAsked }) {
+    const [open, setOpen] = useState(false);
+    const [answers, setAnswers] = useState([]);
+    if (!iv) return null;
+    const said = answers.some((a) => (a || "").trim());
+    const send = () => ctx.act(async () => {
+      await api.interview(pid, iv.questions.map((q, i) => answers[i] || ""));
+      ctx.log(pid, "toi", "Questions pour le brief répondues", plural(answers.filter((a) => (a || "").trim()).length, "réponse donnée", "réponses données"));
+      setOpen(false); onAsked(); ctx.touch();
+    });
+    if (iv.job) return h("p", { className: "small muted", role: "status" }, "Le studio écrit le brief à partir de tes réponses.");
+    return h("div", { className: "sec", id: "interview" },
+      iv.error && h(Callout, { tone: "risk", label: "Le brief n'a pas pu être écrit" }, iv.error),
+      !open ? h("p", { className: "small muted" }, "Pas envie de tout écrire ? ",
+        h("button", { type: "button", className: "linkbtn", onClick: () => setOpen(true), "aria-label": "Répondre à quelques questions pour pré-remplir le brief" }, "Réponds à quelques questions"), ".")
+        : h("div", { className: "sec" },
+          iv.questions.map((q, i) => h("div", { key: i, className: "field" }, h("label", { htmlFor: "iv-" + i, className: "small" }, q),
+            h("input", { id: "iv-" + i, type: "text", value: answers[i] || "", onChange: (e) => setAnswers(iv.questions.map((x, k) => (k === i ? e.target.value : answers[k] || ""))) }))),
+          h("p", { className: "small muted" }, "Laisse vide ce que tu ne sais pas encore : le studio ne le devine pas."),
+          h("div", { className: "row" },
+            h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || !said, onClick: send, "aria-label": "Écrire le brief à partir de mes réponses" }, "Écrire le brief"),
+            h(Button, { variant: "ghost", size: "sm", onClick: () => setOpen(false), "aria-label": "Fermer les questions" }, "Fermer"))));
+  }
+
   function Brief({ ctx, pid }) {
     const [data, setData] = useState(null);
     const [fields, setFields] = useState(null);
     const [open, setOpen] = useState(null);
     const [extra, setExtra] = useState(false);
     useEffect(() => { api.brief(pid).then((b) => { setData(b); setFields(b.fields); }).catch(ctx.fail); }, [pid]);
+    const iv = useLive(ctx, () => api.interview(pid), pid);
+    const [asked, setAsked] = useState(0); // the person just answered the questions (1); the studio is writing (2); when it is done, its brief opens in this form
+    const [filled, setFilled] = useState(null); // what the interview left empty, to say it
+    useEffect(() => {
+      if (!asked || !iv || !fields) return;
+      if (iv.job) { setAsked(2); return; }
+      if (asked === 1) return; // the job is not seen yet
+      setAsked(0);
+      if (!iv.proposed) return;
+      const next = { ...fields };
+      Object.keys(iv.proposed.fields).forEach((k) => { next[k] = iv.proposed.fields[k] || (iv.proposed.missing.includes(k) ? "" : next[k]); });
+      setFields(next); setFilled(iv.proposed.missing);
+    }, [asked, iv, fields]);
     useEscapeClose(ctx, open, setOpen);
     useCmds(ctx, data ? [{ id: "extra", label: extra ? "Cacher la mise en page et la langue" : "Corriger la mise en page ou la langue", run: () => setExtra(!extra) }] : []);
     if (!fields) return h("div", { className: "task" }, h(Wait, { text: "Chargement du brief." }));
@@ -528,6 +568,9 @@
       await ctx.answered(pid, "Brief validé" + (r.left_out.length ? ". Mis de côté : " + r.left_out.join(", ") : "") + ".", { before: snap });
     }, "Le studio prépare les consignes.");
     return h("div", { className: "task" }, h(Head, { sr: true }, "Relis le brief"),
+      h(Interview, { ctx, pid, iv, onAsked: () => setAsked(1) }),
+      filled && h("p", { className: "small", role: "status" }, "Le brief est pré-rempli d'après tes réponses : relis-le et corrige-le avant de le valider."
+        + (filled.length ? " Tu n'as pas donné " + filled.map((k) => INTERVIEW_WORDS[k]).join(" ni ") + " : " + (filled.length > 1 ? "ils restent vides" : "il reste vide") + "." : "")),
       h("p", { className: "sentence" }, PARTS.map(piece), extra && EXTRA.map(piece), "."),
       h("p", { className: "small muted" }, "Touche un passage pour le corriger.",
         !extra && h(React.Fragment, null, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setExtra(true), "aria-label": "Corriger aussi la mise en page ou la langue" }, "Mise en page, langue"))),
@@ -1531,7 +1574,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "interview" ? "Le brief est écrit d'après tes réponses" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;

@@ -10,6 +10,8 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     variant      one variant of a project           inputs: dir, id, mandate, common, language, work (its folder)                   writes <dir>/variants/<id>.json, gives it
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
     reader       the reading of a piece by a persona  inputs: image, persona, texts, language                     gives the reading (aimed, why, understand, ...)
+    interview    the brief of a project from answers  inputs: answers (five at most), brand {name, who, personas}, language   gives {"fields", "missing"}
+                 (with no `answers`: gives {"questions"}, the five to ask; `missing` lists the objective and the target nobody gave: empty, never guessed)
 
 The inputs are a JSON object; a path in it is read from the folder of the inputs file. `brief` (of a brand) is a list of {key, value, state}
 (what, who, voice, signature, never, colours; state confirmed or deduced); `brief` (of a piece) is {objective, audience, message, cta, fixed};
@@ -32,11 +34,11 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
+from answers import (INTERVIEW_KEYS, INTERVIEW_QUESTIONS, check_variant, judge_missing, one_line, parse_competitors, parse_interview, parse_names, parse_personas, parse_proposal,  # noqa: E402
                      parse_reading, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST, "interview": DEFAULT}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
@@ -404,8 +406,49 @@ def cmd_reader(i, model, runner):
                       "le lecteur n'a pas écrit sa lecture", "lecture illisible", parse_reading)
 
 
+# ---------- the project: the interview ----------
+def interview_prompt(i, answers) -> str:
+    brand, personas = i.get("brand") or {}, [one_line(x)[:400] for x in (i.get("brand") or {}).get("personas") or []]
+    qa = "\n".join(f"{n + 1}. {q}\n   réponse ({k}) : {one_line(answers[n]) if n < len(answers) and one_line(answers[n]) else '(aucune)'}"
+                   for n, (q, k) in enumerate(zip(INTERVIEW_QUESTIONS, INTERVIEW_KEYS)))
+    return (
+        "You write the brief of a still ad (a poster or a social post) from the answers a person gave to a few questions. You only use what is "
+        "given below: no search, no other source.\n\n"
+        f"=== the brand ===\nname: {brand.get('name') or '(none)'}\nfor whom, as the brand says it: {one_line(brand.get('who')) or '(none)'}\n"
+        + "".join(f"persona of the brand {n + 1}: {t}\n" for n, t in enumerate(personas))
+        + f"=== the questions and the answers ===\n{qa}\n"
+        "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"objective": "...", "audience": "...", "message": "...", "cta": "...", "fixed": "..."}\n'
+        "- Each field is written from the answer of the same name, in a short sentence or a few words. Reword it, never add to it.\n"
+        "- objective: what the piece must obtain (awareness, purchase, promotion...), as the person said it.\n"
+        "- audience: the segment or the persona of the brand the person pointed to; you may name the persona of the brand they meant.\n"
+        "- message: the one idea to remember, cleaned of any solution already drawn (\"a photo of the bottle on a beach\" is a solution, not a message).\n"
+        "- A field whose answer is \"(aucune)\" is an empty string: never guess the objective, the audience or anything else.\n"
+        "- No invented figure, place, label, award or promise.\n"
+        f"Write in the language of the brief ({i.get('language') or 'fr'}), plain, no em dash, no emoji.")
+
+
+def cmd_interview(i, model, runner):
+    """With no `answers`: the questions (nothing is asked of claude). With the answers: the brief they make, and what it still lacks."""
+    if "answers" not in i:
+        return {"questions": INTERVIEW_QUESTIONS}
+    answers = i["answers"]
+    if not isinstance(answers, list) or len(answers) > len(INTERVIEW_QUESTIONS) or not all(isinstance(x, str) for x in answers):
+        raise AgentError(f"inputs: answers is a list of {len(INTERVIEW_QUESTIONS)} texts at most")
+    if not any(x.strip() for x in answers):
+        raise AgentError("inputs: aucune réponse, rien à écrire")
+    with tempfile.TemporaryDirectory(prefix="ixs-interview-") as work:
+        res = ask(interview_prompt(i, answers), "interview", NOTHING, work, 240, model, runner)
+    if res.code:
+        raise AgentError("l'agent n'a pas répondu : " + tail(res))
+    try:
+        return parse_interview(res.out, answers)
+    except ValueError as err:
+        raise AgentError(f"réponse de l'agent illisible : {err}") from None
+
+
 COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "mandates": cmd_mandates, "variant": cmd_variant,
-            "judge": cmd_judge, "reader": cmd_reader}
+            "judge": cmd_judge, "reader": cmd_reader, "interview": cmd_interview}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
 
