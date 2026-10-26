@@ -24,6 +24,12 @@ claude plugin marketplace add amiel-35/ix-studio
 claude plugin install studio@ix-studio
 ```
 
+Sur un Mac neuf, une commande installe l'interface et l'ouvre (rien ne demande de mot de passe, le script te dit ce qui manque) :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/amiel-35/ix-studio/main/install.sh | bash
+```
+
 Prérequis : Claude Code et Python 3.10+. En option : Chrome ou Chromium (pour `piece.png`), un générateur d'images
 (plus bas).
 

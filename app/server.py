@@ -4,7 +4,7 @@
 
 Serves app/static/ and answers /api/* (see API.md) with a backend: STUDIO_BACKEND=studio (default) drives scripts/studio
 and scripts/brandkit and keeps its projects in STUDIO_HOME; STUDIO_BACKEND=stub is the simulated one (backend_stub).
-GET /api/projects/<p>/pieces/<i>/download and GET /api/projects/<p>/download answer a file (a png, a zip) as an attachment.
+GET /api/projects/<p>/pieces/<i>/download and GET /api/projects/<p>/download answer a file (a png, a zip) as an attachment, and so does GET /api/projects/<p>/storyboard/film (the mp4).
 GET /files/<project>/<path> serves the pictures of a project (its piece/ folder, and the brand/ folder of its brand) and
 GET /files/_marques/<brand>/<path> those of a brand (its brand/ folder). Stdlib only. Listens
 on 127.0.0.1 unless told otherwise; on a central server it sits behind a proxy that terminates TLS, and `authenticate`
@@ -36,6 +36,9 @@ J = r"(?P<j>[\w-]+)"
 # (method, path pattern, backend call taking (backend, match groups, json body))
 ROUTES = [
     ("GET", r"/api/machine", lambda b, m, d: b.machine()),
+    ("GET", r"/api/engines", lambda b, m, d: b.get_engines()),
+    ("PUT", r"/api/engines/image", lambda b, m, d: b.put_engines("image", d)),
+    ("PUT", r"/api/engines/text", lambda b, m, d: b.put_engines("text", d)),
     ("GET", r"/api/tasks", lambda b, m, d: b.tasks()),
     ("GET", r"/api/projects", lambda b, m, d: b.list_projects()),
     ("POST", r"/api/projects", lambda b, m, d: b.create_project(d.get("name"), d.get("from"), d.get("brand"), d.get("site"))),
@@ -55,10 +58,19 @@ ROUTES = [
     ("GET", rf"/api/brands/{B}/names", lambda b, m, d: b.get_names(m["b"])),
     ("PUT", rf"/api/brands/{B}/names", lambda b, m, d: b.put_names(m["b"], d.get("names"), d.get("chosen"))),
     ("POST", rf"/api/brands/{B}/names/propose", lambda b, m, d: b.propose_names(m["b"])),
+    # logos
+    ("GET", rf"/api/brands/{B}/logo/tracks", lambda b, m, d: b.get_logos(m["b"])),
+    ("PUT", rf"/api/brands/{B}/logo/tracks", lambda b, m, d: b.put_logos(m["b"], d.get("keep"))),
+    ("POST", rf"/api/brands/{B}/logo/propose", lambda b, m, d: b.propose_logos(m["b"])),
+    ("POST", rf"/api/brands/{B}/logo/choose", lambda b, m, d: b.choose_logo(m["b"], d.get("id"))),
     # competitors
     ("GET", rf"/api/brands/{B}/competitors", lambda b, m, d: b.get_competitors(m["b"])),
     ("PUT", rf"/api/brands/{B}/competitors", lambda b, m, d: b.put_competitors(m["b"], d.get("competitors"))),
     ("POST", rf"/api/brands/{B}/competitors/propose", lambda b, m, d: b.propose_competitors(m["b"])),
+    # research
+    ("GET", rf"/api/brands/{B}/research", lambda b, m, d: b.get_research(m["b"])),
+    ("PUT", rf"/api/brands/{B}/research", lambda b, m, d: b.put_research(m["b"], d.get("research"))),
+    ("POST", rf"/api/brands/{B}/research/propose", lambda b, m, d: b.propose_research(m["b"])),
     ("POST", rf"/api/brands/{B}/projects", lambda b, m, d: b.create_project_in(m["b"], d.get("name"), d.get("from"))),
     ("GET", rf"/api/projects/{P}", lambda b, m, d: b.project(m["p"])),
     ("PUT", rf"/api/projects/{P}", lambda b, m, d: b.update_project(m["p"], d.get("name"))),
@@ -67,12 +79,25 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/brand/keep", lambda b, m, d: b.keep(m["p"], d.get("kept", []), d.get("logo"))),
     ("GET", rf"/api/projects/{P}/brief", lambda b, m, d: b.get_brief(m["p"])),
     ("PUT", rf"/api/projects/{P}/brief", lambda b, m, d: b.put_brief(m["p"], d.get("fields", {}))),
+    # interview
+    ("GET", rf"/api/projects/{P}/interview", lambda b, m, d: b.get_interview(m["p"])),
+    ("POST", rf"/api/projects/{P}/interview", lambda b, m, d: b.start_interview(m["p"], d.get("answers"))),
+    # texts
+    ("GET", rf"/api/projects/{P}/texts", lambda b, m, d: b.get_texts(m["p"])),
+    ("PUT", rf"/api/projects/{P}/texts", lambda b, m, d: b.put_texts(m["p"], d.get("texts"))),
+    ("POST", rf"/api/projects/{P}/texts/propose", lambda b, m, d: b.propose_texts(m["p"])),
     ("GET", rf"/api/projects/{P}/mandates", lambda b, m, d: b.get_mandates(m["p"])),
     ("PUT", rf"/api/projects/{P}/mandates", lambda b, m, d: b.put_mandates(m["p"], d.get("items"), d.get("common"))),
     ("POST", rf"/api/projects/{P}/diverge", lambda b, m, d: b.diverge(m["p"])),
     ("GET", rf"/api/projects/{P}/variants", lambda b, m, d: b.variants(m["p"])),
     ("PUT", rf"/api/projects/{P}/variants/(?P<v>[\w-]+)/prompt", lambda b, m, d: b.put_variant_prompt(m["p"], m["v"], d.get("prompt"))),
     ("PUT", rf"/api/projects/{P}/variants/(?P<v>[\w-]+)/text", lambda b, m, d: b.put_variant_text(m["p"], m["v"], d.get("headline"), d.get("subline"))),
+    # storyboard
+    ("GET", rf"/api/projects/{P}/storyboard", lambda b, m, d: b.get_storyboard(m["p"])),
+    ("PUT", rf"/api/projects/{P}/storyboard", lambda b, m, d: b.put_storyboard(m["p"], d.get("script"), d.get("shots"))),
+    ("POST", rf"/api/projects/{P}/storyboard/propose", lambda b, m, d: b.propose_storyboard(m["p"])),
+    ("POST", rf"/api/projects/{P}/storyboard/render", lambda b, m, d: b.render_film(m["p"])),
+    ("GET", rf"/api/projects/{P}/storyboard/film", lambda b, m, d: b.download_film(m["p"])),
     ("POST", rf"/api/projects/{P}/pick", lambda b, m, d: b.pick(m["p"], d.get("variants", []))),
     ("POST", rf"/api/projects/{P}/images", lambda b, m, d: b.draw_images(m["p"], d.get("variant"))),
     ("POST", rf"/api/projects/{P}/compose", lambda b, m, d: b.compose_all(m["p"])),
@@ -92,6 +117,8 @@ ROUTES = [
     ("GET", rf"/api/judgements/{J}", lambda b, m, d: b.judgement(m["j"])),
     ("POST", rf"/api/judgements/{J}/run", lambda b, m, d: b.run_judgement(m["j"])),
     ("POST", rf"/api/judgements/{J}/readers/(?P<n>[0-9])/run", lambda b, m, d: b.run_judgement_reader(m["j"], int(m["n"]))),
+    ("GET", rf"/api/judgements/{J}/rounds", lambda b, m, d: b.judgement_rounds(m["j"])),
+    ("POST", rf"/api/judgements/{J}/rounds", lambda b, m, d: b.run_judgement_rounds(m["j"])),
     ("GET", rf"/api/judgements/{J}/page", lambda b, m, d: b.judgement_page(m["j"])),
     ("GET", r"/api/jobs/(?P<j>[\w-]+)", lambda b, m, d: b.job(m["j"])),
 ]
