@@ -525,6 +525,33 @@ class Api(unittest.TestCase):
         copy = self.call("POST", "/api/projects", {"name": "Copie", "from": pid})
         self.assertEqual(copy["brand"], bid)
 
+    def test_the_personas_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
+        bid = self.call("POST", "/api/brands", {"name": "Pour les personas"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/personas")
+        self.assertEqual((empty["personas"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], False, None))
+        self.call("POST", f"/api/brands/{bid}/personas/propose", code=409)  # no brief of the brand yet: nothing to work from
+        self.call("PUT", f"/api/brands/{bid}/personas", {"personas": ["Tu écris ce persona toi-même."]})  # but the person may write them
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un kombucha de port"}})
+        job = self.call("POST", f"/api/brands/{bid}/personas/propose")
+        self.assertEqual(job["kind"], "personas")
+        self.call("POST", f"/api/brands/{bid}/personas/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/personas")
+        self.assertEqual(got["personas"], ["Tu écris ce persona toi-même."])  # a proposal never becomes the brand's by itself
+        self.assertTrue(1 <= len(got["proposed"]) <= 4)
+        for text in got["proposed"]:
+            lines = text.splitlines()
+            self.assertEqual(lines[0], "Hypothèses à corriger, pas des faits.")
+            self.assertTrue(lines[1].startswith("Besoin principal : "))
+            self.assertTrue(all(ln.startswith(("(dossier) ", "(supposé) ")) for ln in lines[2:]), text)
+        self.assertEqual(len({t.splitlines()[1] for t in got["proposed"]}), len(got["proposed"]))  # each its own need
+        kept = [got["proposed"][0] + "\nTu lis le journal du quartier.", "", got["personas"][0]]
+        r = self.call("PUT", f"/api/brands/{bid}/personas", {"personas": kept})
+        self.assertEqual((r["personas"], r["proposed"]), ([kept[0], kept[2]], []))
+        self.call("PUT", f"/api/brands/{bid}/personas", {"personas": ["a", "b", "c", "d", "e"]}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/personas", {"personas": "a"}, code=400)
+        self.call("GET", "/api/brands/nope/personas", code=404)
+
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
         self.call("GET", "/api/projects/nope", code=404)

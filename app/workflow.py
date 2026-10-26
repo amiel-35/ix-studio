@@ -54,7 +54,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "personas": "brand"}
 
 
 def slug(text: str) -> str:
@@ -683,3 +683,54 @@ def judge_meta(raw) -> dict:
 def judge_view(job_status, verdict, error=None) -> dict:
     """Where the judge of a piece stands, for the interface: `{status, verdict, error}`; `status` is `running`, `done` or `failed`."""
     return {"status": job_status, "verdict": verdict, "error": error}
+
+
+# ---------- the personas of a brand: proposed by an agent from what the studio knows, corrected and kept by the person ----------
+PERSONAS_MAX = 4
+PERSONA_HEAD = "Hypothèses à corriger, pas des faits."
+PERSONA_FROM = {"dossier": "dossier", "supposé": "supposé", "suppose": "supposé"}
+
+
+def personas_of(raw) -> list:
+    """The personas the person keeps (`PUT personas`): a list of texts, at most four; the empty ones are dropped."""
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        raise ValueError("personas: a list of texts")
+    out = [x.strip()[:3000] for x in raw if x.strip()]
+    if len(out) > PERSONAS_MAX:
+        raise ValueError(f"personas: {PERSONAS_MAX} at most")
+    return out
+
+
+def parse_personas(raw) -> list:
+    """What the personas agent answers, checked and written as texts: `{"personas": [{"need", "lines": [{"say", "from"}]}]}`, one to four,
+    each with its own need, each line `from` the dossier or supposed. A text starts with PERSONA_HEAD, then its need, then one line each,
+    prefixed `(dossier)` or `(supposé)`. A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("personas") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= PERSONAS_MAX:
+        raise ValueError(f"il faut de un à {PERSONAS_MAX} personas")
+    out, needs = [], set()
+    for it in items:
+        need = one_line(it.get("need")) if isinstance(it, dict) else ""
+        lines = it.get("lines") if isinstance(it, dict) else None
+        if not need or not isinstance(lines, list) or not lines:
+            raise ValueError("chaque persona a un besoin principal et des lignes")
+        if need.casefold() in needs:
+            raise ValueError("deux personas ont le même besoin principal")
+        needs.add(need.casefold())
+        rows = []
+        for ln in lines:
+            say = one_line(ln.get("say")) if isinstance(ln, dict) else ""
+            src = PERSONA_FROM.get(str(ln.get("from", "")).strip().lower()) if isinstance(ln, dict) else None
+            if not say or not src:
+                raise ValueError("chaque ligne dit ce qu'elle dit et si elle vient du dossier ou si elle est supposée")
+            rows.append(f"({src}) {say}")
+        out.append("\n".join([PERSONA_HEAD, f"Besoin principal : {need}", *rows]))
+    return out

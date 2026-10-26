@@ -8,7 +8,7 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
 - `stub`: `backend_stub.py` is a simulated studio: nothing is generated, nothing calls a model. It starts with three brands in
   three stages (Marrowbay Ferments `ready` with two projects at two steps, Atelier Ondine `to_sort` with a project that waits for it,
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
-  piece dropped to be judged whose name contains `fail` makes the judge fail.
+  piece dropped to be judged whose name contains `fail` makes the judge fail. Its personas agent gives three plausible, fixed personas.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
@@ -68,7 +68,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     the logo), `brand-brief` (write the brief of the brand; or, once it is written, find the logo, or choose the colours), `brand-confirm` (confirm what was deduced: the question lists the values) or `job-failed`
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
-- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `mandates` (the real backend: an agent
+- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `mandates` (the real backend: an agent
   proposes the instructions), `diverge`, `image` or `judge` (the judge reads a piece: one of a project, or one dropped on its own); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
@@ -91,6 +91,13 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 - **judgement**: a piece judged on its own, `{id, name, brand, brand_name, brief, image, at, status, verdict, error, missing, job}`. `brief` is
   `{objective, audience, message, cta, fixed}`, `brand` the id of a brand or null, `image` the address of the piece, `status` `running`, `done`
   or `failed` (with `error`), `job` the running job's id or null.
+- **personas**: the people a brand's pieces will meet, `{personas, proposed, can_propose, job, error}`. `personas` are the texts the person kept
+  (only these are the brand's), `proposed` the texts the last `personas` job proposed and that the person has not settled yet (`PUT` settles
+  them), `can_propose` whether the brief of the brand is done (the agent works from it), `job` the running job or null, `error` the reason of
+  the last job when it failed. A proposed text is short, in French, to the second person: its first line is `Hypothèses à corriger, pas des
+  faits.`, its second `Besoin principal : …` (each persona its own need), then one line each, prefixed `(dossier)` or `(supposé)`: who it is,
+  where and how it meets an ad of the brand, what it already thinks of the brand and of the subject, its own words. At most four
+  (`workflow.parse_personas`, the same for both backends). What the person keeps is free text.
 
 ## Routes
 
@@ -108,6 +115,9 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/brands/{b}/keep` `{kept: [ids], logo}` | the sort of the visuals and the logo (409 before the site is read; 400 for an unknown id). A logo the person chooses is `confirmed`. Answers the brand plus `kept` and `discarded` (counts) |
 | `GET /api/brands/{b}/brief` / `PUT` `{fields}` | the brief of the brand: `{fields: identity, done, stage, keys, needs, palette}`, prefilled with what the reading found. `needs` is what the brand still lacks to be ready besides the brief: `logo`, `colours` (a background and a text colour). `palette` is what the pickers start from, `{background, text, accent}`, each a `#rrggbb` or null (a colour that has one of these roles keeps it; of the others the lightest is the background and the one that reads best on it the text; an accent is never guessed). `PUT` takes strings for any of `what, who, voice, signature, never, colours` (400 for another key; `what` is required, typed or already there; `voice` and `never` are cut at commas, semicolons and line breaks). **`colours` may also be a list `[{hex, role}]`**, what the person chose with colour pickers (the interface does not ask for a typed hexadecimal): `role` is `background`, `text` or `accent`, each at most once, `background` and `text` required and different, `hex` as `#rrggbb` (400 otherwise). These become the brand's colours, `confirmed` (source `choisie par toi`), and outrank those measured or read on the site; a string stays the person's words about them. Everything given becomes `confirmed`: a value given back as it was deduced is confirmed with its own source, a different one is typed. Marks the brief done |
 | `POST /api/brands/{b}/confirm` `{keys?}` | confirms the values given (any of `what, who, voice, signature, never, colours, logo`; 400 for another, or for one that is `absent`); all that are `deduced` when `keys` is missing. This is the call of the task `brand-confirm` and of the gesture on the page. Answers the brand |
+| `GET /api/brands/{b}/personas` | the brand's **personas** (see the shape) |
+| `POST /api/brands/{b}/personas/propose` | an agent proposes up to four personas from what the studio knows of the brand (its dossier, its brief): a job of `kind` `personas`, no search on the web. When it ends, they are in `proposed`, never in `personas` by themselves. 409 while the brief of the brand is not done, or while the job runs |
+| `PUT /api/brands/{b}/personas` `{personas: [text]}` | the personas the person keeps, corrected or written by hand (the empty ones dropped; 400 for more than four, or for anything but a list of texts). They replace the brand's, and `proposed` is emptied. The person may write them all without the job. Answers the personas |
 | `POST /api/brands/{b}/projects` `{name, from?}` | a project of type `campagne` in the brand. `from` (a project of the same brand, 400 otherwise) copies the fields of its brief, nothing else. Answers the project |
 | `GET /api/projects` | the projects: `[{id, name, brand, brand_name, waiting}]` |
 | `POST /api/projects` `{name, brand?, site?, from?}` | kept for the callers that make a project in one go: `brand` is the brand's **name**, found (case apart) or made, with its site read; `from` makes a declination in the same brand (it keeps the brand and copies the brief's fields) and needs no brand |
@@ -149,7 +159,7 @@ is not done, or the job is already running).
 
 ## The real backend, step by step
 
-On the disk, in `STUDIO_HOME`: `marques/<b>/marque.json` (name, site, description, the person's choices, the brief's flag, the jobs) and
+On the disk, in `STUDIO_HOME`: `marques/<b>/marque.json` (name, site, description, the person's choices, the brief's flag, the personas, the jobs) and
 `marques/<b>/brand/` (the dossier of `scripts/brandkit`), `marques/<b>/projets/<p>/project.json` and `piece/` (the piece of `scripts/studio`);
 `jugements/<j>/` a piece judged on its own (`jugement.json`: its name, brand, brief, verdict and jobs; `piece.png` or `piece.jpg`; once judged,
 `judge.md` and `page.html`).
@@ -165,6 +175,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `keep` | `brandkit keep <m>/brand <kept ids> <site page ids> [--logo <id>]` (`--none` with nothing to keep) |
 | `PUT brief` (the brand's) | per field given: `brandkit answer <m>/brand <path> <value>` (`--json` with a list) when typed, `brandkit confirm <m>/brand <path>` when given back as deduced. The paths: `what` `identity.one_liner`, `who` `audience.who`, `voice` `voice.traits`, `signature` `promise.signature_line`, `never` `voice.banned_words`. `colours` as words has no field in the dossier (its colours are a list): the person's words stay in `marque.json`. `colours` as a list: the previous source labelled `colours: chosen by the person` is removed from `<m>/brand/sources/`, then a typed source with a `colours` item per colour is added (`brandkit add`); a typed colour outranks the inferred ones |
 | `confirm` | `brandkit confirm <m>/brand <path>` for each value to confirm (`colours` and `logo` are the dossier's lists, confirmed whole) |
+| `personas/propose` (the `personas` job) | `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools ""` in `<m>/work/personas/`, the prompt holding the brand's name, site, description, the fields of its brief with their state, the person's words and `<m>/brand/brand.json`; its answer is checked (`workflow.parse_personas`: anything else is a failed job) and goes to `personas_proposed` of `marque.json`. `PUT personas` writes `personas` there |
 | `PUT /brands/{b}` | a new name is also given to the dossier: `brandkit answer <m>/brand identity.name <name>` |
 | `PUT brief` (the project's) | `studio brand <piece> --from-dossier <m>/brand --include-unconfirmed --force`, the colours that `brand.md` lacks are completed from the measured ones and marked `(à confirmer)` (with no colour to take them from, the answer is a 400 that says so: there is no neutral stand-in), `studio brand <piece>`; then writes `<piece>/brief.md`, `studio brief <piece>` (its refusal is the 400), then starts the `mandates` job |
 | `mandates` job | `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools ""`: the proposal, or a default one when the call fails |

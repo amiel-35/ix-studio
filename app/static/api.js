@@ -94,6 +94,10 @@
     brandBrief: (b) => call("GET", B(b) + "/brief"),
     saveBrandBrief: (b, fields) => call("PUT", B(b) + "/brief", { fields }), // fields: { what, who, voice, signature, never, colours }
     confirmBrand: (b, keys) => call("POST", B(b) + "/confirm", { keys }), // no keys: every value to confirm
+    /* the personas of a brand: the studio proposes up to four (a job), the person keeps the ones they corrected or wrote */
+    personas: (b) => call("GET", B(b) + "/personas"), // { personas: [text], proposed: [text], can_propose, job, error }
+    proposePersonas: (b) => call("POST", B(b) + "/personas/propose"),
+    savePersonas: (b, personas) => call("PUT", B(b) + "/personas", { personas }), // only these are the brand's; the proposal is settled
     createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
     downloadPiece: (p, i) => download(P(p) + "/pieces/" + encodeURIComponent(i) + "/download"), // the composed piece, a png at its size
     downloadKept: (p) => download(P(p) + "/download"), // every piece kept, a zip
