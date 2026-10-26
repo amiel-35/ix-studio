@@ -28,6 +28,7 @@ from pathlib import Path
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
 DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION["rounds"] = 6.0  # rounds
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -76,6 +77,14 @@ VERDICT = {"target": {"reached": "partly", "why": "Un citadin pressé comprend v
                      {"where": "le bandeau du bas", "say": "L'appel à l'action est plus petit que la sous-ligne : l'œil s'arrête avant de le lire."}],
            "unsourced": [{"where": "la sous-ligne", "say": "« petite cuvée » : rien dans le brief ni dans la marque ne dit la taille des cuvées."}],
            "brand": [{"where": "le titre en haut", "say": "Direct et pince-sans-rire, c'est bien sa voix ; la chaleur qu'elle revendique manque un peu."}]}
+
+
+# the simulated rounds' one synthesis, plausible and fixed (checked by workflow as the real agent's is)
+ROUNDS = {"remarks": [
+    {"heading": "works", "where": "l'image", "say": "La lumière du matin et le bois brut installent le marché sans avoir à l'écrire.", "rounds": [1, 2, 3]},
+    {"heading": "snags", "where": "le titre en haut", "say": "« plus rien » peut se lire comme un goût qui s'en va trop vite.", "rounds": [1, 2, 3]},
+    {"heading": "snags", "where": "le bandeau du bas", "say": "L'appel à l'action est plus petit que la sous-ligne : l'œil s'arrête avant de le lire.", "rounds": [1, 3]},
+    {"heading": "unsourced", "where": "la sous-ligne", "say": "« petite cuvée » : rien ne dit la taille des cuvées.", "rounds": [2]}]}
 
 
 # the simulated reader's one reading, plausible and fixed, whatever its persona (a persona whose text contains "fail" makes its reader fail)
@@ -255,7 +264,8 @@ class StubBackend:
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
-                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents"}[j["kind"]]
+                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents",
+                            "rounds": "le juge relit la pièce, trois fois"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -286,6 +296,9 @@ class StubBackend:
                 b = self.brands.get(j["brand"])
                 if b:
                     b["competitors_proposed"] = workflow.parse_competitors(copy.deepcopy(COMPETITORS))
+                continue
+            if j["kind"] == "rounds":
+                self._rounds_done(j)
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -1054,6 +1067,39 @@ class StubBackend:
                 raise Conflict("the judge is already reading this piece")
             jg["verdict"], jg["error"] = None, None
             return job_view(self._job("judge", judgement=jid))
+
+    # ---------- rounds: a piece judged three times, the remarks in three shelves ----------
+    def _rounds_done(self, j):
+        jg = self.judgements.get(j["judgement"])
+        if not jg:
+            return
+        if "fail" in jg["name"].lower():
+            j["status"], j["error"] = "failed", "le juge n'a pas répondu (simulé)"
+            j["message"] = j["error"]
+        else:
+            jg["rounds"] = workflow.parse_rounds(copy.deepcopy(ROUNDS))
+
+    def judgement_rounds(self, jid):
+        with self.lock:
+            self._tick()
+            jg = self._jg(jid)
+            mine = [j for j in self.jobs.values() if j["judgement"] == jid and j["kind"] == "rounds"]
+            run = next((j for j in mine if j["status"] == "running"), None)
+            if run:
+                return workflow.rounds_view("running", job=run["id"])
+            if jg.get("rounds"):
+                return workflow.rounds_view("done", copy.deepcopy(jg["rounds"]))
+            return workflow.rounds_view("failed", error=mine[-1]["error"]) if mine and mine[-1]["status"] == "failed" else workflow.rounds_view("none")
+
+    def run_judgement_rounds(self, jid):
+        """Judge the piece three times; again once done."""
+        with self.lock:
+            self._tick()
+            jg = self._jg(jid)
+            if any(j["judgement"] == jid and j["kind"] == "rounds" and j["status"] == "running" for j in self.jobs.values()):
+                raise Conflict("the rounds are already running on this piece")
+            jg["rounds"] = None
+            return job_view(self._job("rounds", judgement=jid))
 
     # ---------- the readers: one per persona of the brief, beside the judge ----------
     def _reader(self, n, persona, project=None, piece=None, judgement=None):

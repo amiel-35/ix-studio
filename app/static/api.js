@@ -84,6 +84,8 @@
     judge: (file, meta) => upload("/api/judgements", file, meta), // a png or jpg File; meta: { brand, brief: { objective, audience, message, cta, fixed, personas } }. Answers the judgement
     runJudgement: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/run"),
     runJudgementReader: (j, n) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/readers/" + n + "/run"), // reader n, run again alone
+    rounds: (j) => call("GET", "/api/judgements/" + encodeURIComponent(j) + "/rounds"), // {status, synthesis: {holds, ambiguous, once}, error, job}: the piece judged three times
+    runRounds: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/rounds"), // launch the three rounds (again, once done): a job
     judgementPage: (j) => download("/api/judgements/" + encodeURIComponent(j) + "/page"), // the flat page of the verdict, an html file
     /* The studio holds brands, a brand holds projects. (The routes of a project's brand, `/api/projects/{p}/brand…`, are kept by the studio but the interface no longer uses them.) */
     brands: () => call("GET", "/api/brands"),

@@ -113,6 +113,12 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   brand, one line). No figure (share, turnover, ranking). At most six, each its own name (`workflow.parse_competitors`, the same for both
   backends). What the person keeps is free text.
 
+- **rounds**: the same piece judged three times by the same judge (same command, same model), each round alone. `synthesis` is `{holds, ambiguous, once}`, each a
+  list of `{heading, where, say, rounds}` (`heading` one of `works, snags, unsourced, brand`, `rounds` the numbers, from 1, of the rounds that said it):
+  `holds` came out in all three rounds, `once` in one only, `ambiguous` in two (the rounds disagree). An agent of `scripts/agents rounds` puts the
+  remarks of the rounds side by side (the same idea in different words is one remark); the shelf is decided by the numbers it gives, not by it
+  (`workflow.parse_rounds`). The judge blocks nothing: the synthesis is shown beside the piece, the person decides. A round that fails fails the whole
+  job (`failed`, its reason), which is run again whole. The simulated backend gives one fixed synthesis (a piece whose name contains `fail` fails).
 - **reader**: a persona of the brief reading the piece, `{n, persona, status, reading, error, job}`. **A brief may name one to four personas**
   (`personas`, a list of free texts written by the person: "tu as 55 ans, artisan, …"; empty texts are left out, more than four is a 400). Each
   persona is a reader, **in a call of its own**: it sees the piece (its image and, in a project, its words) and its own persona, not the brief,
@@ -180,6 +186,8 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `GET /api/judgements/{j}` | a judgement, its verdict once it is `done` |
 | `POST /api/judgements/{j}/run` | run its judge again (after a failure, or to read it once more): a job. 409 while it runs |
 | `POST /api/judgements/{j}/readers/{n}/run` | run reader `n` of a judgement again, alone (a `reader` job). 404 for a reader that is not there, 409 while it reads |
+| `GET /api/judgements/{j}/rounds` | the **rounds** of a judgement (see **rounds**): `{status, synthesis, error, job}`; `status` is `none` (never launched), `running`, `done` or `failed`. 404 for a judgement that is not there |
+| `POST /api/judgements/{j}/rounds` | judge the piece **three times**, each round alone, then put the remarks side by side: a `rounds` job (again, once done; the judgement's own verdict is not touched). 409 while it runs |
 | `GET /api/judgements/{j}/page` | **a file, not JSON**: the flat page of the verdict (the piece at the top, the list under it; the piece inside the page, so that it stands on its own), `text/html`, name `<j>.html`. 409 before the verdict |
 | `GET /api/jobs/{j}` | a job's progress (a brand's, a project's or a judgement's) |
 | `GET /files/{p}/piece/{path}`, `GET /files/{p}/brand/{path}` | a file of the project's `piece/` folder; a file of its brand's dossier. |
@@ -223,6 +231,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `pieces/{i}/decide` | `studio decide <piece>/pieces/<…> keep|again "<words>"` |
 | `judge` job (after `compose`, or `pieces/{i}/judge`) | `scripts/agents judge <inputs.json>` (the picture, the brief, the words of the piece, the brand's voice; written in `<p>/work/judge-<i>/`, the command reads them from there and runs in a temporary folder of its own): the command holds the prompt (`claude -p`, model `claude-fable-5-1`, `Read` and `Write` in a temporary folder of its own; on a failure the command writes claude's raw answer to its errors, kept in `logs/commands.log`), reads `verdict.json` and checks it (`answers.parse_verdict`: anything else is a failed job); the verdict goes to `<piece>/pieces/<…>/judge.json` and, as notes, to `judge.md`, then `studio check <piece>/pieces/<…>` again so that `check.json` carries them. A piece that changed while the judge read it keeps no verdict |
 | `POST /judgements`, `judgements/{j}/run` | the same command in `jugements/<j>/work/`, without the words of the piece (they are read on the image); the verdict goes to `jugement.json`, `judge.md` and `page.html` |
+| `rounds` job (`POST judgements/{j}/rounds`) | `scripts/agents rounds <inputs.json>` (the picture, the brief, the brand's voice; written in `jugements/<j>/work-rounds/`): three judges (the `judge` command's own code and model, `claude-fable-5-1`) side by side, then one call (model `sonnet`, no tool) that puts their remarks side by side; the synthesis is checked (`answers.parse_rounds`) and goes with the three verdicts to `rounds` in `jugement.json` |
 | `reader` job (after `compose` and `POST /judgements`, one per persona, beside the judge; `…/readers/{n}/run`) | `scripts/agents reader <inputs.json>` (the picture, its persona and, in a project, the words of the piece; nothing else; written in `<p>/work/reader-<i>-<n>/` or `jugements/<j>/lecteur-<n>/`, the command runs in a temporary folder of its own): the same kind of call as the judge, model `claude-fable-5-1`; the reading is checked (`answers.parse_reading`) and goes to `<piece>/pieces/<…>/reader-<n>.json` (a new image or a new composition removes them) or to `readings` in `jugement.json`, with the persona it read. A piece that changed while it read keeps no reading |
 
 **A home in the old format** (`<home>/<p>/project.json` with a `brand_name` and its own `brand/` dossier) is opened into this layout when the backend

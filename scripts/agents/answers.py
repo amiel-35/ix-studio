@@ -273,3 +273,37 @@ def check_variant(path: Path, vid: str):
     if v.get("fit", "contain") not in ("contain", "cover"):
         return False, f"{vid}: fit must be contain or cover"
     return True, ""
+
+
+# ---------- rounds: the same piece judged three times, the remarks put side by side ----------
+ROUNDS = 3  # the number of rounds: not an option
+
+
+def parse_rounds(raw, n=ROUNDS) -> dict:
+    """The synthesis of the rounds of a judge, checked and put in its one shape, or a ValueError that says what is wrong. `raw` is what the agent
+    answered: {"remarks": [{heading, where, say, rounds: [numbers from 1]}]}. The agent says in which rounds each remark came out; the shelf is not
+    its to choose: all the rounds is `holds`, one round is `once`, the others are `ambiguous` (the rounds disagree)."""
+    if isinstance(raw, (str, bytes)):
+        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        a, b = text.find("{"), text.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("no JSON object in the synthesis")
+        try:
+            raw = json.loads(text[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"the synthesis is not readable JSON ({err})") from None
+    if not isinstance(raw, dict) or not isinstance(raw.get("remarks"), list):
+        raise ValueError("the synthesis is {remarks: [{heading, where, say, rounds}]}")
+    out = {"holds": [], "ambiguous": [], "once": []}
+    for x in raw["remarks"]:
+        if not isinstance(x, dict) or x.get("heading") not in JUDGE_LISTS:
+            raise ValueError(f"remark: heading is one of {', '.join(JUDGE_LISTS)}")
+        where, say, rounds = one_line(x.get("where"))[:120], one_line(x.get("say"))[:400], x.get("rounds")
+        if not where or not say:
+            raise ValueError("remark: says where (in words) and what")
+        if not isinstance(rounds, list) or not rounds or not all(isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= n for r in rounds):
+            raise ValueError(f"remark: rounds is a list of numbers from 1 to {n}")
+        rounds = sorted(set(rounds))
+        out["holds" if len(rounds) == n else "once" if len(rounds) == 1 else "ambiguous"].append(
+            {"heading": x["heading"], "where": where, "say": say, "rounds": rounds})
+    return out

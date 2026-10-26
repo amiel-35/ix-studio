@@ -51,6 +51,7 @@ AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
 DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION["rounds"] = 240.0  # rounds: three judges side by side, then the comparison
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1803,6 +1804,37 @@ class StudioBackend:
         if v["status"] != "done" or not f.is_file():
             raise Conflict("the judge has not given its verdict yet")
         return Download(f"{jid}.html", "text/html; charset=utf-8", f.read_bytes())
+
+    # ---------- rounds: a piece judged three times, the remarks in three shelves (`agents rounds`) ----------
+    def judgement_rounds(self, jid):
+        j = self._loadj(jid)
+        last = next((x for x in reversed(j["jobs"]) if x["kind"] == "rounds"), None)
+        run = self._running(j, "rounds")
+        if run:
+            return workflow.rounds_view("running", job=run["id"])
+        if j.get("rounds"):
+            return workflow.rounds_view("done", j["rounds"]["synthesis"])
+        return workflow.rounds_view("failed", error=last.get("error")) if last and last["status"] == "failed" else workflow.rounds_view("none")
+
+    def run_judgement_rounds(self, jid):
+        """Judge the piece three times, then put the remarks side by side; again after a failure, or to read it anew."""
+        with self._op("judgement:" + jid):
+            if self._running(self._loadj(jid), "rounds"):
+                raise Conflict("the rounds are already running on this piece")
+            self._mutatej(jid, lambda q: q.update(rounds=None))
+            return self._spawn(("judgement", jid), "rounds", None, lambda job: self._rounds_body(jid, job))
+
+    def _rounds_body(self, jid, job):
+        owner, j = ("judgement", jid), self._loadj(jid)
+        d = self._jdir(jid)
+        self._phase(owner, job, "le juge relit la pièce, trois fois")
+        wdir = d / "work-rounds"
+        try:
+            r = self._ask(self._joblog(owner, job), "rounds", {"image": str(d / f"piece.{j['ext']}"), "brief": j["brief"], "brand": self._brand_words(j.get("brand"))},
+                          wdir, 1000)
+        finally:
+            shutil.rmtree(wdir, ignore_errors=True)
+        self._mutatej(jid, lambda q: q.update(rounds=r))
 
     # ---------- 9. the readers: one per persona of the brief, each in a call of its own ----------
     @staticmethod

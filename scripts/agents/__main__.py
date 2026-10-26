@@ -27,16 +27,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
-                     parse_reading, parse_verdict)
+from answers import (ROUNDS, check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
+                     parse_reading, parse_rounds, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST, "rounds": DEFAULT}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
@@ -404,8 +405,38 @@ def cmd_reader(i, model, runner):
                       "le lecteur n'a pas écrit sa lecture", "lecture illisible", parse_reading)
 
 
+# ---------- rounds: the judge three times, then the remarks put side by side ----------
+def rounds_prompt(verdicts: list) -> str:
+    heads = {"works": "ce qui marche", "snags": "ce qui accroche", "unsourced": "sans provenance", "brand": "la marque"}
+    text = "\n\n".join(f"=== tour {n} ===\n" + "\n".join(f"[{k}] {x['where']} : {x['say']}" for k in heads for x in v.get(k) or []) for n, v in enumerate(verdicts, 1))
+    return (
+        f"A judge read the same still ad {len(verdicts)} times, each time alone, and wrote its remarks. You only compare them: you judge nothing, "
+        "you add nothing. You use only what is given below: no search, no other source.\n\n"
+        f"{text}\n\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"remarks": [{"heading": "works" | "snags" | "unsourced" | "brand", "where": "...", "say": "...", "rounds": [1, 3]}]}\n'
+        "- remarks: one entry per idea, that is the remarks of different rounds that say the same thing about the same place are ONE entry. "
+        "A remark that only one round makes is an entry of its own.\n"
+        "- rounds: the numbers of the rounds in which the idea came out.\n"
+        "- heading, where, say: those of the round that says it best, with its words, shortened if needed (say: 400 characters at most).\n"
+        "- Two rounds that say the opposite of each other (one praises what the other catches) are two entries, each with its own rounds.\n"
+        "- Plain French, no em dash, no emoji.")
+
+
+def cmd_rounds(i, model, runner):
+    with ThreadPoolExecutor(ROUNDS) as pool:  # independent: no round sees another
+        verdicts = [f.result() for f in [pool.submit(cmd_judge, i, model, runner) for _ in range(ROUNDS)]]
+    with tempfile.TemporaryDirectory(prefix="ixs-rounds-") as work:
+        res = ask(rounds_prompt(verdicts), "rounds", NOTHING, work, 300, model, runner)
+    if res.code:
+        raise AgentError("l'agent n'a pas répondu : " + tail(res))
+    try:
+        return {"rounds": verdicts, "synthesis": parse_rounds(res.out)}
+    except ValueError as err:
+        raise AgentError(f"synthèse des tours illisible : {err}") from None
+
+
 COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "mandates": cmd_mandates, "variant": cmd_variant,
-            "judge": cmd_judge, "reader": cmd_reader}
+            "judge": cmd_judge, "reader": cmd_reader, "rounds": cmd_rounds}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
 

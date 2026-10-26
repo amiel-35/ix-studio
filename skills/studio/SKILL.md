@@ -108,9 +108,10 @@ JSON, or stops with its reason and a non-zero code. Write the inputs from what y
 - `python3 "$AG" mandates in.json` (`dir`: the piece folder): the common rule and four mandates, when the person wants them proposed rather than written by you.
 - `python3 "$AG" variant in.json` (`dir`, `id`, `mandate`, `common`): one blind variant, written in `<dir>/variants/<id>.json`; one call per mandate, in parallel.
 - `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.
+- `python3 "$AG" rounds in.json` (as `judge`): the judge three times, each alone, then what holds (all three), what is ambiguous (the rounds disagree) and what came out once; show it beside the piece, the person decides.
 - `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
 
-The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
+The judge and the readers (and each round of `rounds`) run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
 The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.
 
 ## Which tool for which job

@@ -36,7 +36,7 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
 from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
                      PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
-                     parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
+                     parse_personas, parse_reading, parse_rounds, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -708,3 +708,13 @@ def competitors_of(raw) -> list:
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
     return out
+
+
+# ---------- rounds: a piece judged three times, the remarks in three shelves (holds, ambiguous, once) ----------
+KIND_STEP["rounds"] = "check"
+
+
+def rounds_view(status, synthesis=None, error=None, job=None) -> dict:
+    """Where the rounds of a judgement stand, for the interface: `{status, synthesis, error, job}`; `status` is `none` (never launched), `running`,
+    `done` (`synthesis`: `{holds, ambiguous, once}`, each a list of `{heading, where, say, rounds}`) or `failed` (`error`)."""
+    return {"status": status, "synthesis": synthesis, "error": error, "job": job}
