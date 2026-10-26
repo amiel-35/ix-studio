@@ -577,6 +577,21 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
         self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
         self.call("GET", "/api/brands/nope/names", code=404)
+    # export
+    def test_the_brand_folder_is_a_zip_with_brand_md_and_a_brand_json_that_says_what_is_missing(self):
+        import io, zipfile
+        bid = self.call("POST", "/api/brands", {"name": "Pour l'export"})["id"]
+        head, data = self.fetch(f"/api/brands/{bid}/export")
+        self.assertIn(f'filename="{bid}-dossier-de-marque.zip"', head["Content-Disposition"])
+        z = zipfile.ZipFile(io.BytesIO(data))
+        card = json.loads(z.read("brand.json"))
+        self.assertEqual(sorted(z.namelist()), ["brand.json", "brand.md"])
+        self.assertEqual(card["name"], "Pour l'export")
+        self.assertEqual(card["missing"], ["promise.signature_line"])
+        self.assertTrue(all(v["value"] is None for v in card["values"] if v["status"] == "ask"))
+        self.assertEqual(self.fetch(f"/api/brands/{bid}/export")[1], data)  # plausible and fixed
+        self.fetch("/api/brands/nope/export", code=404)
+
     # competitors
     def test_the_competitors_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
         bid = self.call("POST", "/api/brands", {"name": "Pour les concurrents"})["id"]

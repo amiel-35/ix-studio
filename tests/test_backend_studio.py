@@ -1129,6 +1129,31 @@ class Competitors(Base):
             self.assertIn(word, got["error"])
 
 
+class Export(Base):
+    def test_the_brand_folder_is_the_zip_of_brandkit_pack_and_a_brand_without_dossier_has_none(self):
+        import io, zipfile
+        bid = self.mkbrand(name="Export Kombucha", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un kombucha de port"}})
+        head, data = self.fetch(f"/api/brands/{bid}/export")
+        self.assertIn(f'filename="{bid}-dossier-de-marque.zip"', head["Content-Disposition"])
+        z = zipfile.ZipFile(io.BytesIO(data))
+        card = json.loads(z.read("brand.json"))
+        self.assertEqual({"brand.md", "brand.json"} - set(z.namelist()), set())
+        by = {v["path"]: v for v in card["values"]}
+        self.assertEqual((by["identity.name"]["value"], by["identity.name"]["status"]), ("Export Kombucha", "confirmed"))
+        self.assertEqual((by["identity.one_liner"]["value"], by["identity.one_liner"]["status"]), ("un kombucha de port", "confirmed"))
+        self.assertIn("promise.signature_line", card["missing"])  # nobody gave it: written missing
+        self.assertIsNone(card["logo"])
+        self.assertTrue(self.fake.where("pack"))
+        self.fetch("/api/brands/nope/export", code=404)
+
+    def test_a_pack_that_fails_is_an_error_not_an_empty_file(self):
+        bid = self.mkbrand(name="Export Raté", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "x"}})
+        (self.home / "marques" / bid / "brand" / "state.json").write_text("pas du json")
+        self.fetch(f"/api/brands/{bid}/export", code=400)
+
+
 class Brief(Base):
     def test_the_brief_is_written_for_the_studio_and_validated_by_it(self):
         pid = self.started()

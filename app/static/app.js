@@ -1007,7 +1007,17 @@
             : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))),
       h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }),
-      h(Competitors, { ctx, bid }));
+      h(Competitors, { ctx, bid }),
+      h(ExportBrand, { ctx, bid }));
+  }
+
+  /* ---------- export: the brand folder, one zip ---------- */
+  function ExportBrand({ ctx, bid }) {
+    const take = () => ctx.act(async () => { const f = await api.exportBrand(bid); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le dossier de marque.");
+    return h("section", { className: "export" },
+      h(Where, null, "Le dossier de marque"),
+      h("p", { className: "small muted" }, "Une archive avec la fiche de la marque, son logo et, pour chaque valeur, d'où elle vient et si elle est confirmée. Ce qui manque est écrit comme manquant."),
+      h(Button, { variant: "secondary", onClick: take, "aria-label": "Télécharger le dossier de marque" }, "Télécharger le dossier de marque"));
   }
 
   /* ---------- the names of a brand: the studio proposes up to eight, the person keeps or drops each, or writes one, and chooses one of
