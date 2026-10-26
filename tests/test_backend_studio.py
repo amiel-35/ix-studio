@@ -77,6 +77,7 @@ class Fake:
         self.personas = "ok"  # what the personas agent answers: ok (two personas), bad (one that does not hold), down (it fails)
         self.names = "ok"  # what the names agent answers: ok (two names), bad (a name without its line), down (it fails)
         self.competitors = "ok"  # what the competitors agent answers: ok (two), bad (one that does not hold), down (it fails)
+        self.files = "ok"  # what the files agent answers: ok (values read in the first file), bad (a colour that is not one), down (it fails)
 
     def tool_env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
@@ -147,6 +148,8 @@ class Fake:
             return self.names_agent()
         if '{"competitors": [' in prompt:
             return self.competitors_agent()
+        if '{"values": [' in prompt:
+            return self.files_agent(cwd)
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -207,6 +210,17 @@ class Fake:
                                 {"name": "Brasserie du Quai", "from": "dossier", "sells": "de la bière au port.", "differs": "L'apéro, avec alcool."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def files_agent(self, cwd):
+        if self.files == "down":
+            return Result(1, "", "the agent gave up")
+        first = sorted(os.listdir(cwd))[0]
+        if self.files == "bad":
+            return Result(0, json.dumps({"values": [{"kind": "colour", "value": "vert", "role": "text", "file": first}]}), "")
+        body = {"values": [{"kind": "colour", "value": "#F4EFE6", "role": "background", "file": first}, {"kind": "colour", "value": "#1E2A24", "role": "text", "file": first},
+                           {"kind": "font", "value": "Fraunces", "role": "title", "file": first}, {"kind": "voice", "value": "chaleureuse", "role": "", "file": first},
+                           {"kind": "never", "value": "miracle", "role": "", "file": first}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def image(self, argv):
         d = Path(argv[3])
         if self.image_fails:
@@ -245,6 +259,7 @@ class Base(unittest.TestCase):
         f.personas = "ok"
         f.names = "ok"
         f.competitors = "ok"
+        f.files = "ok"
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -1125,6 +1140,98 @@ class Competitors(Base):
             self.fake.competitors = kind
             self.wait(self.call("POST", f"/api/brands/{bid}/competitors/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/competitors")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+# files
+PDF = b"%PDF-1.4\n%fake\n"
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 20
+
+
+class Files(Base):
+    def put_file(self, bid, data, ctype="application/pdf", name="charte.pdf", code=200):
+        req = urllib.request.Request(self.base + f"/api/brands/{bid}/files", method="POST", data=data, headers={"Content-Type": ctype, "X-Filename": name})
+        try:
+            with urllib.request.urlopen(req) as r:
+                got, out = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            got, out = err.code, json.loads(err.read())
+            err.close()
+        self.assertEqual(got, code, out)
+        return out
+
+    def test_files_dropped_are_stored_in_the_folder_of_the_brand_and_only_the_right_ones(self):
+        bid = self.mkbrand(name="Dépôt", site=None)
+        got = self.call("GET", f"/api/brands/{bid}/files")
+        self.assertEqual((got["files"], got["max"], got["can_propose"]), ([], 20, False))
+        self.call("POST", f"/api/brands/{bid}/files/read", code=409)  # nothing to read
+        self.put_file(bid, PDF, name="Charte graphique.pdf")
+        got = self.put_file(bid, PNG, "image/png", "../visuel.png")
+        self.assertEqual([f["name"] for f in got["files"]], ["Charte-graphique.pdf", "visuel.png"])
+        self.assertEqual((self.home / "marques" / bid / "fichiers" / "Charte-graphique.pdf").read_bytes(), PDF)
+        self.assertIn("Charte-graphique-2.pdf", [f["name"] for f in self.put_file(bid, PDF, name="Charte graphique.pdf")["files"]])  # a name is never overwritten
+        self.put_file(bid, PDF, "application/zip", "a.zip", code=400)
+        self.put_file(bid, b"pas un pdf", "application/pdf", "faux.pdf", code=400)  # the content must be what the type says
+        self.put_file(bid, b"", "application/pdf", "vide.pdf", code=400)
+        self.call("GET", "/api/brands/nope/files", code=404)
+
+    def test_twenty_files_at_most(self):
+        bid = self.mkbrand(name="Vingt", site=None)
+        for n in range(20):
+            self.put_file(bid, PNG, "image/png", f"v{n}.png")
+        self.put_file(bid, PNG, "image/png", "v21.png", code=409)
+        self.assertEqual(len(self.call("GET", f"/api/brands/{bid}/files")["files"]), 20)
+
+    def test_an_agent_reads_the_files_and_proposes_values_and_only_the_kept_ones_enter_the_brand(self):
+        bid = self.mkbrand(name="Charte Kombucha", site=None)
+        self.put_file(bid, PDF)
+        self.put_file(bid, PNG, "image/png", "visuel.png")
+        self.wait(self.call("POST", f"/api/brands/{bid}/files/read"))
+        call = self.fake.where("--restricted")[-1]
+        self.assertIn("--tools=Read", call["argv"])  # it reads its files, nothing else
+        self.assertEqual(call["ls"], ["charte.pdf", "visuel.png"])
+        self.assertFalse((self.home / "marques" / bid / "work" / "files").exists())
+        got = self.call("GET", f"/api/brands/{bid}/files")
+        self.assertEqual((got["job"], got["error"]), (None, None))
+        self.assertEqual(got["proposed"][0], {"kind": "colour", "value": "#f4efe6", "role": "background", "file": "charte.pdf", "state": "to_confirm"})
+        self.assertTrue(all(v["state"] == "to_confirm" and v["file"] == "charte.pdf" for v in got["proposed"]))
+        brief = self.call("GET", f"/api/brands/{bid}/brief")
+        self.assertEqual((brief["fields"]["voice"]["state"], brief["fields"]["colours"]["state"]), ("absent", "absent"))  # nothing is the brand's yet
+        # keep the colours (the text one corrected), the voice and the font; drop the banned word
+        keep = [v for v in got["proposed"] if v["kind"] != "never"]
+        keep[1] = {**keep[1], "value": "#222222"}
+        r = self.call("PUT", f"/api/brands/{bid}/files/values", {"values": keep})
+        self.assertEqual((r["proposed"], r["fonts"]), ([], [{"family": "Fraunces", "role": "title"}]))
+        brief = self.call("GET", f"/api/brands/{bid}/brief")
+        self.assertEqual((brief["fields"]["voice"]["value"], brief["fields"]["voice"]["state"]), ("chaleureuse", "confirmed"))
+        self.assertEqual(brief["fields"]["never"]["state"], "absent")
+        self.assertEqual((brief["palette"]["background"], brief["palette"]["text"]), ("#f4efe6", "#222222"))
+        self.assertEqual(brief["fields"]["colours"]["state"], "confirmed")
+
+    def test_what_is_confirmed_is_never_overwritten_without_saying_so(self):
+        bid = self.mkbrand(name="Confirmée", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "une cave", "voice": "directe, sobre", "colours": [{"hex": "#ffffff", "role": "background"}, {"hex": "#000000", "role": "text"}]}})
+        colours = [{"kind": "colour", "value": "#f4efe6", "role": "background"}, {"kind": "colour", "value": "#1e2a24", "role": "text"}]
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": colours}, code=409)  # other colours, already confirmed: it asks
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}/brief")["palette"]["background"], "#ffffff")
+        r = self.call("PUT", f"/api/brands/{bid}/files/values", {"values": colours + [{"kind": "voice", "value": "chaleureuse"}, {"kind": "voice", "value": "Sobre"}], "replace": True})
+        self.assertEqual(r["proposed"], [])
+        brief = self.call("GET", f"/api/brands/{bid}/brief")
+        self.assertEqual(brief["palette"]["background"], "#f4efe6")
+        self.assertEqual(brief["fields"]["voice"]["value"], "directe, sobre, chaleureuse")  # words are added, the confirmed ones stay
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": colours})  # the same colours: nothing to say
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": [{"kind": "colour", "value": "#f4efe6", "role": "background"}]}, code=400)  # a text colour is missing
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": "vert"}, code=400)
+        self.assertEqual(self.call("PUT", f"/api/brands/{bid}/files/values", {"values": []})["proposed"], [])  # keeping nothing settles the proposal
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        bid = self.mkbrand(name="Fichiers Ratés", site=None)
+        self.put_file(bid, PDF)
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.files = kind
+            self.wait(self.call("POST", f"/api/brands/{bid}/files/read"), "failed")
+            got = self.call("GET", f"/api/brands/{bid}/files")
             self.assertEqual(got["proposed"], [])
             self.assertIn(word, got["error"])
 

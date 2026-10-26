@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "files": 90.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1153,6 +1153,82 @@ class StudioBackend:
     def _competitors_body(self, bid, jid):
         texts = self._brand_agent(bid, jid, "competitors", "un agent cherche les concurrents")
         self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
+
+    # ---------- files: the charter and the visuals dropped on the brand ----------
+    def _fdir(self, bid) -> Path:
+        return self._mdir(bid) / "fichiers"
+
+    def _files_view(self, b):
+        run = self._running(b, "files")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "files"), None)
+        files = [{"name": f.name, "size": f.stat().st_size} for f in sorted(self._fdir(b["id"]).glob("*")) if f.is_file()]
+        return {"files": files, "max": workflow.FILES_MAX, "proposed": list(b.get("files_proposed", [])), "fonts": list(b.get("fonts", [])), "can_propose": bool(files),
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_brand_files(self, bid):
+        return self._files_view(self._loadb(bid))
+
+    def add_brand_file(self, bid, data, ctype="", name=""):
+        """A file dropped by the person (the charter, a visual): stored as it is in the folder of the brand. Twenty at most."""
+        ext = workflow.file_ext(data, ctype)
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            d = self._fdir(bid)
+            taken = {f.name for f in d.glob("*")}
+            if len(taken) >= workflow.FILES_MAX:
+                raise Conflict(f"the brand has {workflow.FILES_MAX} files already: that is the most")
+            d.mkdir(parents=True, exist_ok=True)
+            (d / workflow.file_name(name, ext, taken)).write_bytes(data)
+            return self._files_view(b)
+
+    def read_brand_files(self, bid):
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            if not self._files_view(b)["files"]:
+                raise Conflict("the brand has no file: drop some first")
+            if self._running(b, "files"):
+                raise Conflict("the files are already being read")
+            return self._spawn(("brand", bid), "files", None, lambda jid: self._files_body(bid, jid))
+
+    def _files_body(self, bid, jid):
+        b, owner = self._loadb(bid), ("brand", bid)
+        self._phase(owner, jid, "un agent lit les fichiers")
+        work = self._mdir(bid) / "work" / "files"
+        try:
+            values = self._ask(self._joblog(owner, jid), "files", {"name": b["name"], "files": [str(self._fdir(bid) / f["name"]) for f in self._files_view(b)["files"]]}, work, 430)["values"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutateb(bid, lambda q: q.update(files_proposed=values))
+
+    def keep_brand_files(self, bid, values, replace=False):
+        """The values the person keeps (corrected or written): only these enter the brand. Words are added to the voice and to the banned words; the
+        fonts are kept in the brand; colours already confirmed and different are replaced only if `replace` says so (a 409 otherwise)."""
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            plan = workflow.kept_values(values, [f["name"] for f in self._files_view(b)["files"]])
+            doc = self._doc(bid)
+            ident = self._identity(b, doc)
+            if plan["palette"] and not replace and ident["colours"]["state"] == "confirmed" and \
+                    {c["role"]: c["hex"] for c in plan["palette"]} != {k: v for k, v in workflow.palette_of(self._colours_of(doc)).items() if v}:
+                raise Conflict("the colours of the brand are already confirmed and these are different: say that you replace them")
+            log = self._bcmd_log(bid)
+            if plan["voice"] or plan["never"] or plan["palette"]:
+                self._ensure_dossier(b, log)
+            for k in ("voice", "never"):
+                words = workflow.merge_words(ident[k]["value"], plan[k])
+                if plan[k] and words != workflow.split_words(ident[k]["value"]):
+                    self._brandkit(log, "answer", self._bdir(bid), FIELD_MAP[k][0], json.dumps(words, ensure_ascii=False), "--json")
+            if plan["palette"]:
+                self._write_palette(bid, plan["palette"], log)
+
+            def done(q):
+                q["files_proposed"] = []
+                q["fonts"] = q.get("fonts", []) + [f for f in plan["fonts"] if f["family"].casefold() not in {x["family"].casefold() for x in q.get("fonts", [])}]
+                if plan["palette"]:
+                    q["colours_words"] = ""
+                self._retouch(q)
+            self._mutateb(bid, done)
+            return self._files_view(self._loadb(bid))
 
     # ---------- the projects ----------
     def _new_pid(self, name) -> str:

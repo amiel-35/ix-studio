@@ -10,7 +10,7 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
   piece dropped to be judged whose name contains `fail` makes the judge fail. Its readers give one fixed reading; a persona whose text contains `fail`
   makes its reader fail; its personas agent gives three plausible, fixed personas; its names agent five plausible, fixed names;
-  its competitors agent gives four plausible, fixed, fictional competitors.
+  its competitors agent gives four plausible, fixed, fictional competitors; its files agent gives seven plausible, fixed values (three colours, two fonts, a voice word, a banned word), read in the first file given.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
@@ -70,7 +70,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     the logo), `brand-brief` (write the brief of the brand; or, once it is written, find the logo, or choose the colours), `brand-confirm` (confirm what was deduced: the question lists the values) or `job-failed`
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
-- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `mandates` (the real backend: an agent
+- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `files` (an agent reads the files dropped on a brand and proposes brand values), `mandates` (the real backend: an agent
   proposes the instructions), `diverge`, `image`, `judge` (the judge reads a piece: one of a project, or one dropped on its own) or `reader` (a persona reads it); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
@@ -113,6 +113,15 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   brand, one line). No figure (share, turnover, ranking). At most six, each its own name (`workflow.parse_competitors`, the same for both
   backends). What the person keeps is free text.
 
+- **files**: the charter and the visuals dropped on a brand, `{files, max, proposed, fonts, can_propose, job, error}`. `files` is `[{name, size}]`, twenty at
+  most (`max`; a twenty-first is a 409), kept as they are in the brand's folder. `proposed` is what the last `files` job read in them and the person has not
+  settled yet: `[{kind, value, role, file, state}]`, `state` always `to_confirm`, `file` the dropped file that supports it. `kind` is `colour` (`value`
+  `#rrggbb`, `role` `background`, `text` or `accent`), `font` (a family, `role` `title` or `text`), `voice` or `never` (a word or a short phrase, `role` empty).
+  `fonts` is `[{family, role}]`, those the person kept. A value is never the brand's by itself: `PUT files/values` keeps the ones the person sends (corrected,
+  or written by hand, then `file` is empty). The colours become the brand's colours (a background and a text colour are needed: 400 otherwise); voice and
+  banned words are added to those the brand has; fonts are kept in `fonts`. **Colours already confirmed and different are not replaced unless `replace` is
+  true: 409 otherwise.** Checked by `workflow.parse_files_values` / `workflow.kept_values` (the same for both backends). Videos, the extraction of a vector logo and more than twenty files wait.
+
 - **reader**: a persona of the brief reading the piece, `{n, persona, status, reading, error, job}`. **A brief may name one to four personas**
   (`personas`, a list of free texts written by the person: "tu as 55 ans, artisan, …"; empty texts are left out, more than four is a 400). Each
   persona is a reader, **in a call of its own**: it sees the piece (its image and, in a project, its words) and its own persona, not the brief,
@@ -149,6 +158,10 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `GET /api/brands/{b}/competitors` | the brand's **competitors** (see the shape) |
 | `POST /api/brands/{b}/competitors/propose` | an agent proposes up to six competitors from what the studio knows of the brand (its dossier, its brief) and what it knows of the market: a job of `kind` `competitors`, no search on the web. When it ends, they are in `proposed`, never in `competitors` by themselves. 409 while the brief of the brand is not done, or while the job runs |
 | `PUT /api/brands/{b}/competitors` `{competitors: [text]}` | the competitors the person keeps, corrected or written by hand (the empty ones dropped; 400 for more than six, or for anything but a list of texts). They replace the brand's, and `proposed` is emptied. The person may write them all without the job. Answers the competitors |
+| `GET /api/brands/{b}/files` | the brand's **files** (see the shape) |
+| `POST /api/brands/{b}/files` (the file itself as the body, its type as `Content-Type`, its name in `X-Filename`) | a file dropped on the brand: a pdf, png, jpg, webp or gif whose first bytes are really that (400 otherwise), 15 MB at most (400), twenty files at most (409). Answers the **files**; `api.addBrandFiles(brand, files)` sends several, one by one |
+| `POST /api/brands/{b}/files/read` | an agent reads the files and proposes values of the brand: a job of `kind` `files`. When it ends they are in `proposed`, never in the brand by themselves. 409 with no file, or if it already runs |
+| `PUT /api/brands/{b}/files/values` `{values: [{kind, value, role, file}], replace?}` | the values the person keeps (the empty list keeps nothing). The proposal is settled. 400 for a value that does not hold or for colours without a background and a text colour; 409 if confirmed, different colours would be replaced and `replace` is not true. Answers the **files** |
 | `POST /api/brands/{b}/projects` `{name, from?}` | a project of type `campagne` in the brand. `from` (a project of the same brand, 400 otherwise) copies the fields of its brief, nothing else. Answers the project |
 | `GET /api/projects` | the projects: `[{id, name, brand, brand_name, waiting}]` |
 | `POST /api/projects` `{name, brand?, site?, from?}` | kept for the callers that make a project in one go: `brand` is the brand's **name**, found (case apart) or made, with its site read; `from` makes a declination in the same brand (it keeps the brand and copies the brief's fields) and needs no brand |
@@ -192,7 +205,7 @@ is not done, or the job is already running).
 
 ## The real backend, step by step
 
-On the disk, in `STUDIO_HOME`: `marques/<b>/marque.json` (name, site, description, the person's choices, the brief's flag, the personas, the names, the competitors, the jobs) and
+On the disk, in `STUDIO_HOME`: `marques/<b>/marque.json` (name, site, description, the person's choices, the brief's flag, the personas, the names, the competitors, the fonts, the values proposed from the files, the jobs), `marques/<b>/fichiers/` (the files dropped on the brand) and
 `marques/<b>/brand/` (the dossier of `scripts/brandkit`), `marques/<b>/projets/<p>/project.json` and `piece/` (the piece of `scripts/studio`);
 `jugements/<j>/` a piece judged on its own (`jugement.json`: its name, brand, brief, verdict and jobs; `piece.png` or `piece.jpg`; once judged,
 `judge.md` and `page.html`).
@@ -211,6 +224,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `personas/propose` (the `personas` job) | `scripts/agents personas <inputs.json>` (the brand's name, site, description, the fields of its brief with their state, the person's words, the path of `<m>/brand/brand.json`; written in `<m>/work/personas/`); the command holds the prompt (`claude -p`, model `sonnet`, no tool) and checks the answer (`answers.parse_personas`: anything else is a failed job, with the command's reason); the personas go to `personas_proposed` of `marque.json`. `PUT personas` writes `personas` there |
 | `names/propose` (the `names` job) | `scripts/agents names <inputs.json>`, the brand's provisional name, its description, its brief and the person's words; checked by `answers.parse_names` (anything else is a failed job); the names go to `names_proposed` of `marque.json`. `PUT names` writes `names` there; a `chosen` name is then given as `PUT /brands/{b}` gives one |
 | `competitors/propose` (the `competitors` job) | `scripts/agents competitors <inputs.json>`, the same inputs as the personas; checked by `answers.parse_competitors` (anything else is a failed job); the competitors go to `competitors_proposed` of `marque.json`. `PUT competitors` writes `competitors` there |
+| `files/read` (the `files` job) | `scripts/agents files <inputs.json>` (the brand's name and the paths of its files; the command copies them into a folder of its own and runs `claude -p` with the `Read` tool only); checked by `answers.parse_files_values` (anything else is a failed job); the values go to `files_proposed` of `marque.json`. `PUT files/values` writes voice and banned words with `brandkit answer <m>/brand voice.traits\|voice.banned_words <words> --json`, the colours as the colours chosen with the pickers (`PUT brief`), the fonts in `fonts` of `marque.json` |
 | `PUT /brands/{b}` | a new name is also given to the dossier: `brandkit answer <m>/brand identity.name <name>` |
 | `PUT brief` (the project's) | `studio brand <piece> --from-dossier <m>/brand --include-unconfirmed --force`, the colours that `brand.md` lacks are completed from the measured ones and marked `(à confirmer)` (with no colour to take them from, the answer is a 400 that says so: there is no neutral stand-in), `studio brand <piece>`; then writes `<piece>/brief.md`, `studio brief <piece>` (its refusal is the 400), then starts the `mandates` job |
 | `mandates` job | `scripts/agents mandates <inputs.json>` (the piece folder, its language, the person's words): the proposal, or a default one when the command fails |

@@ -77,7 +77,9 @@ dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show 
 - `names`: up to eight names with their why; when the brand has only a working title. Nobody checked that a name is free.
 - `competitors`: up to six, each marked `dossier` or `supposé`; no figure.
 
-They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`) changes it.
+`files` (inputs `name`, `files`) reads the charter pdf and the visuals the person gave and proposes colours with their role, fonts, voice and banned words, each `to_confirm` with the file that supports it: show them and file only what the person keeps (never over a confirmed value without saying so).
+
+They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_FILES`) changes it.
 
 ## Reading the dossier from another module
 

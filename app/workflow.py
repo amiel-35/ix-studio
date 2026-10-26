@@ -35,8 +35,8 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
 from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
-                     PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
-                     parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
+                     FILES_VALUES_MAX, PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_files_values,  # noqa: F401
+                     parse_names, parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -61,7 +61,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "files": "brand"}
 
 
 def slug(text: str) -> str:
@@ -708,3 +708,55 @@ def competitors_of(raw) -> list:
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
     return out
+
+
+# ---------- files: the charter and the visuals the person dropped, and the brand values an agent proposes from them ----------
+FILES_MAX = 20  # files in the folder of a brand
+FILE_MAX = 15 * 1024 * 1024  # bytes, one file
+FILE_TYPES = {"application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
+FILE_MAGIC = {"pdf": (b"%PDF",), "png": (b"\x89PNG\r\n\x1a\n",), "jpg": (b"\xff\xd8\xff",), "gif": (b"GIF87a", b"GIF89a"), "webp": (b"RIFF",)}
+
+
+def file_ext(data: bytes, ctype: str = "") -> str:
+    """The extension (pdf, png, jpg, webp or gif) of a file dropped on a brand, or a ValueError (a 400): the type given by the browser must be one
+    of these and the first bytes must really be it."""
+    ext = FILE_TYPES.get((ctype or "").split(";")[0].strip().lower())
+    if not ext:
+        raise ValueError("file: a pdf, png, jpg, webp or gif file")
+    if not data:
+        raise ValueError("file: the file is empty")
+    if len(data) > FILE_MAX:
+        raise ValueError(f"file: the file is too big ({FILE_MAX // (1024 * 1024)} MB at most)")
+    if not data.startswith(FILE_MAGIC[ext]) or (ext == "webp" and data[8:12] != b"WEBP"):
+        raise ValueError(f"file: this is not a {ext} file")
+    return ext
+
+
+def file_name(name: str, ext: str, taken) -> str:
+    """The name a dropped file is stored under: its own, made safe, with the extension of its content, and not one already taken."""
+    stem = re.sub(r"[^\w-]+", "-", Path(str(name or "")).stem, flags=re.UNICODE).strip("-_")[:60] or "fichier"
+    out, n = f"{stem}.{ext}", 1
+    while out in taken:
+        n += 1
+        out = f"{stem}-{n}.{ext}"
+    return out
+
+
+def kept_values(raw, names) -> dict:
+    """The values the person keeps (`PUT files/values`): the proposed ones, corrected, or written by hand (no file then). Checked as the agent's
+    answer is; the empty list keeps nothing. Gives what each part of the brand receives: `palette` ([{hex, role}] or None: a background and a text
+    colour are needed), `voice` and `never` (words), `fonts` ([{family, role}])."""
+    if not isinstance(raw, list):
+        raise ValueError("values: a list of {kind, value, role, file}")
+    vals = parse_files_values({"values": raw}, set(names) | {""}) if raw else []
+    pal = [{"hex": v["value"], "role": v["role"]} for v in vals if v["kind"] == "colour"]
+    return {"palette": parse_palette(pal) if pal else None, "voice": [v["value"] for v in vals if v["kind"] == "voice"],
+            "never": [v["value"] for v in vals if v["kind"] == "never"],
+            "fonts": [{"family": v["value"], "role": v["role"]} for v in vals if v["kind"] == "font"]}
+
+
+def merge_words(now, new) -> list:
+    """The words already there, then the new ones that are not (nothing already confirmed is overwritten: words are added)."""
+    out = split_words(", ".join(now) if isinstance(now, list) else now)
+    seen = {w.casefold() for w in out}
+    return out + [w for w in new if not (w.casefold() in seen or seen.add(w.casefold()))]

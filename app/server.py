@@ -59,6 +59,11 @@ ROUTES = [
     ("GET", rf"/api/brands/{B}/competitors", lambda b, m, d: b.get_competitors(m["b"])),
     ("PUT", rf"/api/brands/{B}/competitors", lambda b, m, d: b.put_competitors(m["b"], d.get("competitors"))),
     ("POST", rf"/api/brands/{B}/competitors/propose", lambda b, m, d: b.propose_competitors(m["b"])),
+    # files
+    ("GET", rf"/api/brands/{B}/files", lambda b, m, d: b.get_brand_files(m["b"])),
+    ("POST", rf"/api/brands/{B}/files", lambda b, m, d: b.add_brand_file(m["b"], d["raw"], d["type"], d["name"])),
+    ("POST", rf"/api/brands/{B}/files/read", lambda b, m, d: b.read_brand_files(m["b"])),
+    ("PUT", rf"/api/brands/{B}/files/values", lambda b, m, d: b.keep_brand_files(m["b"], d.get("values"), bool(d.get("replace")))),
     ("POST", rf"/api/brands/{B}/projects", lambda b, m, d: b.create_project_in(m["b"], d.get("name"), d.get("from"))),
     ("GET", rf"/api/projects/{P}", lambda b, m, d: b.project(m["p"])),
     ("PUT", rf"/api/projects/{P}", lambda b, m, d: b.update_project(m["p"], d.get("name"))),
@@ -97,7 +102,7 @@ ROUTES = [
 
 # the routes that take a file, not JSON: the body is the file itself, its type is the request's Content-Type and its name an X-Filename header;
 # what comes with it, if anything, is an X-Judge header (JSON, URL-encoded). Each with the size beyond which the body is refused (bytes)
-RAW_ROUTES = {rf"/api/brands/{B}/logo": workflow.LOGO_MAX, r"/api/judgements": workflow.JUDGE_MAX}
+RAW_ROUTES = {rf"/api/brands/{B}/logo": workflow.LOGO_MAX, rf"/api/brands/{B}/files": workflow.FILE_MAX, r"/api/judgements": workflow.JUDGE_MAX}
 RAW_DRAIN = 16 * 1024 * 1024  # a refused body up to this size is read and thrown away, so the answer reaches the browser; beyond, the connection closes
 
 

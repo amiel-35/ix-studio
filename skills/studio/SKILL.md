@@ -105,6 +105,7 @@ The studio's agents are commands, the same ones the interface runs (`AG="${CLAUD
 `<repo>/scripts/agents`). Each takes an `inputs.json` (its keys are listed by `python3 "$AG" --help`; paths in it are read from its folder) and gives
 JSON, or stops with its reason and a non-zero code. Write the inputs from what you know, show what comes back, let the person correct it.
 
+- `python3 "$AG" files in.json` (`name`, `files`: the charter pdf and the visuals the person gave, twenty at most): colours with their role, fonts, voice and banned words read in them, each `to_confirm` with the file that supports it; show them, and file in the dossier (`brandkit answer`) only what the person keeps.
 - `python3 "$AG" mandates in.json` (`dir`: the piece folder): the common rule and four mandates, when the person wants them proposed rather than written by you.
 - `python3 "$AG" variant in.json` (`dir`, `id`, `mandate`, `common`): one blind variant, written in `<dir>/variants/<id>.json`; one call per mandate, in parallel.
 - `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.

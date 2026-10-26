@@ -577,6 +577,64 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
         self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
         self.call("GET", "/api/brands/nope/names", code=404)
+    # files
+    def put_file(self, bid, data, ctype="application/pdf", name="charte.pdf", code=200):
+        req = urllib.request.Request(self.base + f"/api/brands/{bid}/files", method="POST", data=data, headers={"Content-Type": ctype, "X-Filename": name})
+        try:
+            with urllib.request.urlopen(req) as r:
+                got, out = r.status, json.loads(r.read())
+        except urllib.error.HTTPError as err:
+            got, out = err.code, json.loads(err.read())
+            err.close()
+        self.assertEqual(got, code, out)
+        return out
+
+    def test_files_dropped_on_a_brand_are_read_and_only_the_kept_values_enter_the_brand(self):
+        bid = self.call("POST", "/api/brands", {"name": "Pour les fichiers"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/files")
+        self.assertEqual((empty["files"], empty["proposed"], empty["can_propose"], empty["job"], empty["max"]), ([], [], False, None, 20))
+        self.call("POST", f"/api/brands/{bid}/files/read", code=409)  # nothing to read
+        self.put_file(bid, b"%PDF-1.4 x", name="Charte.pdf")
+        self.put_file(bid, b"pas un pdf", code=400)
+        self.put_file(bid, b"%PDF-1.4 x", "text/html", "a.html", code=400)
+        got = self.put_file(bid, b"\x89PNG\r\n\x1a\n", "image/png", "visuel.png")
+        self.assertEqual(([f["name"] for f in got["files"]], got["can_propose"]), (["Charte.pdf", "visuel.png"], True))
+        job = self.call("POST", f"/api/brands/{bid}/files/read")
+        self.assertEqual(job["kind"], "files")
+        self.call("POST", f"/api/brands/{bid}/files/read", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/files")
+        self.assertTrue(got["proposed"] and all(v["state"] == "to_confirm" and v["file"] == "Charte.pdf" for v in got["proposed"]))
+        self.assertEqual({v["kind"] for v in got["proposed"]}, {"colour", "font", "voice", "never"})
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}/brief")["fields"]["voice"]["state"], "absent")  # a proposal never becomes the brand's by itself
+        keep = [v for v in got["proposed"] if v["kind"] != "never"]
+        r = self.call("PUT", f"/api/brands/{bid}/files/values", {"values": keep})
+        self.assertEqual((r["proposed"], [f["family"] for f in r["fonts"]]), ([], ["Fraunces", "Inter"]))
+        brief = self.call("GET", f"/api/brands/{bid}/brief")
+        self.assertEqual((brief["fields"]["voice"]["value"], brief["fields"]["voice"]["state"], brief["fields"]["never"]["state"]), ("chaleureuse", "confirmed", "absent"))
+        self.assertEqual((brief["palette"]["background"], brief["palette"]["accent"]), ("#f4ecd8", "#d9622b"))
+        other = [{"kind": "colour", "value": "#ffffff", "role": "background"}, {"kind": "colour", "value": "#000000", "role": "text"}]
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": other}, code=409)  # confirmed colours: replaced only if it is said
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": other, "replace": True})
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}/brief")["palette"]["background"], "#ffffff")
+        self.call("PUT", f"/api/brands/{bid}/files/values", {"values": [{"kind": "colour", "value": "vert", "role": "text"}]}, code=400)
+        self.call("GET", "/api/brands/nope/files", code=404)
+
+    def test_twenty_files_at_most_on_the_simulated_backend_too(self):
+        bid = self.call("POST", "/api/brands", {"name": "Vingt fichiers"})["id"]
+        for n in range(20):
+            self.put_file(bid, b"%PDF-1.4", name=f"c{n}.pdf")
+        self.put_file(bid, b"%PDF-1.4", name="c21.pdf", code=409)
+
+    def test_the_files_agent_answer_is_checked(self):
+        ok = {"values": [{"kind": "colour", "value": "#ABCDEF", "role": "text", "file": "a.pdf"}, {"kind": "colour", "value": "#000000", "role": "text", "file": "a.pdf"}]}
+        self.assertEqual(workflow.parse_files_values("Voici " + json.dumps(ok), {"a.pdf"}),
+                         [{"kind": "colour", "value": "#abcdef", "role": "text", "file": "a.pdf", "state": "to_confirm"}])  # a role given twice keeps the first
+        for bad in ("rien", {"values": []}, {"values": [{**ok["values"][0], "file": "b.pdf"}]}, {"values": [{**ok["values"][0], "value": "vert"}]},
+                    {"values": [{**ok["values"][0], "role": "fond"}]}, {"values": [{"kind": "logo", "value": "x", "file": "a.pdf"}]}, {"values": [ok["values"][0]] * 21}):
+            with self.assertRaises(ValueError):
+                workflow.parse_files_values(bad, {"a.pdf"})
+
     # competitors
     def test_the_competitors_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
         bid = self.call("POST", "/api/brands", {"name": "Pour les concurrents"})["id"]

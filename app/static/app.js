@@ -48,6 +48,7 @@
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
+    if (n("files")) parts.push("lit les fichiers de la marque");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -1007,7 +1008,8 @@
             : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))),
       h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }),
-      h(Competitors, { ctx, bid }));
+      h(Competitors, { ctx, bid }),
+      h(BrandFiles, { ctx, bid }));
   }
 
   /* ---------- the names of a brand: the studio proposes up to eight, the person keeps or drops each, or writes one, and chooses one of
@@ -1133,6 +1135,67 @@
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les concurrents gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
+  }
+
+  /* ---------- files: the person drops the charter and the visuals of the brand (twenty at most); the studio reads them and proposes values
+     (colours with their role, fonts, voice, what the brand never does), each marked to confirm and with the file that supports it.
+     The person corrects, keeps or drops each; only the kept ones enter the brand ---------- */
+  const FILE_KIND = { colour: "Couleur", font: "Police", voice: "Voix", never: "Interdit" };
+  const FILE_ROLE = { background: "fond", text: "texte", accent: "accent", title: "titres" };
+  const fileLabel = (x) => FILE_KIND[x.kind] + (x.role ? " (" + FILE_ROLE[x.role] + ")" : "");
+  function BrandFiles({ ctx, bid }) {
+    const data = useLive(ctx, () => api.brandFiles(bid), bid);
+    const input = useRef(null);
+    const [ed, setEd] = useState(null); // the values being corrected, [{...value, kept}] (`kept` false: not decided yet); null: nothing touched
+    const [replace, setReplace] = useState(false); // the colours of the brand are confirmed: the person is asked before they are replaced
+    useEffect(() => { setEd(null); setReplace(false); }, [bid]);
+    if (!data) return null;
+    const list = ed || data.proposed.map((x) => ({ ...x, kept: false }));
+    const undecided = list.filter((x) => !x.kept).length, kept = list.filter((x) => x.kept);
+    const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
+    const drop = (i) => setEd(list.filter((x, k) => k !== i));
+    const room = data.max - data.files.length;
+    const pick = (ev) => {
+      const files = Array.from(ev.target.files || []).slice(0, Math.max(room, 0));
+      ev.target.value = "";
+      if (!files.length) return;
+      ctx.act(async () => {
+        await api.addBrandFiles(bid, files);
+        ctx.log("@" + bid, "toi", "Fichiers déposés", plural(files.length, "fichier", "fichiers"));
+        ctx.touch(); ctx.notify(plural(files.length, "fichier est rangé", "fichiers sont rangés") + " dans le dossier de la marque.");
+      });
+    };
+    const read = () => ctx.act(async () => { await api.readBrandFiles(bid); ctx.log("@" + bid, "toi", "Lecture des fichiers demandée au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = (again) => ctx.act(async () => {
+      const values = kept.map((x) => ({ kind: x.kind, value: x.value.trim(), role: x.role, file: x.file })).filter((x) => x.value);
+      try { await api.keepBrandValues(bid, values, again); } catch (e) { if (e.status === 409) { setReplace(true); return; } throw e; }
+      ctx.log("@" + bid, "toi", "Valeurs de la marque enregistrées", plural(values.length, "valeur gardée", "valeurs gardées"));
+      setEd(null); setReplace(false); ctx.touch(); ctx.notify(values.length ? plural(values.length, "valeur est enregistrée", "valeurs sont enregistrées") + " dans la marque." : "Rien n'est entré dans la marque.");
+    });
+    const dirty = ed !== null || data.proposed.length > 0;
+    return h("div", { id: "fichiers" }, h(Where, null, "Ses fichiers"),
+      data.files.length === 0 && h("p", { className: "vide" }, "Aucun fichier. Dépose ta charte (pdf) et tes visuels (png, jpg, webp ou gif), vingt au plus : le studio les lit et te propose ce qu'il apprend de la marque."),
+      data.files.length > 0 && h("ul", { className: "small", "aria-label": "Fichiers de la marque" }, data.files.map((f) => h("li", { key: f.name }, f.name, h("span", { className: "muted" }, " · " + Math.max(1, Math.round(f.size / 1024)) + " Ko")))),
+      data.fonts.length > 0 && h("p", { className: "small" }, "Polices gardées : " + data.fonts.map((f) => f.family + " (" + FILE_ROLE[f.role] + ")").join(", ") + "."),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio lit les fichiers.") : null,
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La lecture n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des propositions à confirmer : chacune dit dans quel fichier le studio l'a lue. Corrige, garde ou écarte chacune."),
+      list.map((x, i) => h("div", { key: i, className: "editor", "data-value": x.kept ? "kept" : "proposed" },
+        h("label", { htmlFor: "valeur-" + i, className: "small cap" }, fileLabel(x) + (x.file ? " · lu dans " + x.file : "") + (x.kept ? " · gardée" : " · à confirmer")),
+        h("input", { id: "valeur-" + i, type: "text", value: x.value, onChange: (e) => change(i, { value: e.target.value }) }),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: !x.value.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder " + fileLabel(x) + " " + x.value }, "Garder"),
+          h(Button, { variant: "ghost", size: "sm", onClick: () => drop(i), "aria-label": "Écarter " + fileLabel(x) + " " + x.value }, "Écarter")))),
+      replace && h(Callout, { tone: "risk", label: "Les couleurs de la marque sont déjà confirmées" },
+        "Celles que tu gardes sont différentes. Les remplacer ?", h("div", { className: "row" }, h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: () => save(true) }, "Remplacer les couleurs"),
+          h(Button, { variant: "ghost", size: "sm", onClick: () => setReplace(false) }, "Garder les anciennes (écarte les couleurs proposées)"))),
+      h("div", { className: "gestures" },
+        h("input", { ref: input, type: "file", className: "sr", multiple: true, accept: "application/pdf,image/png,image/jpeg,image/webp,image/gif", onChange: pick, tabIndex: -1, "aria-hidden": "true", "data-files-input": "1" }),
+        h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || room <= 0, onClick: () => input.current && input.current.click(), "aria-label": "Déposer des fichiers (pdf, png, jpg, webp ou gif, vingt au plus)" }, "Déposer des fichiers"),
+        data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: read, "aria-label": "Demander au studio de lire les fichiers" }, data.proposed.length ? "Relire les fichiers" : "Lire les fichiers"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: () => save(false), "aria-label": "Enregistrer les valeurs gardées dans la marque" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
+      room <= 0 && h("p", { className: "small muted" }, "Vingt fichiers au plus."));
   }
 
   /* ---------- 3. a project: its seven steps, what waits ---------- */
@@ -1531,7 +1594,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "files" ? "Les fichiers sont lus" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;

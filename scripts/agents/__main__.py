@@ -6,6 +6,7 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     personas     the personas of a brand            inputs: name, site, description, brief, words, dossier        gives {"personas": [texts]}
     names        the names of a brand               inputs: name, description, brief, words                       gives {"names": [{name, why}]}
     competitors  the competitors of a brand         inputs: as personas                                           gives {"competitors": [texts]}
+    files        the brand values read in files       inputs: name, files (paths: pdf, png, jpg, webp, gif; twenty at most)     gives {"values": [{kind, value, role, file, state}]}
     mandates     the instructions of a project      inputs: dir (a piece folder of scripts/studio), words, language   gives {"common", "mandates": [four]}
     variant      one variant of a project           inputs: dir, id, mandate, common, language, work (its folder)                   writes <dir>/variants/<id>.json, gives it
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
@@ -32,12 +33,13 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
+from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_files_values, parse_names, parse_personas, parse_proposal,  # noqa: E402
                      parse_reading, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "files": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
+READS = ["--tools=Read", "--permission-prompts=none"]  # an agent that reads the files it is given, in its own folder, and writes nothing
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
 
@@ -188,6 +190,44 @@ def cmd_names(i, model, runner):
 
 def cmd_competitors(i, model, runner):
     return answer_of("competitors", i, competitors_prompt(i), parse_competitors, model, runner)
+
+
+# ---------- the brand: the files the person dropped ----------
+def files_prompt(name, files) -> str:
+    return (
+        "You read the files a person dropped to teach a studio the identity of their brand: a brand charter (PDF), logos, visuals. You only use "
+        "what is in these files: no search, no other source. You write proposals for the person to correct, not facts.\n\n"
+        f"The brand: {one_line(name) or '(no name)'}\nThe files, in the current folder (open each one with the Read tool):\n"
+        + "\n".join(f"- {f}" for f in files)
+        + "\n\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"values": [{"kind": "colour" | "font" | "voice" | "never", "value": "...", "role": "...", "file": "..."}]}\n'
+        "- values: up to twenty, only what a file really shows or says.\n"
+        '- colour: value is #rrggbb; role is "background", "text" or "accent" (each role at most once: the main one). '
+        '- font: value is the family name; role is "title" or "text". '
+        "- voice: a word or a short phrase for the tone of the brand, in French; role is \"\". "
+        "- never: a word, a phrase or a practice the brand forbids itself (a banned word, a forbidden use), in French; role is \"\".\n"
+        "- file: the name of the file, exactly as listed above, that supports the value.\n"
+        "- A colour you only guess from a picture is still a proposal: give its closest #rrggbb. Nothing is invented: if a file says nothing "
+        "of a kind, give nothing of this kind.\n"
+        "- Plain French, no em dash, no emoji.")
+
+
+def cmd_files(i, model, runner):
+    files = [Path(f) for f in i["files"]] if isinstance(i["files"], list) else []
+    if not files or len(files) > 20 or not all(f.is_file() for f in files):
+        raise AgentError("files: one to twenty files that exist")
+    if len({f.name for f in files}) < len(files):
+        raise AgentError("files: two files have the same name")
+    with tempfile.TemporaryDirectory(prefix="ixs-files-") as work:
+        for f in files:
+            shutil.copy2(f, Path(work) / f.name)
+        res = ask(files_prompt(i.get("name"), [f.name for f in files]), "files", READS, work, 400, model, runner)
+    if res.code:
+        raise AgentError("l'agent n'a pas répondu : " + tail(res))
+    try:
+        return {"values": parse_files_values(res.out, {f.name for f in files})}
+    except ValueError as err:
+        raise AgentError(f"réponse de l'agent illisible : {err}") from None
 
 
 # ---------- the project: mandates, variants ----------
@@ -404,7 +444,7 @@ def cmd_reader(i, model, runner):
                       "le lecteur n'a pas écrit sa lecture", "lecture illisible", parse_reading)
 
 
-COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "mandates": cmd_mandates, "variant": cmd_variant,
+COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "files": cmd_files, "mandates": cmd_mandates, "variant": cmd_variant,
             "judge": cmd_judge, "reader": cmd_reader}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
@@ -420,6 +460,8 @@ def load_inputs(path) -> dict:
     for k in PATHS:
         if i.get(k):
             i[k] = str((f.parent / i[k]).resolve())
+    if isinstance(i.get("files"), list):  # `files` (command files): a list of paths
+        i["files"] = [str((f.parent / x).resolve()) for x in i["files"] if isinstance(x, str)]
     return i
 
 

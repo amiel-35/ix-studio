@@ -29,6 +29,9 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"values": [': {{"values": [{{"kind": "colour", "value": "#1A2B3C", "role": "background", "file": "charte.pdf"}},
+                                 {{"kind": "font", "value": "Fraunces", "role": "title", "file": "charte.pdf"}},
+                                 {{"kind": "voice", "value": "franche", "role": "", "file": "charte.pdf"}}]}},
     '{{"common": ': {{"common": "Écrire en français.", "mandates": ["Un", "Deux", "Trois", "Rupture : Quatre"]}},
 }}
 for key, body in ANSWERS.items():
@@ -65,6 +68,8 @@ class Agents(unittest.TestCase):
         piece.mkdir()
         (piece / "brand.md").write_text("# Marque\n- logo : logo.png\n- voix : franche\n", encoding="utf-8")
         (piece / "brief.md").write_text("# Brief\n- objectif : faire goûter\n", encoding="utf-8")
+        (self.tmp / "charte.pdf").write_bytes(b"%PDF-1.4")
+        (self.tmp / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         (self.tmp / "brand.json").write_text('{"name": "Cabane"}', encoding="utf-8")
 
     def tearDown(self):
@@ -91,6 +96,7 @@ class Agents(unittest.TestCase):
         "personas": (BRAND, "personas", ["personas"]),
         "names": (BRAND, "names", ["names"]),
         "competitors": (BRAND, "competitors", ["competitors"]),
+        "files": ({"name": "Cabane", "files": ["charte.pdf", "logo.png"]}, "values", ["values"]),
         "mandates": ({"dir": "piece", "language": "fr"}, "common", ["common", "mandates"]),
         "variant": ({"dir": "piece", "id": "v1", "mandate": "Un", "common": "Rien d'inventé.", "language": "fr"}, "headline", ["headline", "layout"]),
         "judge": (PIECE, "target", ["target", "works", "snags", "unsourced", "brand", "missing"]),
@@ -143,10 +149,28 @@ class Agents(unittest.TestCase):
         self.assertEqual(json.loads((self.tmp / "piece" / "variants" / "v1.json").read_text())["headline"], "Titre")
         self.assertEqual(self.calls()[0]["ls"], ["brand.md", "brief.md", "refs"])  # the logo line of the brand is left out of its copy
 
+    def test_the_files_agent_reads_the_files_in_a_folder_of_its_own_and_every_value_is_to_confirm(self):
+        r = self.run_cmd("files", self.CASES["files"][0])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        values = json.loads(r.stdout)["values"]
+        self.assertEqual([(v["kind"], v["value"], v["role"], v["file"], v["state"]) for v in values],
+                         [("colour", "#1a2b3c", "background", "charte.pdf", "to_confirm"), ("font", "Fraunces", "title", "charte.pdf", "to_confirm"),
+                          ("voice", "franche", "", "charte.pdf", "to_confirm")])
+        self.assertEqual(self.calls()[0]["ls"], ["charte.pdf", "logo.png"])  # nothing else of the person's folders
+        self.assertIn("--tools=Read", self.calls()[0]["argv"])
+
+    def test_the_files_agent_refuses_what_it_cannot_read_or_what_a_value_cannot_hold(self):
+        self.assertEqual(self.run_cmd("files", {"name": "Cabane", "files": ["absent.pdf"]}).returncode, 1)
+        self.assertEqual(self.run_cmd("files", {"name": "Cabane", "files": []}).returncode, 1)
+        self.assertEqual(self.run_cmd("files", {"name": "Cabane", "files": ["charte.pdf"] * 2}).returncode, 1)  # the same name twice
+        r = self.run_cmd("files", {"name": "Cabane", "files": ["logo.png"]})  # the fake names charte.pdf, which was not given
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("fichier donné", r.stderr)
+
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 5 + ["claude-fable-5-1"] * 2)
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 6 + ["claude-fable-5-1"] * 2)
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")
