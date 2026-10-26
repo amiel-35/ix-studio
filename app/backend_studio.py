@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "texts": 60.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1341,6 +1341,44 @@ class StudioBackend:
             if not p["mandates"]["confirmed"] and not p["mandates"]["proposed"] and not self._running(p, "mandates"):
                 self._spawn(pid, "mandates", None, lambda jid: self._mandates_body(pid, jid))
             return {"fields": merged, "formats": chosen, "left_out": workflow.left_out_of(merged.get("format", ""))}
+
+    # ---------- texts: the posts and hooks of a project ----------
+    def _texts_view(self, p):
+        run = self._running(p, "texts")
+        last = next((j for j in reversed(p["jobs"]) if j["kind"] == "texts"), None)
+        t = p.get("texts") or {}
+        return {"texts": list(t.get("kept", [])), "proposed": list(t.get("proposed", [])), "can_propose": p["brief"]["confirmed"],
+                "job": self._job_public(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_texts(self, pid):
+        return self._texts_view(self._load(pid))
+
+    def propose_texts(self, pid):
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed yet: the texts come from it")
+            if self._running(p, "texts"):
+                raise Conflict("the texts are already being proposed")
+            return self._spawn(pid, "texts", None, lambda jid: self._texts_body(pid, jid))
+
+    def put_texts(self, pid, texts):
+        """The texts the person keeps (corrected, or written by hand), written in the project. The proposal is settled."""
+        kept = workflow.texts_of(texts)
+        with self._op(pid):
+            self._mutate(pid, lambda q: q.update(texts={"kept": kept, "proposed": []}))
+            return self.get_texts(pid)
+
+    def _texts_body(self, pid, jid):
+        p = self._load(pid)
+        self._phase(pid, jid, "un agent écrit les textes")
+        work = self._pdir(pid) / "work" / "texts"
+        try:
+            inputs = {"brief": workflow.judge_brief(p["brief"]["fields"]), "brand": self._brand_words(p["brand"]), "language": p["brief"]["fields"].get("language") or "fr"}
+            texts = self._ask(self._joblog(pid, jid), "texts", inputs, work, 330)["texts"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(texts={"kept": (q.get("texts") or {}).get("kept", []), "proposed": texts}))
 
     # ---------- 3. the instructions to the agents ----------
     def get_mandates(self, pid):

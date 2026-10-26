@@ -29,6 +29,7 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"texts": [': {{"texts": [{{"kind": "accroche", "text": "Du thé qui a fait la fête."}}, {{"kind": "post", "text": "Goûte.\\nC'est bon."}}]}},
     '{{"common": ': {{"common": "Écrire en français.", "mandates": ["Un", "Deux", "Trois", "Rupture : Quatre"]}},
 }}
 for key, body in ANSWERS.items():
@@ -91,6 +92,7 @@ class Agents(unittest.TestCase):
         "personas": (BRAND, "personas", ["personas"]),
         "names": (BRAND, "names", ["names"]),
         "competitors": (BRAND, "competitors", ["competitors"]),
+        "texts": ({"brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "cta": "viens"}, "brand": {"name": "Cabane", "voice": "franche"}, "language": "fr"}, "texts", ["texts"]),
         "mandates": ({"dir": "piece", "language": "fr"}, "common", ["common", "mandates"]),
         "variant": ({"dir": "piece", "id": "v1", "mandate": "Un", "common": "Rien d'inventé.", "language": "fr"}, "headline", ["headline", "layout"]),
         "judge": (PIECE, "target", ["target", "works", "snags", "unsourced", "brand", "missing"]),
@@ -137,6 +139,21 @@ class Agents(unittest.TestCase):
         self.assertIn("image", r.stderr)
         self.assertEqual(self.run_cmd("variant", {"dir": "piece"}).returncode, 1)
 
+    def test_the_texts_are_checked_and_never_invent_a_figure(self):
+        inputs = self.CASES["texts"][0]
+        got = json.loads(self.run_cmd("texts", inputs).stdout)
+        self.assertEqual(got["texts"], ["Du thé qui a fait la fête.", "Goûte.\nC'est bon."])
+        self.assertIn("Nothing invented", json.loads(self.log.read_text().splitlines()[0])["argv"][1])
+        self.assertEqual(self.run_cmd("texts", {"brief": {}}).returncode, 1)  # no brief: nothing to write from
+        sys.path.insert(0, str(AGENTS))
+        from answers import parse_texts
+        one = {"kind": "accroche", "text": "Le goût d'abord."}
+        for bad in ({"texts": [{**one, "text": "100 % naturel."}]}, {"texts": [{**one, "text": "Un thé — et c'est bon."}]}, {"texts": [one, one]},
+                    {"texts": [{**one, "kind": "slogan"}]}, {"texts": [{**one, "text": "x" * 121}]}, {"texts": [one] * 2 + [{**one, "text": str(n)} for n in range(5)]}, {"texts": []}):
+            with self.assertRaises(ValueError):
+                parse_texts(bad)
+        self.assertEqual(parse_texts({"texts": [{**one, "text": "100 % naturel."}]}, "100 % naturel"), ["100 % naturel."])  # a figure of the brief is allowed
+
     def test_the_variant_is_written_in_the_piece_and_only_its_own_files_are_seen(self):
         r = self.run_cmd("variant", self.CASES["variant"][0])
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -146,7 +163,7 @@ class Agents(unittest.TestCase):
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 5 + ["claude-fable-5-1"] * 2)
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 6 + ["claude-fable-5-1"] * 2)
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")

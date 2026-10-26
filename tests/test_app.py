@@ -613,6 +613,30 @@ class Api(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.parse_competitors(bad)
 
+    # texts
+    def test_the_texts_of_a_project_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
+        bid = self.ready_brand(name="Pour les textes")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "Textes"})["id"]
+        empty = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual((empty["texts"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], False, None))
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # the brief is not confirmed: nothing to work from
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["Écrit à la main."]})  # but the person may write them
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {"objective": "o", "audience": "a", "message": "m"}})
+        job = self.call("POST", f"/api/projects/{pid}/texts/propose")
+        self.assertEqual(job["kind"], "texts")
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual(got["texts"], ["Écrit à la main."])  # a proposal never becomes the project's by itself
+        self.assertTrue(got["can_propose"] and 1 <= len(got["proposed"]) <= 6)
+        kept = [got["proposed"][0] + " Corrigé.", "", got["texts"][0]]  # one kept and corrected, the others dropped, the hand-written one kept
+        r = self.call("PUT", f"/api/projects/{pid}/texts", {"texts": kept})
+        self.assertEqual((r["texts"], r["proposed"]), ([kept[0], kept[2]], []))
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/texts")["texts"], r["texts"])
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["a"] * 7}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": "a"}, code=400)
+        self.call("GET", "/api/projects/nope/texts", code=404)
+
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
         self.call("GET", "/api/projects/nope", code=404)
