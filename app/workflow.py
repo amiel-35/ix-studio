@@ -37,7 +37,7 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
 from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, LOGOS_MAX, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
                      PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, TEXTS_MAX, _name_item, judge_missing, one_line, parse_competitors, parse_logos, parse_names,  # noqa: F401
-                     parse_personas, parse_reading, parse_storyboard, parse_texts, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
+                     parse_personas, parse_reading, parse_rounds, parse_storyboard, parse_texts, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -763,6 +763,8 @@ def logo_chosen(tid, kept: list) -> bytes:
     if not t:
         raise ValueError("id: one of the tracks kept")
     return t["svg"].encode("utf-8")
+
+
 # ---------- storyboard: the script and the shots of a project's film, proposed by an agent, corrected and saved by the person, then rendered ----------
 def storyboard_view(sb, brief_confirmed, job=None, error=None, film=None, film_job=None, film_error=None) -> dict:
     """What `GET storyboard` answers, the same for both backends. `sb` is what is kept ({script, shots, saved}) or None; `saved` is False while the
@@ -781,3 +783,13 @@ def texts_of(raw) -> list:
     if len(out) > TEXTS_MAX:
         raise ValueError(f"texts: {TEXTS_MAX} at most")
     return out
+
+
+# ---------- rounds: a piece judged three times, the remarks in three shelves (holds, ambiguous, once) ----------
+KIND_STEP["rounds"] = "check"
+
+
+def rounds_view(status, synthesis=None, error=None, job=None) -> dict:
+    """Where the rounds of a judgement stand, for the interface: `{status, synthesis, error, job}`; `status` is `none` (never launched), `running`,
+    `done` (`synthesis`: `{holds, ambiguous, once}`, each a list of `{heading, where, say, rounds}`) or `failed` (`error`)."""
+    return {"status": status, "synthesis": synthesis, "error": error, "job": job}

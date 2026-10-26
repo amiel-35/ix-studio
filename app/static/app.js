@@ -1562,6 +1562,26 @@
           : missing.length > 0 && h("p", { className: "small muted", role: "status" }, "Il manque " + missing.map((k) => JNEEDED[k]).join(", ") + " : le juge le dira et jugera le reste.")));
   }
 
+  /* ================= rounds: the piece judged three times, the remarks in three shelves; the judge blocks nothing ================= */
+  const ROUNDS_SHELVES = [["holds", "Ce qui tient", "Sorti aux trois tours."], ["ambiguous", "Ce qui est ambigu", "Les tours ne sont pas d'accord."], ["once", "Sorti une seule fois", "Un seul tour l'a dit."]];
+  function Rounds({ ctx, jid, name }) {
+    const r = useLive(ctx, () => api.rounds(jid), "rounds-" + jid);
+    if (!r) return null;
+    const launch = () => ctx.act(async () => { await api.runRounds(jid); ctx.touch(); await ctx.refresh(); ctx.notify("Le juge relit " + name + " trois fois."); }, "Le studio lance les trois tours.");
+    const more = r.status === "done" || r.status === "none";
+    return h("div", { className: "lecteurs", "aria-live": "polite" }, h("p", { className: "cap" }, "Trois tours du juge"),
+      r.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce trois fois, chaque tour seul.")
+        : r.status === "failed" ? h(Callout, { tone: "risk", label: "Les trois tours n'ont pas abouti" }, r.error || "raison inconnue")
+        : r.status === "done" ? h("div", { className: "cote" }, ROUNDS_SHELVES.map(([k, label, sub]) => h("section", { key: k, className: "lecteur" },
+          h("h3", { className: "cap" }, label), h("p", { className: "small muted" }, sub),
+          r.synthesis[k].length ? h("ul", { className: "annots" }, r.synthesis[k].map((n, i) => h("li", { key: i },
+            h("span", { className: "small muted" }, cap1(n.where) + " · tours " + n.rounds.join(", ")), h("span", null, n.say))))
+            : h("p", { className: "small muted" }, "Rien."))))
+        : h("p", { className: "small muted" }, "Un seul avis peut se tromper. Fais juger la pièce trois fois : tu vois ce qui revient, ce qui diverge, ce qui n'est sorti qu'une fois."),
+      r.status !== "running" && h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: launch,
+        "aria-label": "Faire juger " + name + " trois fois" }, more && r.status === "done" ? "Refaire les trois tours" : r.status === "failed" ? "Relancer les trois tours" : "Trois tours")));
+  }
+
   function JudgementCol({ ctx, jid }) {
     const jg = useLive(ctx, () => api.judgement(jid), jid);
     if (!jg) return h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("p", { className: "vide" }, "Un instant."));
@@ -1582,6 +1602,7 @@
             h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
           : h(React.Fragment, null, h(Verdict, { v: jg.verdict }),
             h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page"))),
+        jg.status === "done" && h(Rounds, { ctx, jid, name: jg.name }),
         h(Readers, { readers: jg.readers, busy: ctx.busy, run: reread })));
   }
 

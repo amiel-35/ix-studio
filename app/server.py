@@ -108,6 +108,8 @@ ROUTES = [
     ("GET", rf"/api/judgements/{J}", lambda b, m, d: b.judgement(m["j"])),
     ("POST", rf"/api/judgements/{J}/run", lambda b, m, d: b.run_judgement(m["j"])),
     ("POST", rf"/api/judgements/{J}/readers/(?P<n>[0-9])/run", lambda b, m, d: b.run_judgement_reader(m["j"], int(m["n"]))),
+    ("GET", rf"/api/judgements/{J}/rounds", lambda b, m, d: b.judgement_rounds(m["j"])),
+    ("POST", rf"/api/judgements/{J}/rounds", lambda b, m, d: b.run_judgement_rounds(m["j"])),
     ("GET", rf"/api/judgements/{J}/page", lambda b, m, d: b.judgement_page(m["j"])),
     ("GET", r"/api/jobs/(?P<j>[\w-]+)", lambda b, m, d: b.job(m["j"])),
 ]
