@@ -553,6 +553,29 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/personas", {"personas": "a"}, code=400)
         self.call("GET", "/api/brands/nope/personas", code=404)
 
+    def test_the_storyboard_of_a_project_is_proposed_saved_and_only_then_rendered(self):
+        pid = next(x["id"] for x in self.call("GET", "/api/projects") if x["name"] == "Campagne de rentrée")  # its brief is confirmed
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((got["shots"], got["saved"], got["can_propose"], got["film"]), ([], False, True, None))
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)
+        job = self.call("POST", f"/api/projects/{pid}/storyboard/propose")
+        self.assertEqual(job["kind"], "storyboard")
+        self.call("POST", f"/api/projects/{pid}/storyboard/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertTrue(5 <= len(got["shots"]) <= 8 and 15 <= sum(x["seconds"] for x in got["shots"]) <= 30)
+        self.assertEqual((got["saved"], got["film"]), (False, None))
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)  # proposed, not saved
+        shots = [{**got["shots"][0], "text": "Corrigé"}, *got["shots"][1:]]
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": [{**shots[0], "seconds": 0}, *shots[1:]]}, code=400)
+        self.assertEqual(self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": shots})["saved"], True)
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/render"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((got["shots"][0]["text"], got["film_job"]), ("Corrigé", None))
+        self.assertEqual(self.fetch("/" + got["film"]["url"])[1][4:8], b"ftyp")
+        self.assertEqual(self.fetch(f"/api/projects/{pid}/storyboard/film")[0]["Content-Type"], "video/mp4")
+        self.call("GET", "/api/projects/nope/storyboard", code=404)
+
     def test_names_of_a_brand_are_proposed_kept_or_dropped_and_the_chosen_one_becomes_its_name(self):
         bid = self.call("POST", "/api/brands", {"name": "sans nom"})["id"]
         empty = self.call("GET", f"/api/brands/{bid}/names")
@@ -577,6 +600,29 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
         self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
         self.call("GET", "/api/brands/nope/names", code=404)
+    # logos
+    def test_logo_tracks_are_proposed_kept_or_dropped_and_the_chosen_one_becomes_the_logo(self):
+        bid = self.call("POST", "/api/brands", {"name": "Cabane"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+        self.assertEqual((empty["tracks"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], True, None))
+        job = self.call("POST", f"/api/brands/{bid}/logo/propose")  # a name is enough
+        self.assertEqual(job["kind"], "logos")
+        self.call("POST", f"/api/brands/{bid}/logo/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+        self.assertEqual(got["tracks"], [])  # a proposal never becomes the brand's by itself
+        self.assertTrue(1 <= len(got["proposed"]) <= 4)
+        self.assertTrue(all(t["id"] and t["idea"] and "cabane" in t["svg"].lower() for t in got["proposed"]))
+        first = got["proposed"][0]
+        self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": first["id"]}, code=400)  # not kept yet
+        self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": ["nope"]}, code=400)
+        r = self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": [first["id"]]})
+        self.assertEqual((r["tracks"], r["proposed"]), ([first], []))
+        self.assertFalse(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": first["id"]})
+        self.assertTrue(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        self.call("GET", "/api/brands/nope/logo/tracks", code=404)
+
     # competitors
     def test_the_competitors_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
         bid = self.call("POST", "/api/brands", {"name": "Pour les concurrents"})["id"]
@@ -634,6 +680,30 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/research", {"research": "a"}, code=400)
         self.assertEqual(self.call("PUT", f"/api/brands/{bid}/research", {"research": []})["research"], [])
         self.call("GET", "/api/brands/nope/research", code=404)
+
+    # texts
+    def test_the_texts_of_a_project_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
+        bid = self.ready_brand(name="Pour les textes")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "Textes"})["id"]
+        empty = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual((empty["texts"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], False, None))
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # the brief is not confirmed: nothing to work from
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["Écrit à la main."]})  # but the person may write them
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {"objective": "o", "audience": "a", "message": "m"}})
+        job = self.call("POST", f"/api/projects/{pid}/texts/propose")
+        self.assertEqual(job["kind"], "texts")
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual(got["texts"], ["Écrit à la main."])  # a proposal never becomes the project's by itself
+        self.assertTrue(got["can_propose"] and 1 <= len(got["proposed"]) <= 6)
+        kept = [got["proposed"][0] + " Corrigé.", "", got["texts"][0]]  # one kept and corrected, the others dropped, the hand-written one kept
+        r = self.call("PUT", f"/api/projects/{pid}/texts", {"texts": kept})
+        self.assertEqual((r["texts"], r["proposed"]), ([kept[0], kept[2]], []))
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/texts")["texts"], r["texts"])
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["a"] * 7}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": "a"}, code=400)
+        self.call("GET", "/api/projects/nope/texts", code=404)
 
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
@@ -717,6 +787,35 @@ class Machine(unittest.TestCase):
         self.assertIn("Google Chrome", got["missing"][0]["say"])
         self.assertIn("Codex", got["missing"][1]["say"])
         self.assertEqual(self.get(self.serve(["claude"]), "/api/machine")["missing"][0]["label"], "Claude Code")
+
+
+class FilmBusy(unittest.TestCase):
+    """While the film of a project is being made, its storyboard is not touched: the simulated studio, at full speed so that the job is still running."""
+
+    def test_the_storyboard_is_not_proposed_nor_saved_while_the_film_is_rendered(self):
+        from backend_stub import STORYBOARD
+        httpd = server.serve("127.0.0.1", 0, StubBackend(speed=1.0))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (httpd.shutdown(), httpd.server_close()))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def call(method, path, body=None, code=200):
+            req = urllib.request.Request(base + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req) as r:
+                    got, data = r.status, json.loads(r.read())
+            except urllib.error.HTTPError as err:
+                got, data = err.code, json.loads(err.read())
+                err.close()
+            self.assertEqual(got, code, data)
+            return data
+
+        pid = next(x["id"] for x in call("GET", "/api/projects") if x["name"] == "Campagne de rentrée")
+        call("PUT", f"/api/projects/{pid}/storyboard", STORYBOARD)
+        call("POST", f"/api/projects/{pid}/storyboard/render")
+        for method, path, body in (("PUT", "storyboard", STORYBOARD), ("POST", "storyboard/propose", None)):
+            err = call(method, f"/api/projects/{pid}/{path}", body, code=409)
+            self.assertIn("rendu", err["error"])
 
 
 if __name__ == "__main__":

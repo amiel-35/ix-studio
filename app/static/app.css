@@ -104,6 +104,8 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .asset { display: grid; gap: var(--space-2); justify-items: start; }
 .logobox { display: flex; align-items: center; gap: var(--space-3); background: var(--surface-card); border: 1px solid var(--border-default); padding: var(--space-3); }
 .logobox img { max-height: 48px; max-width: 160px; width: auto; }
+/* logos */
+#logos .logobox img { max-height: 96px; max-width: 240px; }
 .swatches.mini { gap: var(--space-3); }
 .swatches.mini .swatch { width: auto; grid-auto-flow: column; align-items: center; gap: var(--space-2); }
 .swatches.mini .swatch i { width: 20px; height: 20px; }
@@ -190,7 +192,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 /* forms */
 .field { display: grid; gap: var(--space-1); }
 .field > label { font-weight: var(--fw-semibold); color: var(--text-strong); }
-input[type="text"], textarea, select { width: 100%; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); transition: border-color var(--transition-fast), background var(--transition-fast); }
+input[type="text"], input[type="password"], textarea, select { width: 100%; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); transition: border-color var(--transition-fast), background var(--transition-fast); }
 textarea { min-height: 96px; resize: vertical; line-height: var(--lh-body); }
 textarea.prompt { min-height: 140px; }
 input:hover, textarea:hover, select:hover { border-color: var(--blue-medium); }
@@ -267,3 +269,8 @@ input.pal-input:focus-visible { outline-offset: -2px; }
 .lecteur { flex: 1 1 200px; display: grid; gap: var(--space-2); }
 .annots > li { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border-subtle); }
 .form .sentence { font-size: var(--fs-body-lg); line-height: 1.6; }
+
+/* storyboard: the shots of a film, one editor each; the film is a vertical video at the width of a phone */
+#film input[type="number"] { width: 5rem; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+#film select { width: auto; }
+#film video { display: block; max-width: 100%; border-radius: var(--radius-md); background: var(--surface-card); }

@@ -49,6 +49,10 @@
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
     if (n("research")) parts.push("cherche sur le web");
+    if (n("logos")) parts.push("dessine des pistes de logo");
+    if (n("texts")) parts.push("écrit les textes");
+    if (n("storyboard")) parts.push("écrit le découpage du film");
+    if (n("film")) parts.push("fait le film");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -952,7 +956,10 @@
         h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, "Une image, son brief, un verdict"))),
       (judgements || []).map((j) => h(Row, { key: j.id, col: 0, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
         label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))));
+        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))),
+      h(Where, null, "Réglages"), // engines
+      h(Row, { col: 0, select: true, sel: sel.panel === "settings" ? level : null, onClick: ctx.openSettings, label: "Réglages : choisir les moteurs d'image et de texte" },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Réglages"), h("span", { className: "meta" }, "Les moteurs d'image et de texte"))));
   }
   const JUDGEMENT_WORD = { running: "Le juge relit", done: "Jugée", failed: "Le juge a échoué" };
   const day = (sec) => sec ? new Date(sec * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
@@ -1009,7 +1016,8 @@
       h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }),
       h(Competitors, { ctx, bid }),
-      h(Research, { ctx, bid }));
+      h(Research, { ctx, bid }),
+      h(Logos, { ctx, bid }));
   }
 
   /* ---------- the names of a brand: the studio proposes up to eight, the person keeps or drops each, or writes one, and chooses one of
@@ -1171,6 +1179,140 @@
         !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: search, "aria-label": "Demander au studio de chercher sur le web" }, list.length ? "Chercher encore" : "Chercher sur le web"),
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les résultats gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque résultat avant d'enregistrer."));
+
+  /* ---------- logos: the studio draws up to four tracks in SVG, the person keeps or drops each, and chooses one of the kept as the brand's logo ---------- */
+  const LOGOS_MAX = 4;
+  const svgSrc = (svg) => "data:image/svg+xml;utf8," + encodeURIComponent(svg); // shown as a picture: nothing in it runs
+  function Logos({ ctx, bid }) {
+    const data = useLive(ctx, () => api.logos(bid), bid);
+    const [ed, setEd] = useState(null); // the tracks being decided, [{id, idea, svg, kept}]; null: nothing touched
+    useEffect(() => setEd(null), [bid]);
+    if (!data) return null;
+    const list = ed || data.tracks.map((t) => ({ ...t, kept: true })).concat(data.proposed.map((t) => ({ ...t, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const change = (id, o) => setEd(list.map((x) => (x.id === id ? { ...x, ...o } : x)));
+    const dirty = ed !== null || data.proposed.length > 0;
+    const propose = () => ctx.act(async () => { await api.proposeLogos(bid); ctx.log("@" + bid, "toi", "Pistes de logo demandées au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      await api.keepLogos(bid, list.filter((x) => x.kept).map((x) => x.id));
+      ctx.log("@" + bid, "toi", "Pistes de logo enregistrées", plural(kept, "piste gardée", "pistes gardées"));
+      setEd(null); ctx.touch(); ctx.notify(kept ? plural(kept, "piste est gardée", "pistes sont gardées") + " dans la marque." : "La marque n'a plus de piste de logo.");
+    });
+    const choose = (x) => ctx.act(async () => {
+      await api.chooseLogo(bid, x.id);
+      ctx.log("@" + bid, "toi", "Logo choisi", x.idea);
+      ctx.touch(); ctx.notify("Cette piste est le logo de la marque.");
+    });
+    return h("div", { id: "logos" }, h(Where, null, "Ses logos"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio dessine des pistes de logo avec le nom et les couleurs de la marque.")
+        : list.length === 0 && h("p", { className: "vide" }, "Aucune piste. Le studio peut en dessiner jusqu'à quatre."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des dessins du studio, personne n'a vérifié que le logo est libre. Garde ou écarte chacun."),
+      list.map((x, i) => h("div", { key: x.id, className: "editor", "data-logo": x.kept ? "kept" : "proposed" },
+        h("span", { className: "small cap" }, (x.kept ? "Piste gardée " : "Proposition ") + (i + 1)),
+        h("div", { className: "logobox" }, h("img", { src: svgSrc(x.svg), alt: "Piste de logo " + (i + 1) + " : " + x.idea })),
+        h("p", { className: "small" }, x.idea),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= LOGOS_MAX, onClick: () => change(x.id, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
+          x.kept && !dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => choose(x), "aria-label": "Prendre la piste " + (i + 1) + " comme logo de la marque" }, "Prendre comme logo"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y) => y.id !== x.id)), "aria-label": (x.kept ? "Écarter la piste " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de dessiner des pistes de logo" }, list.length ? "En proposer d'autres" : "Proposer des logos"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les pistes de logo gardées dans la marque" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
+      kept >= LOGOS_MAX && h("p", { className: "small muted" }, "Quatre pistes au plus."));
+  /* ---------- texts of a project: the studio proposes up to six hooks and posts, the person corrects each, keeps or drops it, or writes one by hand.
+     Only the kept ones are saved in the project, and copied in one gesture ---------- */
+  const TEXTS_MAX = 6;
+  function Texts({ ctx, pid }) {
+    const data = useLive(ctx, () => api.texts(pid), pid);
+    const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
+    useEffect(() => setEd(null), [pid]);
+    if (!data) return null;
+    const list = ed || data.texts.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
+    const drop = (i) => setEd(list.filter((x, k) => k !== i));
+    const dirty = ed !== null || data.proposed.length > 0;
+    const propose = () => ctx.act(async () => { await api.proposeTexts(pid); ctx.log(pid, "toi", "Textes demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      const texts = list.filter((x) => x.kept).map((x) => x.text.trim()).filter(Boolean);
+      await api.saveTexts(pid, texts);
+      ctx.log(pid, "toi", "Textes enregistrés", plural(texts.length, "texte gardé", "textes gardés"));
+      setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "texte est enregistré", "textes sont enregistrés") + " dans le projet." : "Le projet n'a plus de texte.");
+    });
+    const copy = (text) => navigator.clipboard.writeText(text).then(() => ctx.notify("Texte copié."), () => ctx.notify("La copie n'a pas marché : sélectionne le texte et copie-le."));
+    return h("div", { id: "textes" }, h(Where, null, "Ses textes"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit les textes à partir du brief et de la marque.")
+        : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun texte. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
+          : "Aucun texte. Le studio en propose une fois le brief validé ; tu peux aussi les écrire toi-même."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Relis chaque texte : rien ne doit y être que le brief ou la marque n'a dit. Corrige, garde ou écarte chacun."),
+      list.map((x, i) => h("div", { key: i, className: "editor", "data-text": x.kept ? "kept" : "proposed" },
+        h("label", { htmlFor: "texte-" + i, className: "small cap" }, (x.kept ? "Texte gardé " : "Proposition ") + (i + 1)),
+        h("textarea", { id: "texte-" + i, rows: 3, value: x.text, readOnly: !!data.job, onChange: (e) => change(i, { text: e.target.value }) }),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= TEXTS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
+          x.kept && !dirty && h(Button, { variant: "secondary", size: "sm", onClick: () => copy(x.text), "aria-label": "Copier le texte " + (i + 1) }, "Copier"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le texte " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        h(Button, { variant: "secondary", size: "sm", disabled: kept >= TEXTS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un texte toi-même" }, "Écrire un texte"),
+        data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des textes" }, list.length ? "En proposer d'autres" : "Proposer des textes"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les textes gardés dans le projet" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
+      kept >= TEXTS_MAX && h("p", { className: "small muted" }, "Six textes au plus."));
+
+  /* ---------- storyboard: "Son film". The studio proposes the script and the shots (a job); the person reads them, corrects the seconds and the words,
+     saves, and only then renders the film (a job): motion made by code, an mp4 to watch and to download ---------- */
+  function Storyboard({ ctx, pid }) {
+    const data = useLive(ctx, () => api.storyboard(pid), pid + "|sb");
+    const [ed, setEd] = useState(null); // the storyboard being corrected, { script, shots }; null: nothing touched
+    useEffect(() => setEd(null), [pid]);
+    if (!data || !data.can_propose) return null;
+    const shots = ed ? ed.shots : data.shots, script = ed ? ed.script : data.script;
+    const total = shots.reduce((a, x) => a + (Number(x.seconds) || 0), 0);
+    const colours = [...new Set(data.shots.map((x) => x.colour))];
+    const dirty = ed !== null, saved = data.saved && !dirty;
+    const change = (i, o) => setEd({ script, shots: shots.map((x, k) => (k === i ? { ...x, ...o } : x)) });
+    const propose = () => ctx.act(async () => { await api.proposeStoryboard(pid); ctx.log(pid, "toi", "Découpage du film demandé au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      await api.saveStoryboard(pid, script, shots.map((x) => ({ ...x, seconds: Number(x.seconds) })));
+      ctx.log(pid, "toi", "Découpage du film enregistré", plural(shots.length, "plan", "plans"));
+      setEd(null); ctx.touch(); ctx.notify("Le découpage est enregistré. Tu peux lancer le rendu du film.");
+    });
+    const render = () => ctx.act(async () => { await api.renderFilm(pid); ctx.log(pid, "toi", "Rendu du film demandé", ""); await ctx.refresh(); ctx.touch(); });
+    const download = () => ctx.act(async () => saveFile(await api.downloadFilm(pid)));
+    return h("div", { id: "film" }, h(Where, null, "Son film"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit le script et le découpage à partir du brief.")
+        : shots.length === 0 && h("p", { className: "vide" }, "Pas encore de film. Le studio peut écrire un script et un découpage en plans, que tu corriges avant le rendu."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "Le découpage n'a pas marché" }, data.error),
+      shots.length > 0 && h("div", { className: "sec" },
+        !data.saved && !dirty && h("p", { className: "small muted" }, "Ce découpage est une proposition : relis-le, corrige-le, puis enregistre-le. Le rendu ne se lance qu'après."),
+        h("label", { htmlFor: "sb-script", className: "small cap" }, "Le script"),
+        h("textarea", { id: "sb-script", rows: 3, value: script, readOnly: !!data.job, onChange: (e) => setEd({ script: e.target.value, shots }) }),
+        shots.map((x, i) => h("div", { key: i, className: "editor", "data-shot": i + 1 },
+          h("span", { className: "small cap" }, "Plan " + (i + 1) + " sur " + shots.length + (x.visual === "logo" ? " : le logo de la marque" : "")),
+          h("div", { className: "row" },
+            h("label", { htmlFor: "sb-s-" + i, className: "small" }, "Secondes"),
+            h("input", { id: "sb-s-" + i, type: "number", min: 1, max: 8, step: 0.5, value: x.seconds, onChange: (e) => change(i, { seconds: e.target.value }) }),
+            h("label", { htmlFor: "sb-c-" + i, className: "small" }, "Couleur"),
+            h("select", { id: "sb-c-" + i, value: x.colour, onChange: (e) => change(i, { colour: e.target.value }), style: { borderLeft: "1.5rem solid " + x.colour } },
+              colours.map((c) => h("option", { key: c, value: c }, c)))),
+          x.visual === "texte" && h(React.Fragment, null,
+            h("label", { htmlFor: "sb-t-" + i, className: "small" }, "Texte à l'écran"),
+            h("input", { id: "sb-t-" + i, type: "text", maxLength: 90, value: x.text, onChange: (e) => change(i, { text: e.target.value }) })),
+          h("label", { htmlFor: "sb-r-" + i, className: "small" }, "Ce qu'on lit"),
+          h("input", { id: "sb-r-" + i, type: "text", maxLength: 300, value: x.read, onChange: (e) => change(i, { read: e.target.value }) }))),
+        h("p", { className: "small muted", role: "status" }, "Le film fait " + total + " s" + (total >= 15 && total <= 30 ? "." : " : il en faut entre 15 et 30."))),
+      h("div", { className: "gestures" },
+        !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio d'écrire le découpage du film" }, shots.length ? "En proposer un autre" : "Écrire le découpage"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || total < 15 || total > 30, onClick: save, "aria-label": "Enregistrer le découpage corrigé" }, "Enregistrer"),
+        saved && !data.film_job && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: render, "aria-label": "Lancer le rendu du film" }, data.film ? "Refaire le rendu" : "Lancer le rendu")),
+      data.film_job && h("p", { className: "small muted", role: "status" }, "Le studio fait le film : chaque plan est animé, capturé image par image, puis assemblé. Compte quelques minutes."),
+      data.film_error && !data.film_job && h(Callout, { tone: "risk", label: "Le rendu n'a pas marché" }, data.film_error),
+      data.film && !data.film_job && h("div", { className: "sec" },
+        h("video", { src: data.film.url, controls: true, width: 270, "aria-label": "Le film du projet" }),
+        h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: download, "aria-label": "Télécharger le film en mp4" }, "Télécharger le film"))));
   }
 
   /* ---------- 3. a project: its seven steps, what waits ---------- */
@@ -1207,6 +1349,8 @@
             : h("div", { className: "etape" }, inner));
       })),
       p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
+      st("brief") === "done" && h(Texts, { ctx, pid }),
+      st("brief") === "done" && h(Storyboard, { ctx, pid, key: pid + "|film" }),
       h(Where, null, "Ce qui attend"),
       tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false }))
         : st("brand") !== "done" ? h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
@@ -1374,6 +1518,35 @@
     { k: "fixed", before: ". Les assets : ", label: "le cadre (respecter ou non les assets)", empty: "rien de dit, c'est facultatif", area: true }];
   const JNEEDED = { objective: "l'objectif", audience: "la cible", message: "le message", cta: "l'appel à l'action" };
 
+  /* ---------- engines: the settings, the engine of the images and the engine of the texts with its key ---------- */
+  const TEXT_WORD = { claude: "Claude Code", openrouter: "OpenRouter" };
+  const IMAGE_WORD = { auto: "Au choix du studio", openai: "OpenAI", openrouter: "OpenRouter", codex: "Codex", none: "Aucun" };
+  function Settings({ ctx }) {
+    const [cfg, setCfg] = useState(null), [image, setImage] = useState(""), [text, setText] = useState(""), [model, setModel] = useState(""), [key, setKey] = useState("");
+    const show = (c) => { setCfg(c); setImage(c.image_engine); setText(c.text_engine); setModel(c.openrouter_model); setKey(""); };
+    useEffect(() => { api.engines().then(show).catch(ctx.fail); }, []);
+    const saveImage = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveEngine(image)); ctx.notify("Le moteur d'image est enregistré."); }); };
+    const saveText = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined)); ctx.notify("Le moteur de texte est enregistré."); }); };
+    const forget = () => ctx.act(async () => { show(await api.saveTextEngine(text, "")); ctx.notify("La clé est oubliée."); });
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Studio"), h("h2", { className: "titre" }, "Réglages")),
+      !cfg ? h("p", { className: "vide" }, "Un instant.") : h(React.Fragment, null,
+        h("form", { className: "sec form", onSubmit: saveImage },
+          h("div", { className: "field" }, h("label", { htmlFor: "st-image" }, "Moteur d'image"),
+            h("select", { id: "st-image", value: image, onChange: (e) => setImage(e.target.value) }, cfg.image_engines.map((k) => h("option", { key: k, value: k }, IMAGE_WORD[k] || k)))),
+          h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || image === cfg.image_engine, "aria-label": "Enregistrer le moteur d'image" }, "Enregistrer"))),
+        h("form", { className: "sec form", onSubmit: saveText },
+          h("div", { className: "field" }, h("label", { htmlFor: "st-text" }, "Moteur de texte"),
+            h("select", { id: "st-text", value: text, onChange: (e) => setText(e.target.value) }, cfg.text_engines.map((k) => h("option", { key: k, value: k }, TEXT_WORD[k] || k)))),
+          text === "openrouter" && h(React.Fragment, null,
+            h("div", { className: "field" }, h("label", { htmlFor: "st-key" }, "Clé OpenRouter"),
+              h("input", { id: "st-key", type: "password", value: key, onChange: (e) => setKey(e.target.value), autoComplete: "off", placeholder: cfg.key_saved ? "Une clé est enregistrée" : "", "aria-describedby": "st-key-hint" }),
+              h("span", { id: "st-key-hint", className: "small muted", "data-key-saved": cfg.key_saved }, cfg.key_saved ? "Une clé est enregistrée. Elle reste sur ce poste et ne s'affiche jamais. Écris-en une autre pour la remplacer." : "Aucune clé enregistrée. Elle reste sur ce poste et ne s'affiche jamais.")),
+            h("div", { className: "field" }, h("label", { htmlFor: "st-model" }, "Modèle"), h("input", { id: "st-model", type: "text", value: model, onChange: (e) => setModel(e.target.value), autoComplete: "off" }))),
+          h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || (text === "openrouter" && !key.trim() && !cfg.key_saved), "aria-label": "Enregistrer le moteur de texte" }, "Enregistrer"),
+            text === "openrouter" && cfg.key_saved && h(Button, { type: "button", variant: "ghost", size: "md", onClick: forget, disabled: ctx.busy, "aria-label": "Oublier la clé" }, "Oublier la clé"),
+            h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Fermer les réglages" }, "Fermer")))));
+  }
+
   function JudgeForm({ ctx }) {
     const [file, setFile] = useState(null);
     const [url, setUrl] = useState(null);
@@ -1426,6 +1599,26 @@
           : missing.length > 0 && h("p", { className: "small muted", role: "status" }, "Il manque " + missing.map((k) => JNEEDED[k]).join(", ") + " : le juge le dira et jugera le reste.")));
   }
 
+  /* ================= rounds: the piece judged three times, the remarks in three shelves; the judge blocks nothing ================= */
+  const ROUNDS_SHELVES = [["holds", "Ce qui tient", "Sorti aux trois tours."], ["ambiguous", "Ce qui est ambigu", "Les tours ne sont pas d'accord."], ["once", "Sorti une seule fois", "Un seul tour l'a dit."]];
+  function Rounds({ ctx, jid, name }) {
+    const r = useLive(ctx, () => api.rounds(jid), "rounds-" + jid);
+    if (!r) return null;
+    const launch = () => ctx.act(async () => { await api.runRounds(jid); ctx.touch(); await ctx.refresh(); ctx.notify("Le juge relit " + name + " trois fois."); }, "Le studio lance les trois tours.");
+    const more = r.status === "done" || r.status === "none";
+    return h("div", { className: "lecteurs", "aria-live": "polite" }, h("p", { className: "cap" }, "Trois tours du juge"),
+      r.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce trois fois, chaque tour seul.")
+        : r.status === "failed" ? h(Callout, { tone: "risk", label: "Les trois tours n'ont pas abouti" }, r.error || "raison inconnue")
+        : r.status === "done" ? h("div", { className: "cote" }, ROUNDS_SHELVES.map(([k, label, sub]) => h("section", { key: k, className: "lecteur" },
+          h("h3", { className: "cap" }, label), h("p", { className: "small muted" }, sub),
+          r.synthesis[k].length ? h("ul", { className: "annots" }, r.synthesis[k].map((n, i) => h("li", { key: i },
+            h("span", { className: "small muted" }, cap1(n.where) + " · tours " + n.rounds.join(", ")), h("span", null, n.say))))
+            : h("p", { className: "small muted" }, "Rien."))))
+        : h("p", { className: "small muted" }, "Un seul avis peut se tromper. Fais juger la pièce trois fois : tu vois ce qui revient, ce qui diverge, ce qui n'est sorti qu'une fois."),
+      r.status !== "running" && h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: launch,
+        "aria-label": "Faire juger " + name + " trois fois" }, more && r.status === "done" ? "Refaire les trois tours" : r.status === "failed" ? "Relancer les trois tours" : "Trois tours")));
+  }
+
   function JudgementCol({ ctx, jid }) {
     const jg = useLive(ctx, () => api.judgement(jid), jid);
     if (!jg) return h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("p", { className: "vide" }, "Un instant."));
@@ -1446,6 +1639,7 @@
             h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
           : h(React.Fragment, null, h(Verdict, { v: jg.verdict }),
             h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page"))),
+        jg.status === "done" && h(Rounds, { ctx, jid, name: jg.name }),
         h(Readers, { readers: jg.readers, busy: ctx.busy, run: reread })));
   }
 
@@ -1500,6 +1694,7 @@
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
     if (sel.panel === "newJudge") { c.push("newJudge"); return c; }
+    if (sel.panel === "settings") { c.push("settings"); return c; } // engines
     if (sel.judgement) { c.push("judgement"); return c; }
     if (!sel.brand) return c;
     c.push("brand");
@@ -1569,7 +1764,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "research" ? "La recherche sur le web est terminée" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "research" ? "La recherche sur le web est terminée" : j.kind === "logos" ? "Les pistes de logo sont dessinées" : j.kind === "texts" ? "Les textes sont proposés" : j.kind === "storyboard" ? "Le découpage du film est proposé" : j.kind === "film" ? "Le film est prêt" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
@@ -1598,6 +1793,7 @@
     const selectStep = useCallback((key) => move((s) => ({ ...s, detail: { kind: "step", key }, panel: null, task: null })), [move]);
     const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
     const newJudge = useCallback(() => move(() => ({ ...EMPTY, panel: "newJudge" })), [move]);
+    const openSettings = useCallback(() => move(() => ({ ...EMPTY, panel: "settings" })), [move]); // engines
     const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judgement: id }), text), [move]);
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
@@ -1665,7 +1861,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement, openSettings };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -1681,6 +1877,7 @@
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
       cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
       cmds.push({ id: "new-judge", group: "Créer", label: "Juger une pièce", run: newJudge });
+      cmds.push({ id: "settings", group: "Aller", label: "Réglages : les moteurs", run: openSettings }); // engines
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
       if (sel.brand && sel.project) {
@@ -1780,12 +1977,12 @@
 
     /* ----- the columns ----- */
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
-      : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+      : kind === "settings" ? h(Settings, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", settings: "Réglages", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
     const shell = (kind, i) => {
       const last = i === cols.length - 1;
