@@ -10,7 +10,7 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
   piece dropped to be judged whose name contains `fail` makes the judge fail. Its readers give one fixed reading; a persona whose text contains `fail`
   makes its reader fail; its personas agent gives three plausible, fixed personas; its names agent five plausible, fixed names;
-  its competitors agent gives four plausible, fixed, fictional competitors.
+  its competitors agent gives four plausible, fixed, fictional competitors; its texts agent gives four plausible, fixed texts.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
@@ -70,7 +70,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     the logo), `brand-brief` (write the brief of the brand; or, once it is written, find the logo, or choose the colours), `brand-confirm` (confirm what was deduced: the question lists the values) or `job-failed`
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
-- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `mandates` (the real backend: an agent
+- **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `names` (an agent proposes names for a brand), `competitors` (an agent proposes a brand's competitors), `texts` (an agent proposes the hooks and posts of a project), `mandates` (the real backend: an agent
   proposes the instructions), `diverge`, `image`, `judge` (the judge reads a piece: one of a project, or one dropped on its own) or `reader` (a persona reads it); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
@@ -112,6 +112,10 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   knows of the brand, or supposed), `Vend : …` (what it sells and to whom, one line), `Se distingue : …` (its angle, its tone, against the
   brand, one line). No figure (share, turnover, ranking). At most six, each its own name (`workflow.parse_competitors`, the same for both
   backends). What the person keeps is free text.
+- **texts**: the hooks and posts of a project, `{texts, proposed, can_propose, job, error}`: `texts` those the person kept (only these are the
+  project's), `proposed` those of the last `texts` job not settled yet, `can_propose` true once the project's brief is confirmed, `job` and
+  `error` as for the personas. A text is free text: a hook is one line (120 signs at most), a post a few lines (700 at most). Six at most, none
+  twice, no em dash, and no figure that is not in the brief or in the brand (`answers.parse_texts`, the same for both backends).
 
 - **reader**: a persona of the brief reading the piece, `{n, persona, status, reading, error, job}`. **A brief may name one to four personas**
   (`personas`, a list of free texts written by the person: "tu as 55 ans, artisan, …"; empty texts are left out, more than four is a 400). Each
@@ -149,6 +153,9 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `GET /api/brands/{b}/competitors` | the brand's **competitors** (see the shape) |
 | `POST /api/brands/{b}/competitors/propose` | an agent proposes up to six competitors from what the studio knows of the brand (its dossier, its brief) and what it knows of the market: a job of `kind` `competitors`, no search on the web. When it ends, they are in `proposed`, never in `competitors` by themselves. 409 while the brief of the brand is not done, or while the job runs |
 | `PUT /api/brands/{b}/competitors` `{competitors: [text]}` | the competitors the person keeps, corrected or written by hand (the empty ones dropped; 400 for more than six, or for anything but a list of texts). They replace the brand's, and `proposed` is emptied. The person may write them all without the job. Answers the competitors |
+| `GET /api/projects/{p}/texts` | the project's **texts** (see the shape) |
+| `POST /api/projects/{p}/texts/propose` | an agent proposes up to six hooks and posts from the brief of the project and the voice of its brand: a job of `kind` `texts`, no search on the web. When it ends, they are in `proposed`, never in `texts` by themselves. 409 while the brief is not confirmed, or while the job runs |
+| `PUT /api/projects/{p}/texts` `{texts: [text]}` | the texts the person keeps, corrected or written by hand (the empty ones dropped; 400 for more than six, or for anything but a list of texts). They replace the project's, and `proposed` is emptied. The person may write them all without the job. Answers the texts |
 | `POST /api/brands/{b}/projects` `{name, from?}` | a project of type `campagne` in the brand. `from` (a project of the same brand, 400 otherwise) copies the fields of its brief, nothing else. Answers the project |
 | `GET /api/projects` | the projects: `[{id, name, brand, brand_name, waiting}]` |
 | `POST /api/projects` `{name, brand?, site?, from?}` | kept for the callers that make a project in one go: `brand` is the brand's **name**, found (case apart) or made, with its site read; `from` makes a declination in the same brand (it keeps the brand and copies the brief's fields) and needs no brand |
@@ -211,6 +218,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `personas/propose` (the `personas` job) | `scripts/agents personas <inputs.json>` (the brand's name, site, description, the fields of its brief with their state, the person's words, the path of `<m>/brand/brand.json`; written in `<m>/work/personas/`); the command holds the prompt (`claude -p`, model `sonnet`, no tool) and checks the answer (`answers.parse_personas`: anything else is a failed job, with the command's reason); the personas go to `personas_proposed` of `marque.json`. `PUT personas` writes `personas` there |
 | `names/propose` (the `names` job) | `scripts/agents names <inputs.json>`, the brand's provisional name, its description, its brief and the person's words; checked by `answers.parse_names` (anything else is a failed job); the names go to `names_proposed` of `marque.json`. `PUT names` writes `names` there; a `chosen` name is then given as `PUT /brands/{b}` gives one |
 | `competitors/propose` (the `competitors` job) | `scripts/agents competitors <inputs.json>`, the same inputs as the personas; checked by `answers.parse_competitors` (anything else is a failed job); the competitors go to `competitors_proposed` of `marque.json`. `PUT competitors` writes `competitors` there |
+| `texts/propose` (the `texts` job, of a project) | `scripts/agents texts <inputs.json>` (the project's brief, the brand's name and voice, the language; written in `<p>/work/texts/`); checked by `answers.parse_texts` (anything else is a failed job); the texts go to `texts.proposed` of `project.json`. `PUT texts` writes `texts.kept` there |
 | `PUT /brands/{b}` | a new name is also given to the dossier: `brandkit answer <m>/brand identity.name <name>` |
 | `PUT brief` (the project's) | `studio brand <piece> --from-dossier <m>/brand --include-unconfirmed --force`, the colours that `brand.md` lacks are completed from the measured ones and marked `(à confirmer)` (with no colour to take them from, the answer is a 400 that says so: there is no neutral stand-in), `studio brand <piece>`; then writes `<piece>/brief.md`, `studio brief <piece>` (its refusal is the 400), then starts the `mandates` job |
 | `mandates` job | `scripts/agents mandates <inputs.json>` (the piece folder, its language, the person's words): the proposal, or a default one when the command fails |

@@ -6,6 +6,7 @@ scripts/studio.
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -217,6 +218,45 @@ def parse_competitors(raw) -> list:
         out.append("\n".join([COMPETITOR_HEAD, f"Nom : {name} ({src})", f"Vend : {sells}", f"Se distingue : {differs}"]))
     return out
 
+
+
+# ---------- texts: the posts and the hooks of a project ----------
+TEXTS_MAX = 6
+TEXT_KINDS = {"accroche": 120, "post": 700}  # the kind of a text, and its length at most
+
+
+def parse_texts(raw, source="") -> list:
+    """What the texts agent answers, checked and written as texts: `{"texts": [{"kind": "accroche" | "post", "text"}]}`, one to six, none twice,
+    a hook on one line, a post on a few, no em dash. A number that is not in `source` (the brief and the brand, as text) is a figure invented:
+    a ValueError. A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("texts") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= TEXTS_MAX:
+        raise ValueError(f"il faut de un à {TEXTS_MAX} textes")
+    out, known = [], re.findall(r"\d+", source)
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        kind, text = str(it.get("kind", "")).strip().lower(), it.get("text")
+        if kind not in TEXT_KINDS or not isinstance(text, str):
+            raise ValueError("chaque texte dit s'il est une accroche ou un post, et le texte")
+        text = one_line(text) if kind == "accroche" else "\n".join(x for x in (one_line(l) for l in text.splitlines()) if x)
+        if not text or len(text) > TEXT_KINDS[kind]:
+            raise ValueError(f"une accroche tient en une ligne de {TEXT_KINDS['accroche']} signes, un post en {TEXT_KINDS['post']} au plus")
+        if "\u2014" in text:
+            raise ValueError("pas de tiret cadratin dans les textes")
+        if any(n not in known for n in re.findall(r"\d+", text)):
+            raise ValueError("un chiffre n'est ni dans le brief ni dans la marque : il est inventé")
+        if text.casefold() in (x.casefold() for x in out):
+            raise ValueError("un texte est proposé deux fois")
+        out.append(text)
+    return out
 
 
 def parse_proposal(text: str) -> dict:

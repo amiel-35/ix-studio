@@ -48,6 +48,7 @@
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
+    if (n("texts")) parts.push("écrit les textes");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -1135,6 +1136,48 @@
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
   }
 
+  /* ---------- texts of a project: the studio proposes up to six hooks and posts, the person corrects each, keeps or drops it, or writes one by hand.
+     Only the kept ones are saved in the project, and copied in one gesture ---------- */
+  const TEXTS_MAX = 6;
+  function Texts({ ctx, pid }) {
+    const data = useLive(ctx, () => api.texts(pid), pid);
+    const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
+    useEffect(() => setEd(null), [pid]);
+    if (!data) return null;
+    const list = ed || data.texts.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
+    const drop = (i) => setEd(list.filter((x, k) => k !== i));
+    const dirty = ed !== null || data.proposed.length > 0;
+    const propose = () => ctx.act(async () => { await api.proposeTexts(pid); ctx.log("@" + pid, "toi", "Textes demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      const texts = list.filter((x) => x.kept).map((x) => x.text.trim()).filter(Boolean);
+      await api.saveTexts(pid, texts);
+      ctx.log("@" + pid, "toi", "Textes enregistrés", plural(texts.length, "texte gardé", "textes gardés"));
+      setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "texte est enregistré", "textes sont enregistrés") + " dans le projet." : "Le projet n'a plus de texte.");
+    });
+    const copy = (text) => navigator.clipboard.writeText(text).then(() => ctx.notify("Texte copié."), () => ctx.notify("La copie n'a pas marché : sélectionne le texte et copie-le."));
+    return h("div", { id: "textes" }, h(Where, null, "Ses textes"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit les textes à partir du brief et de la marque.")
+        : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun texte. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
+          : "Aucun texte. Le studio en propose une fois le brief validé ; tu peux aussi les écrire toi-même."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Relis chaque texte : rien ne doit y être que le brief ou la marque n'a dit. Corrige, garde ou écarte chacun."),
+      list.map((x, i) => h("div", { key: i, className: "editor", "data-text": x.kept ? "kept" : "proposed" },
+        h("label", { htmlFor: "texte-" + i, className: "small cap" }, (x.kept ? "Texte gardé " : "Proposition ") + (i + 1)),
+        h("textarea", { id: "texte-" + i, rows: 3, value: x.text, readOnly: !!data.job, onChange: (e) => change(i, { text: e.target.value }) }),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= TEXTS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
+          x.kept && !dirty && h(Button, { variant: "secondary", size: "sm", onClick: () => copy(x.text), "aria-label": "Copier le texte " + (i + 1) }, "Copier"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le texte " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        h(Button, { variant: "secondary", size: "sm", disabled: kept >= TEXTS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un texte toi-même" }, "Écrire un texte"),
+        data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des textes" }, list.length ? "En proposer d'autres" : "Proposer des textes"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les textes gardés dans le projet" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
+      kept >= TEXTS_MAX && h("p", { className: "small muted" }, "Six textes au plus."));
+  }
+
   /* ---------- 3. a project: its seven steps, what waits ---------- */
   function ProjectCol({ ctx, pid }) {
     const p = useLive(ctx, () => api.project(pid), pid);
@@ -1169,6 +1212,7 @@
             : h("div", { className: "etape" }, inner));
       })),
       p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
+      st("brief") === "done" && h(Texts, { ctx, pid }),
       h(Where, null, "Ce qui attend"),
       tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false }))
         : st("brand") !== "done" ? h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
@@ -1531,7 +1575,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "texts" ? "Les textes sont proposés" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
