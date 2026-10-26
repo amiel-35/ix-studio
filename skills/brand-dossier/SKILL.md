@@ -66,9 +66,13 @@ the exports yourself.
    with ASK lines left: they stay missing for every module downstream. Validation writes `history/vN/` and the
    exports.
 
-## Personas, names, competitors
+## Export
 
-Three agents, run by the same commands as in the interface: `AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"` (from a clone `<repo>/scripts/agents`), then
+`python3 "$BK" pack brand --out dossier-de-marque.zip`: the brand folder to hand over, one zip (`brand.md`, `MOTION.md` if exported, the logo, `brand.json` with each value's source and status; what is missing stays `ask`).
+
+## Personas, names, competitors, research, logos
+
+Five agents, run by the same commands as in the interface: `AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"` (from a clone `<repo>/scripts/agents`), then
 `python3 "$AG" <command> inputs.json`. The inputs are `name`, `site`, `description`, `words` (what the person says of the brand), `brief` (a list of
 `{key, value, state}` with the keys `what`, `who`, `voice`, `signature`, `never`, `colours` and the state `confirmed` or `deduced`, taken from the
 dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show and correct, never facts to file.
@@ -76,10 +80,14 @@ dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show 
 - `personas`: up to four people the brand's ads will meet, each with a main need; use it once the brief of the brand is done.
 - `names`: up to eight names with their why; when the brand has only a working title. Nobody checked that a name is free.
 - `competitors`: up to six, each marked `dossier` or `supposé`; no figure.
+- `logos`: up to four logo tracks drawn in SVG, `{idea, svg}` (inputs: also `colours`, a list of hex, and `fonts`); checked, no script nor image; nobody checked that a logo is free. The person keeps or drops each.
+- `research`: given a name (the other inputs are optional), searches the web for the brand's site, campaigns and press: up to ten `{url, brings, belonging}` (`officielle`, `officielle relayée`, `probable`, `incertaine`), each with its address. Show them, let the person keep or drop each; nothing is downloaded, keep the addresses.
+
+- `competitors` with `market` (one or two sentences) as the only input, no brand: the landscape of that market, up to six players with their position; one not in the description is `supposé`; show it to the person, who keeps or drops each.
 
 `files` (inputs `name`, `files`) reads the charter pdf and the visuals the person gave and proposes colours with their role, fonts, voice and banned words, each `to_confirm` with the file that supports it: show them and file only what the person keeps (never over a confirmed value without saying so).
 
-They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_FILES`) changes it.
+They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_LOGOS`, `_RESEARCH`, `_FILES`) changes it.
 
 ## Reading the dossier from another module
 

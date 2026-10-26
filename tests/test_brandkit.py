@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
@@ -72,6 +73,39 @@ class Example(unittest.TestCase):
             self.assertTrue(src["type"] and src["origin"] and src["at"], path)
             if v.get("value") is not None:
                 self.assertNotEqual(src["type"], "none", path)
+
+    # export: `brandkit pack`, the brand folder in one zip
+    def test_pack_gives_brand_md_the_logo_and_a_brand_json_that_keeps_status_and_source_and_writes_what_is_missing(self):
+        out = self.tmp / "dossier.zip"
+        run("pack", self.b, "--out", out)
+        with zipfile.ZipFile(out) as z:
+            names = z.namelist()
+            self.assertIn("brand.md", names)
+            self.assertIn("brand.json", names)
+            card = json.loads(z.read("brand.json"))
+            self.assertIn("ASK ME", z.read("brand.md").decode())  # the gaps stay visible in the sheet too
+        self.assertEqual({r["status"] for r in card["values"]} - {"confirmed", "to_confirm", "ask"}, set())
+        for r in card["values"]:
+            if r["status"] == "ask":
+                self.assertIsNone(r["value"])  # missing is written missing, never filled in
+                self.assertIn(r["path"], card["missing"])
+            else:
+                self.assertTrue(r["source"], r["path"])
+        self.assertEqual(sorted(card["missing"]), sorted(r["path"] for r in card["values"] if r["status"] == "ask"))
+
+    def test_pack_of_a_folder_that_is_not_a_dossier_or_whose_brand_json_is_unreadable_fails_and_writes_nothing(self):
+        out = self.tmp / "rien.zip"
+        r = run("pack", self.tmp / "nope", "--out", out, ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse(out.exists())
+        broken = self.tmp / "cassé"
+        shutil.copytree(self.b, broken)
+        (broken / "sources").rename(broken / "sources-away")
+        (broken / "sources-away").mkdir(exist_ok=True)
+        (broken / "decisions.json").write_text("pas du json")
+        r = run("pack", broken, "--out", out, ok=False)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertFalse(out.exists())
 
     def test_c3_skill_wins_and_inferred_is_discarded(self):
         disc = self.doc["colours"]["discarded"]
