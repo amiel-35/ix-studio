@@ -54,7 +54,8 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand",
+             "competitors": "brand"}
 
 
 def slug(text: str) -> str:
@@ -800,4 +801,48 @@ def parse_personas(raw) -> list:
                 raise ValueError("chaque ligne dit ce qu'elle dit et si elle vient du dossier ou si elle est supposée")
             rows.append(f"({src}) {say}")
         out.append("\n".join([PERSONA_HEAD, f"Besoin principal : {need}", *rows]))
+    return out
+
+
+# ---------- competitors: the competitors of a brand, proposed by an agent from what the studio knows, corrected and kept by the person ----------
+COMPETITORS_MAX = 6
+COMPETITOR_HEAD = "Hypothèse à vérifier, pas un fait."
+
+
+def competitors_of(raw) -> list:
+    """The competitors the person keeps (`PUT competitors`): a list of texts, at most six; the empty ones are dropped."""
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        raise ValueError("competitors: a list of texts")
+    out = [x.strip()[:2000] for x in raw if x.strip()]
+    if len(out) > COMPETITORS_MAX:
+        raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
+    return out
+
+
+def parse_competitors(raw) -> list:
+    """What the competitors agent answers, checked and written as texts: `{"competitors": [{"name", "sells", "differs", "from"}]}`, one to six,
+    each its own name, `from` the dossier or supposed. A text starts with COMPETITOR_HEAD, then `Nom : … (dossier|supposé)`, `Vend : …`,
+    `Se distingue : …`. A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("competitors") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= COMPETITORS_MAX:
+        raise ValueError(f"il faut de un à {COMPETITORS_MAX} concurrents")
+    out, names = [], set()
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        name, sells, differs = (one_line(it.get(k))[:300] for k in ("name", "sells", "differs"))
+        src = PERSONA_FROM.get(str(it.get("from", "")).strip().lower())
+        if not name or not sells or not differs or not src:
+            raise ValueError("chaque concurrent a un nom, ce qu'il vend, ce qui le distingue, et dit s'il vient du dossier ou s'il est supposé")
+        if name.casefold() in names:
+            raise ValueError("deux concurrents ont le même nom")
+        names.add(name.casefold())
+        out.append("\n".join([COMPETITOR_HEAD, f"Nom : {name} ({src})", f"Vend : {sells}", f"Se distingue : {differs}"]))
     return out
