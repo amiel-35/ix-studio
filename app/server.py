@@ -67,6 +67,8 @@ ROUTES = [
     ("GET", rf"/api/brands/{B}/competitors", lambda b, m, d: b.get_competitors(m["b"])),
     ("PUT", rf"/api/brands/{B}/competitors", lambda b, m, d: b.put_competitors(m["b"], d.get("competitors"))),
     ("POST", rf"/api/brands/{B}/competitors/propose", lambda b, m, d: b.propose_competitors(m["b"])),
+    # export
+    ("GET", rf"/api/brands/{B}/export", lambda b, m, d: b.export_brand(m["b"])),
     # research
     ("GET", rf"/api/brands/{B}/research", lambda b, m, d: b.get_research(m["b"])),
     ("PUT", rf"/api/brands/{B}/research", lambda b, m, d: b.put_research(m["b"], d.get("research"))),

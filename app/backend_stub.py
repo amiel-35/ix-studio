@@ -18,6 +18,7 @@ import base64
 import copy
 import html
 import itertools
+import json
 import os
 import threading
 import time
@@ -1267,6 +1268,17 @@ class StubBackend:
             if not pc["composed"]:
                 raise Conflict("this piece is not composed yet")
             return Download(f"{pid}-{i}.png", "image/png", self._png(pc))
+
+    # ---------- export: the brand folder, one plausible and fixed zip ----------
+    def export_brand(self, bid):
+        b = self._b(bid)
+        card = {"name": b["name"], "values": [{"path": "identity.name", "value": b["name"], "status": "confirmed", "source": "tapé"},
+                                              {"path": "voice.traits", "value": ["chaleureuse"], "status": "to_confirm", "source": "lu sur le site"},
+                                              {"path": "promise.signature_line", "value": None, "status": "ask", "source": None}],
+                "missing": ["promise.signature_line"], "logo": None}
+        files = [("brand.md", f"# {b['name']}\n\nVoix : chaleureuse (à confirmer)\nSignature : ASK ME\n"),
+                 ("brand.json", json.dumps(card, indent=2, ensure_ascii=False) + "\n")]
+        return Download(f"{bid}-dossier-de-marque.zip", "application/zip", workflow.zip_of([(n, t.encode("utf-8")) for n, t in files]))
 
     def download_project(self, pid):
         """Every piece kept, in a zip."""

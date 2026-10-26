@@ -112,6 +112,8 @@
     names: (b) => call("GET", B(b) + "/names"), // { name, names: [{name, why}], proposed: [{name, why}], can_propose, job, error }
     proposeNames: (b) => call("POST", B(b) + "/names/propose"),
     saveNames: (b, names, chosen) => call("PUT", B(b) + "/names", { names, chosen }), // chosen: one of names, becomes the brand's name
+    /* export: the brand folder, a zip (brand.md, MOTION.md if any, the logo, brand.json with each value's source and status); answers {blob, name} */
+    exportBrand: (b) => download(B(b) + "/export"),
     /* brief_export: the brief of a project (confirmed or not) as a Markdown file to download; `r` is the project's id */
     exportBrief: (r) => download("/api/briefs/" + encodeURIComponent(r) + "/export"),
     /* competitors: the studio proposes up to six (a job), the person keeps the ones they corrected or wrote */

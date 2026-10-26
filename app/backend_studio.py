@@ -1186,6 +1186,18 @@ class StudioBackend:
         texts = self._brand_agent(bid, jid, "competitors", "un agent cherche les concurrents")
         self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
 
+    # ---------- export: the brand folder to download ----------
+    def export_brand(self, bid):
+        """The brand folder in one zip, made by `brandkit pack` from the dossier of the brand."""
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            d = self._bdir(bid)
+            if not (d / "state.json").exists():
+                raise Conflict("the brand has no dossier yet: there is nothing to export")
+            out = self._mdir(bid) / "dossier-de-marque.zip"
+            self._brandkit(self._bcmd_log(bid), "pack", d, "--out", out)
+            return Download(f"{bid}-dossier-de-marque.zip", "application/zip", out.read_bytes())
+
     # ---------- research on the web ----------
     def _research_view(self, b):
         run = self._running(b, "research")

@@ -66,6 +66,10 @@ the exports yourself.
    with ASK lines left: they stay missing for every module downstream. Validation writes `history/vN/` and the
    exports.
 
+## Export
+
+`python3 "$BK" pack brand --out dossier-de-marque.zip`: the brand folder to hand over, one zip (`brand.md`, `MOTION.md` if exported, the logo, `brand.json` with each value's source and status; what is missing stays `ask`).
+
 ## Personas, names, competitors, research, logos
 
 Five agents, run by the same commands as in the interface: `AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"` (from a clone `<repo>/scripts/agents`), then
