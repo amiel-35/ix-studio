@@ -99,6 +99,10 @@ dropped in as `<dir>/image.png`) skips the divergence: `python3 "$ST" compose <d
 After `decide again`, the pick and the piece are cleared: write new variants (they read `bans.md`) and run
 `diverge` again; `status` says so.
 
+## install
+
+To install the interface on a new Mac and open it, run `bash <repo>/install.sh` (it says what is missing and never asks for a password).
+
 ## The agents, as commands
 
 The studio's agents are commands, the same ones the interface runs (`AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"`, from a clone
