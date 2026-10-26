@@ -120,6 +120,15 @@
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* files: the person drops the charter and visuals (twenty at most) on a brand; the studio reads them and proposes brand values, each to confirm */
+    brandFiles: (b) => call("GET", B(b) + "/files"), // { files: [{name, size}], max, proposed: [{kind, value, role, file, state}], fonts: [{family, role}], can_propose, job, error }
+    addBrandFiles: async (b, files) => { // a list of Files (pdf, png, jpg, webp or gif), sent one by one; answers the last view
+      let r = null;
+      for (const f of files) r = await upload(B(b) + "/files", f);
+      return r;
+    },
+    readBrandFiles: (b) => call("POST", B(b) + "/files/read"), // a job: the studio proposes values read in the files
+    keepBrandValues: (b, values, replace) => call("PUT", B(b) + "/files/values", { values, replace }), // only these enter the brand; 409 if confirmed colours would be replaced and replace is not true
     /* landscape: the competitors of a market, without a brand; asked and answered at once, nothing is kept (the person keeps through saveCompetitors) */
     landscape: (market) => call("POST", "/api/competitors", { market }), // { competitors: [text] }
     /* research: the studio searches the web for what is said of a brand (a job, ten results at most), the person keeps or drops each; only addresses are kept */

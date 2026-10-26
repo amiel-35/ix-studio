@@ -442,6 +442,52 @@ def check_variant(path: Path, vid: str):
     return True, ""
 
 
+# ---------- files: the brand values read in the files the person dropped ----------
+FILES_VALUES_MAX = 20
+FILES_KINDS = ("colour", "font", "voice", "never")
+FILES_ROLES = {"colour": ("background", "text", "accent"), "font": ("title", "text")}
+FILES_STATE = "to_confirm"
+
+
+def parse_files_values(raw, names) -> list:
+    """What the files agent answers, checked: `{"values": [{"kind", "value", "role", "file"}]}`, one to twenty. `kind` is colour (value #rrggbb, role
+    background, text or accent), font (a family, role title or text), voice or never (a word or a short phrase). `file` is one of `names`, the
+    file that supports the value. Every value comes back marked `to_confirm`; a colour role given twice keeps the first. A ValueError says what
+    does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("values") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= FILES_VALUES_MAX:
+        raise ValueError(f"il faut de une à {FILES_VALUES_MAX} valeurs")
+    out, seen = [], set()
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        kind, value, role, file = str(it.get("kind", "")).strip(), one_line(it.get("value"))[:120], str(it.get("role") or "").strip(), one_line(it.get("file"))
+        if kind not in FILES_KINDS or not value:
+            raise ValueError(f"chaque valeur a un genre ({', '.join(FILES_KINDS)}) et un contenu")
+        if file not in names:
+            raise ValueError("chaque valeur dit dans quel fichier donné elle se lit")
+        if kind == "colour":
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", value):
+                raise ValueError("une couleur s'écrit #rrggbb")
+            value = value.lower()
+        if kind in FILES_ROLES and role not in FILES_ROLES[kind]:
+            raise ValueError(f"le rôle d'une valeur de genre {kind} est l'un de {', '.join(FILES_ROLES[kind])}")
+        role = role if kind in FILES_ROLES else ""
+        key = (kind, role) if kind == "colour" else (kind, value.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"kind": kind, "value": value, "role": role, "file": file, "state": FILES_STATE})
+    return out
+
+
 # ---------- storyboard: the script and the shots of a film ----------
 SHOTS_MIN, SHOTS_MAX, FILM_MIN, FILM_MAX, SHOT_MAX = 5, 8, 15, 30, 8  # shots; seconds of the film; seconds of a shot
 SHOT_VISUALS = ("texte", "logo")

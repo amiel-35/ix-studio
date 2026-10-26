@@ -29,7 +29,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "interview": 3.0, "research": 4.0, "logos": 4.0, "texts": 4.0, "storyboard": 4.0, "film": 5.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "files": 4.0, "interview": 3.0, "research": 4.0, "logos": 4.0, "texts": 4.0, "storyboard": 4.0, "film": 5.0}  # seconds: long enough to see a progress, short enough to demo
 DURATION["rounds"] = 6.0  # rounds
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
@@ -181,6 +181,17 @@ def logos_answer(name, colours):
         {"idea": "Un trait sous le nom, comme une ligne d'horizon : calme et posé.",
          "svg": box + f"<text x='120' y='62' text-anchor='middle' font-family='Arial, sans-serif' font-size='26' fill='{ink}'>{n}</text>"
                       f"<line x1='40' y1='80' x2='200' y2='80' stroke='{ink}' stroke-width='3'/></svg>"}]}
+
+
+# files: the simulated files agent's one answer; each value is read in the first file given (`file` is filled in when it is used)
+FILES_VALUES = {"values": [
+    {"kind": "colour", "value": "#f4ecd8", "role": "background", "file": ""},
+    {"kind": "colour", "value": "#1f2a30", "role": "text", "file": ""},
+    {"kind": "colour", "value": "#d9622b", "role": "accent", "file": ""},
+    {"kind": "font", "value": "Fraunces", "role": "title", "file": ""},
+    {"kind": "font", "value": "Inter", "role": "text", "file": ""},
+    {"kind": "voice", "value": "chaleureuse", "role": "", "file": ""},
+    {"kind": "never", "value": "miracle", "role": "", "file": ""}]}
 
 
 def default_brief():
@@ -351,7 +362,7 @@ class StubBackend:
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
-                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents", "interview": "un agent écrit le brief",
+                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents", "interview": "un agent écrit le brief", "files": "un agent lit les fichiers",
                             "research": "un agent cherche sur le web",
                             "logos": "un agent dessine des pistes de logo", "texts": "un agent écrit les textes", "storyboard": "un agent écrit le script et les plans",
                             "film": "chaque plan est animé puis assemblé",
@@ -387,6 +398,11 @@ class StubBackend:
                 if b:
                     b["competitors_proposed"] = workflow.parse_competitors(copy.deepcopy(COMPETITORS))
                 continue
+            if j["kind"] == "files":
+                b = self.brands.get(j["brand"])
+                if b and b.get("files"):
+                    first = b["files"][0]["name"]
+                    b["files_proposed"] = workflow.parse_files_values({"values": [{**v, "file": first} for v in FILES_VALUES["values"]]}, {first})
             if j["kind"] == "interview":
                 p = self.projects.get(j["project"])
                 if p and "fail" in " ".join(j["answers"]).lower():  # an answer that says "fail" makes the agent fail, to see what that looks like
@@ -861,6 +877,63 @@ class StubBackend:
             b = self._b(bid)
             b["competitors"], b["competitors_proposed"] = texts, []
             return self._competitors_view(b)
+
+    # ---------- routes: files of the brand ----------
+    def _files_view(self, b):
+        run = self._running("files", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "files" and j["brand"] == b["id"]), None)
+        files = [{"name": f["name"], "size": f["size"]} for f in b.get("files", [])]
+        return {"files": files, "max": workflow.FILES_MAX, "proposed": list(b.get("files_proposed", [])), "fonts": list(b.get("fonts", [])), "can_propose": bool(files),
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_brand_files(self, bid):
+        with self.lock:
+            self._tick()
+            return self._files_view(self._b(bid))
+
+    def add_brand_file(self, bid, data, ctype="", name=""):
+        """A file dropped by the person: only its name and size are kept. Twenty at most."""
+        ext = workflow.file_ext(data, ctype)
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            files = b.setdefault("files", [])
+            if len(files) >= workflow.FILES_MAX:
+                raise Conflict(f"the brand has {workflow.FILES_MAX} files already: that is the most")
+            files.append({"name": workflow.file_name(name, ext, {f["name"] for f in files}), "size": len(data)})
+            return self._files_view(b)
+
+    def read_brand_files(self, bid):
+        """The files agent: values of the brand read in the files (a job). The simulated one answers FILES_VALUES."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            if not b.get("files"):
+                raise Conflict("the brand has no file: drop some first")
+            if self._running("files", brand=bid):
+                raise Conflict("the files are already being read")
+            return job_view(self._job("files", brand=bid))
+
+    def keep_brand_files(self, bid, values, replace=False):
+        """The values the person keeps: only these enter the brand (words are added, colours already confirmed are replaced only if `replace` says so)."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            plan = workflow.kept_values(values, [f["name"] for f in b.get("files", [])])
+            if plan["palette"] and not replace and any(c["state"] == "confirmed" for c in b["colours"]) and \
+                    {c["role"]: c["hex"] for c in plan["palette"]} != {k: v for k, v in workflow.palette_of(b["colours"]).items() if v}:
+                raise Conflict("the colours of the brand are already confirmed and these are different: say that you replace them")
+            ident = self._identity(b)
+            for k in ("voice", "never"):
+                if plan[k]:
+                    b["fields"][k] = field(", ".join(workflow.merge_words(ident[k]["value"], plan[k])), "confirmed", "tapé")
+            if plan["palette"]:
+                b["colours"] = [{**c, "state": "confirmed", "source": "choisie par toi"} for c in plan["palette"]]
+                b["fields"].pop("colours", None)
+            b["fonts"] = b.get("fonts", []) + [f for f in plan["fonts"] if f["family"].casefold() not in {x["family"].casefold() for x in b.get("fonts", [])}]
+            b["files_proposed"] = []
+            self._touch(b)
+            return self._files_view(b)
 
     # ---------- landscape: the competitors of a market, without a brand ----------
     def landscape(self, market):

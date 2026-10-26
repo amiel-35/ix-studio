@@ -10,6 +10,7 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     research     what the web says of a brand       inputs: name, site, description                               gives {"research": [{url, brings, belonging}]}
     logos        the logo tracks of a brand         inputs: name, description, colours (hex), fonts, brief, words   gives {"logos": [{idea, svg}]}
     texts        the posts and hooks of a project     inputs: brief, brand, language                                  gives {"texts": [texts]}
+    files        the brand values read in files       inputs: name, files (paths: pdf, png, jpg, webp, gif; twenty at most)     gives {"values": [{kind, value, role, file, state}]}
     mandates     the instructions of a project      inputs: dir (a piece folder of scripts/studio), words, language   gives {"common", "mandates": [four]}
     variant      one variant of a project           inputs: dir, id, mandate, common, language, work (its folder)                   writes <dir>/variants/<id>.json, gives it
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
@@ -46,12 +47,13 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import engines  # noqa: E402
-from answers import (INTERVIEW_KEYS, INTERVIEW_QUESTIONS, ROUNDS, TEXT_KINDS, check_variant, judge_missing, one_line, parse_competitors, parse_interview, parse_logos, parse_names, parse_personas, parse_proposal,  # noqa: E402
+from answers import (INTERVIEW_KEYS, INTERVIEW_QUESTIONS, ROUNDS, TEXT_KINDS, check_variant, judge_missing, one_line, parse_competitors, parse_files_values, parse_interview, parse_logos, parse_names, parse_personas, parse_proposal,  # noqa: E402
                      parse_reading, parse_research, parse_rounds, parse_storyboard, parse_texts, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "research": DEFAULT, "logos": DEFAULT, "texts": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST, "storyboard": DEFAULT, "rounds": DEFAULT, "interview": DEFAULT}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "files": DEFAULT, "research": DEFAULT, "logos": DEFAULT, "texts": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST, "storyboard": DEFAULT, "rounds": DEFAULT, "interview": DEFAULT}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
+READS = ["--tools=Read", "--permission-prompts=none"]  # an agent that reads the files it is given, in its own folder, and writes nothing
 SEARCHES = ["--tools=WebSearch", "--permission-prompts=none"]  # an agent that searches the web and nothing else
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
@@ -243,6 +245,44 @@ def cmd_competitors(i, model, runner):
     return answer_of("competitors", i, competitors_prompt(i), parse_competitors, model, runner)
 
 
+# ---------- the brand: the files the person dropped ----------
+def files_prompt(name, files) -> str:
+    return (
+        "You read the files a person dropped to teach a studio the identity of their brand: a brand charter (PDF), logos, visuals. You only use "
+        "what is in these files: no search, no other source. You write proposals for the person to correct, not facts.\n\n"
+        f"The brand: {one_line(name) or '(no name)'}\nThe files, in the current folder (open each one with the Read tool):\n"
+        + "\n".join(f"- {f}" for f in files)
+        + "\n\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"values": [{"kind": "colour" | "font" | "voice" | "never", "value": "...", "role": "...", "file": "..."}]}\n'
+        "- values: up to twenty, only what a file really shows or says.\n"
+        '- colour: value is #rrggbb; role is "background", "text" or "accent" (each role at most once: the main one). '
+        '- font: value is the family name; role is "title" or "text". '
+        "- voice: a word or a short phrase for the tone of the brand, in French; role is \"\". "
+        "- never: a word, a phrase or a practice the brand forbids itself (a banned word, a forbidden use), in French; role is \"\".\n"
+        "- file: the name of the file, exactly as listed above, that supports the value.\n"
+        "- A colour you only guess from a picture is still a proposal: give its closest #rrggbb. Nothing is invented: if a file says nothing "
+        "of a kind, give nothing of this kind.\n"
+        "- Plain French, no em dash, no emoji.")
+
+
+def cmd_files(i, model, runner):
+    files = [Path(f) for f in i["files"]] if isinstance(i["files"], list) else []
+    if not files or len(files) > 20 or not all(f.is_file() for f in files):
+        raise AgentError("files: one to twenty files that exist")
+    if len({f.name for f in files}) < len(files):
+        raise AgentError("files: two files have the same name")
+    with tempfile.TemporaryDirectory(prefix="ixs-files-") as work:
+        for f in files:
+            shutil.copy2(f, Path(work) / f.name)
+        res = ask(files_prompt(i.get("name"), [f.name for f in files]), "files", READS, work, 400, model, runner)
+    if res.code:
+        raise AgentError("l'agent n'a pas répondu : " + tail(res))
+    try:
+        return {"values": parse_files_values(res.out, {f.name for f in files})}
+    except ValueError as err:
+        raise AgentError(f"réponse de l'agent illisible : {err}") from None
+
+
 # ---------- logos: the logo tracks of a brand, drawn in SVG ----------
 def logos_prompt(i) -> str:
     brief = "\n".join(f"- {LABELS[x['key']]}: {x['value']}" for x in i.get("brief") or [] if x["key"] != "colours")
@@ -268,6 +308,8 @@ def logos_prompt(i) -> str:
 
 def cmd_logos(i, model, runner):
     return answer_of("logos", i, logos_prompt(i), parse_logos, model, runner)
+
+
 # ---------- texts: the posts and hooks of a project ----------
 def texts_source(i) -> str:
     """The brief and the brand as one text: what the numbers of the texts are checked against."""
@@ -664,7 +706,7 @@ def cmd_engines(i, model, runner):
     return engines.view()
 
 
-COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "research": cmd_research, "logos": cmd_logos, "texts": cmd_texts, "mandates": cmd_mandates, "variant": cmd_variant,
+COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "files": cmd_files, "research": cmd_research, "logos": cmd_logos, "texts": cmd_texts, "mandates": cmd_mandates, "variant": cmd_variant,
             "judge": cmd_judge, "reader": cmd_reader, "interview": cmd_interview, "storyboard": cmd_storyboard, "engines": cmd_engines, "rounds": cmd_rounds, "export-brief": cmd_export_brief}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
@@ -680,6 +722,8 @@ def load_inputs(path) -> dict:
     for k in PATHS:
         if i.get(k):
             i[k] = str((f.parent / i[k]).resolve())
+    if isinstance(i.get("files"), list):  # `files` (command files): a list of paths
+        i["files"] = [str((f.parent / x).resolve()) for x in i["files"] if isinstance(x, str)]
     return i
 
 

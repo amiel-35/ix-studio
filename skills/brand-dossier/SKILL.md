@@ -85,7 +85,9 @@ dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show 
 
 - `competitors` with `market` (one or two sentences) as the only input, no brand: the landscape of that market, up to six players with their position; one not in the description is `supposé`; show it to the person, who keeps or drops each.
 
-They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_LOGOS`, `_RESEARCH`) changes it.
+`files` (inputs `name`, `files`) reads the charter pdf and the visuals the person gave and proposes colours with their role, fonts, voice and banned words, each `to_confirm` with the file that supports it: show them and file only what the person keeps (never over a confirmed value without saying so).
+
+They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_LOGOS`, `_RESEARCH`, `_FILES`) changes it.
 
 ## Reading the dossier from another module
 
