@@ -448,13 +448,13 @@ def machine_view(found: dict) -> dict:
 
 
 # ---------- engines: what the person chooses to draw and to write with (the key is never part of what is shown) ----------
-IMAGE_ENGINES = ["auto", "openai", "openrouter", "codex", "none"]
-TEXT_ENGINES = ["claude", "openrouter"]
+IMAGE_ENGINES = ("auto", "openai", "openrouter", "codex", "none")
+TEXT_ENGINES = ("claude", "openrouter")
 
 
 def engines_view(cfg: dict) -> dict:
     """What the interface may show of the engines, from `cfg` (image_engine, text_engine, openrouter_model, key_saved): never a key."""
-    return {"image_engine": cfg["image_engine"], "image_engines": IMAGE_ENGINES, "text_engine": cfg["text_engine"], "text_engines": TEXT_ENGINES,
+    return {"image_engine": cfg["image_engine"], "image_engines": list(IMAGE_ENGINES), "text_engine": cfg["text_engine"], "text_engines": list(TEXT_ENGINES),
             "openrouter_model": cfg["openrouter_model"], "key_saved": bool(cfg["key_saved"])}
 
 
