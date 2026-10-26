@@ -66,6 +66,8 @@
     project: (p) => call("GET", P(p)),
     brief: (p) => call("GET", P(p) + "/brief"),
     saveBrief: (p, fields) => call("PUT", P(p) + "/brief", { fields }),
+    /* interview: a few questions, an agent pre-fills the brief from the answers (a job); the person corrects it in the brief's form */
+    interview: (p, answers) => (answers ? call("POST", P(p) + "/interview", { answers }) : call("GET", P(p) + "/interview")), // GET { questions, proposed: { fields, missing } | null, job, error }; POST answers: [text], the job
     mandates: (p) => call("GET", P(p) + "/mandates"),
     saveMandates: (p, items, common) => call("PUT", P(p) + "/mandates", { items, common }),
     diverge: (p) => call("POST", P(p) + "/diverge"),

@@ -79,6 +79,9 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/brand/keep", lambda b, m, d: b.keep(m["p"], d.get("kept", []), d.get("logo"))),
     ("GET", rf"/api/projects/{P}/brief", lambda b, m, d: b.get_brief(m["p"])),
     ("PUT", rf"/api/projects/{P}/brief", lambda b, m, d: b.put_brief(m["p"], d.get("fields", {}))),
+    # interview
+    ("GET", rf"/api/projects/{P}/interview", lambda b, m, d: b.get_interview(m["p"])),
+    ("POST", rf"/api/projects/{P}/interview", lambda b, m, d: b.start_interview(m["p"], d.get("answers"))),
     # texts
     ("GET", rf"/api/projects/{P}/texts", lambda b, m, d: b.get_texts(m["p"])),
     ("PUT", rf"/api/projects/{P}/texts", lambda b, m, d: b.put_texts(m["p"], d.get("texts"))),

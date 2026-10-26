@@ -79,6 +79,7 @@ class Fake:
         self.research = "ok"  # what the research agent answers: ok, bad, down
         self.logos = "ok"  # what the logos agent answers: ok (two tracks), bad (a drawing with a script), down (it fails)
         self.competitors = "ok"  # what the competitors agent answers: ok (two), bad (one that does not hold), down (it fails)
+        self.interview = "ok"  # what the interview agent answers: ok (a brief), bad (one that does not hold), down (it fails)
         self.storyboard = "ok"  # what the storyboard agent answers: ok (six shots on the colours it is given), bad (a film of three seconds), down (it fails)
         self.film_fails = False  # the film command fails (no Chrome, no ffmpeg)
         self.film_hold = None  # an Event: the film command waits for it
@@ -160,6 +161,8 @@ class Fake:
             return self.names_agent()
         if '{"competitors": [' in prompt:
             return self.competitors_agent()
+        if '{"objective": "..."' in prompt:
+            return self.interview_agent()
         if '{"research": [' in prompt:
             return self.research_agent()
         if '{"logos": [' in prompt:
@@ -237,6 +240,14 @@ class Fake:
                                 {"name": "Brasserie du Quai", "from": "dossier", "sells": "de la bière au port.", "differs": "L'apéro, avec alcool."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def interview_agent(self):
+        if self.interview == "down":
+            return Result(1, "", "the agent gave up")
+        if self.interview == "bad":
+            return Result(0, "pas du json", "")
+        body = {"objective": "Faire connaître le kombucha.", "audience": "Les citadins curieux.", "message": "Du thé qui a fait la fête.", "cta": "Venir goûter.", "fixed": "La signature."}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def research_agent(self):
         if self.research == "down":
             return Result(1, "", "the agent gave up")
@@ -300,6 +311,7 @@ class Base(unittest.TestCase):
         f.personas = "ok"
         f.names = "ok"
         f.competitors = "ok"
+        f.interview = "ok"
         f.research = "ok"
         f.logos = "ok"
         f.storyboard, f.film_fails, f.film_hold = "ok", False, None
@@ -1310,6 +1322,37 @@ class Competitors(Base):
             self.wait(self.call("POST", f"/api/brands/{bid}/competitors/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/competitors")
             self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+# interview
+class Interview(Base):
+    def test_an_agent_writes_the_brief_from_the_answers_and_the_person_still_confirms_it(self):
+        pid = self.started()
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        self.assertEqual((len(got["questions"]), got["proposed"], got["job"]), (5, None, None))
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["a"] * 6}, code=400)
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": []}, code=400)
+        self.wait(self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["Faire connaître", "Les citadins curieux", "", "", ""]}))
+        call = self.fake.where("--restricted")[-1]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search on the web
+        self.assertIn("réponse (objective) : Faire connaître", call["argv"][2])
+        self.assertIn("réponse (message) : (aucune)", call["argv"][2])
+        self.assertIn("for whom, as the brand says it: des citadins", call["argv"][2])  # the brand's own words, to name its persona
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        f = got["proposed"]["fields"]
+        self.assertEqual((f["objective"], f["audience"], f["message"], got["proposed"]["missing"]), ("Faire connaître le kombucha.", "Les citadins curieux.", "", []))  # the agent's guess for message is dropped
+        self.assertFalse(self.call("GET", f"/api/projects/{pid}/brief")["confirmed"])  # nothing is validated by itself
+        self.assertFalse((self.pdir(pid) / "piece" / "brief.md").exists())
+        self.assertFalse((self.pdir(pid) / "work" / "interview").exists())
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        pid = self.started()
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.interview = kind
+            self.wait(self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["Vendre"]}), "failed")
+            got = self.call("GET", f"/api/projects/{pid}/interview")
+            self.assertEqual(got["proposed"], None)
             self.assertIn(word, got["error"])
 
 

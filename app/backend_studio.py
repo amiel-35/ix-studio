@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "research": 90.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "interview": 45.0, "research": 90.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
 DURATION["rounds"] = 240.0  # rounds: three judges side by side, then the comparison
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
@@ -1445,6 +1445,39 @@ class StudioBackend:
             if not p["mandates"]["confirmed"] and not p["mandates"]["proposed"] and not self._running(p, "mandates"):
                 self._spawn(pid, "mandates", None, lambda jid: self._mandates_body(pid, jid))
             return {"fields": merged, "formats": chosen, "left_out": workflow.left_out_of(merged.get("format", ""))}
+
+    # ---------- interview: the brief of the project, pre-filled from a few answers ----------
+    def _interview_view(self, p):
+        run = self._running(p, "interview")
+        last = next((j for j in reversed(p["jobs"]) if j["kind"] == "interview"), None)
+        return {"questions": workflow.INTERVIEW_QUESTIONS, "proposed": p.get("interview_proposed"), "job": self._job_public(run) if run else None,
+                "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_interview(self, pid):
+        return self._interview_view(self._load(pid))
+
+    def start_interview(self, pid, answers):
+        answers = workflow.interview_answers_of(answers)
+        with self._op(pid):
+            p = self._load(pid)
+            if self._running(p, "interview"):
+                raise Conflict("the interview is already being written")
+            self._mutate(pid, lambda q: q.update(interview_proposed=None))
+            return self._spawn(pid, "interview", None, lambda jid: self._interview_body(pid, jid, answers))
+
+    def _interview_body(self, pid, jid, answers):
+        p = self._load(pid)
+        b = self._loadb(p["brand"])
+        who = self._identity(b, self._doc(b["id"])).get("who", {})
+        inputs = {"answers": answers, "language": p["brief"]["fields"].get("language") or "fr",
+                  "brand": {"name": b["name"], "who": who.get("value", "") if who.get("state") != "absent" else "", "personas": list(b.get("personas", []))}}
+        self._phase(pid, jid, "un agent écrit le brief")
+        work = self._piece_dir(pid) / "work" / "interview"
+        try:
+            proposed = self._ask(self._joblog(pid, jid), "interview", inputs, work, 270)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(interview_proposed=proposed))
 
     # ---------- texts: the posts and hooks of a project ----------
     def _texts_view(self, p):

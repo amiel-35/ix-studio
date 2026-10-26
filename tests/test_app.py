@@ -600,6 +600,37 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
         self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
         self.call("GET", "/api/brands/nope/names", code=404)
+    # interview
+    def test_the_interview_pre_fills_the_brief_and_what_nobody_said_stays_empty(self):
+        pid = self.call("GET", "/api/projects")[0]["id"]
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        self.assertEqual((len(got["questions"]), got["proposed"], got["job"], got["error"]), (5, None, None, None))
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["a"] * 6}, code=400)
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["", " "]}, code=400)
+        self.call("POST", f"/api/projects/{pid}/interview", {}, code=400)
+        job = self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["Faire connaître", "", "Du thé qui a fait la fête"]})
+        self.assertEqual(job["kind"], "interview")
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["a"]}, code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        f = got["proposed"]["fields"]
+        self.assertEqual((f["audience"], f["cta"], got["proposed"]["missing"]), ("", "", ["audience"]))  # not answered: empty and flagged
+        self.assertTrue(f["objective"] and f["message"])
+        job = self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["fail"]})  # a simulated failure
+        self.wait(job, "failed")
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        self.assertEqual((got["proposed"], bool(got["error"])), (None, True))
+        self.call("GET", "/api/projects/nope/interview", code=404)
+
+    def test_the_interview_answer_is_checked(self):
+        ok = {"objective": "Vendre.", "audience": "Les familles.", "message": "M", "cta": "", "fixed": ""}
+        self.assertEqual(workflow.parse_interview("Voici " + json.dumps(ok), ["a", "b", "c"]),
+                         {"fields": {**ok, "message": "M", "cta": "", "fixed": ""}, "missing": []})
+        self.assertEqual(workflow.parse_interview(ok, ["a"])["missing"], ["audience"])
+        for bad in ("rien", "{pas du json}", {"objective": 3}, ["x"]):
+            with self.assertRaises(ValueError):
+                workflow.parse_interview(bad, ["a"])
+
     # logos
     def test_logo_tracks_are_proposed_kept_or_dropped_and_the_chosen_one_becomes_the_logo(self):
         bid = self.call("POST", "/api/brands", {"name": "Cabane"})["id"]
