@@ -57,6 +57,10 @@
   Object.assign(api, {
     health: () => call("GET", "/api/health"),
     machine: () => call("GET", "/api/machine"), // what the machine lacks to run the studio for real: { ok, missing: [{ key, label, say }] }
+    /* engines: the engine of the images and the engine of the texts (claude, or openrouter with its key and its model). The key goes in, never comes back: only key_saved. */
+    engines: () => call("GET", "/api/engines"), // { image_engine, image_engines, text_engine, text_engines, openrouter_model, key_saved }
+    saveEngine: (engine) => call("PUT", "/api/engines/image", { engine }),
+    saveTextEngine: (engine, key, model) => call("PUT", "/api/engines/text", { engine, key, model }), // key: undefined keeps the saved one, "" forgets it
     tasks: () => call("GET", "/api/tasks"),
     projects: () => call("GET", "/api/projects"),
     project: (p) => call("GET", P(p)),
@@ -113,6 +117,16 @@
     proposeLogos: (b) => call("POST", B(b) + "/logo/propose"),
     keepLogos: (b, keep) => call("PUT", B(b) + "/logo/tracks", { keep }), // keep: ids among tracks and proposed; only these stay
     chooseLogo: (b, id) => call("POST", B(b) + "/logo/choose", { id }), // id: one of tracks, becomes the brand's logo
+    /* texts: the studio proposes up to six hooks and posts for a project (a job), the person keeps the ones they corrected or wrote */
+    texts: (p) => call("GET", P(p) + "/texts"), // { texts: [text], proposed: [text], can_propose, job, error }
+    proposeTexts: (p) => call("POST", P(p) + "/texts/propose"),
+    saveTexts: (p, texts) => call("PUT", P(p) + "/texts", { texts }), // only these are the project's; the proposal is settled
+    /* storyboard: the script and the shots of a project's film: the studio proposes (a job), the person corrects and saves, then the film is rendered (a job) */
+    storyboard: (p) => call("GET", P(p) + "/storyboard"), // { script, shots: [{ seconds, visual, text, colour, read }], saved, can_propose, job, error, film: { url, seconds } | null, film_job, film_error }
+    proposeStoryboard: (p) => call("POST", P(p) + "/storyboard/propose"),
+    saveStoryboard: (p, script, shots) => call("PUT", P(p) + "/storyboard", { script, shots }),
+    renderFilm: (p) => call("POST", P(p) + "/storyboard/render"),
+    downloadFilm: (p) => download(P(p) + "/storyboard/film"), // the film, an mp4
     createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
     downloadPiece: (p, i) => download(P(p) + "/pieces/" + encodeURIComponent(i) + "/download"), // the composed piece, a png at its size
     downloadKept: (p) => download(P(p) + "/download"), // every piece kept, a zip

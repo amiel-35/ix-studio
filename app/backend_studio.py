@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "logos": 90.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -156,7 +156,7 @@ class StudioBackend:
         self.home = Path(home or os.environ.get("STUDIO_HOME") or Path.home() / "ix-studio-projets").expanduser()
         self.home.mkdir(parents=True, exist_ok=True)
         self.runner = runner
-        self.image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE", "auto")
+        self._image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE")  # said by whoever started the studio (and then it wins), else the choice of the settings
         self.probe = probe or (lambda: probe_machine(image_engine=self.image_engine))  # what the machine has, asked when the interface asks
         self._state = threading.RLock()  # short: reading and writing project.json and marque.json
         self._locks = {}  # one lock per project (and per brand) for the long operations that rewrite files (keep, pick, compose, decide)
@@ -742,6 +742,37 @@ class StudioBackend:
     def _view(self, p, bs=None, now=None):
         now = now or time.time()
         return workflow.project_view(self._wf_state(p, now, bs), now)
+
+    # ---------- engines ----------
+    def _engines(self, patch=None) -> dict:
+        """`agents engines`, which keeps what is in `patch` and gives the choices (never a key). The patch goes through a file of its own, that only the
+        person can read and that does not outlive the call: a key does not go in an argument."""
+        with tempfile.TemporaryDirectory(prefix="ixs-engines-") as tmp:
+            args = []
+            if patch:
+                f = Path(tmp) / "inputs.json"
+                f.write_text(json.dumps(patch), encoding="utf-8")
+                args = [f]
+            res = self._sh(None, self._py(AGENTS, "engines", *args), timeout=30)
+        if res.code:
+            raise ToolError(tail(res))
+        return json.loads(res.out)
+
+    @property
+    def image_engine(self) -> str:
+        if self._image_engine:
+            return self._image_engine
+        try:
+            return self._engines()["image_engine"]
+        except (ToolError, ValueError, KeyError):
+            return "auto"
+
+    def get_engines(self):
+        return workflow.engines_view(self._engines())
+
+    def put_engines(self, kind, body):
+        """The engine of the images, or the engine of the texts with its key and its model: kept in the configuration of the person."""
+        return workflow.engines_view(self._engines(workflow.engines_patch(kind, body)))
 
     # ---------- routes ----------
     def health(self):
@@ -1386,6 +1417,44 @@ class StudioBackend:
                 self._spawn(pid, "mandates", None, lambda jid: self._mandates_body(pid, jid))
             return {"fields": merged, "formats": chosen, "left_out": workflow.left_out_of(merged.get("format", ""))}
 
+    # ---------- texts: the posts and hooks of a project ----------
+    def _texts_view(self, p):
+        run = self._running(p, "texts")
+        last = next((j for j in reversed(p["jobs"]) if j["kind"] == "texts"), None)
+        t = p.get("texts") or {}
+        return {"texts": list(t.get("kept", [])), "proposed": list(t.get("proposed", [])), "can_propose": p["brief"]["confirmed"],
+                "job": self._job_public(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_texts(self, pid):
+        return self._texts_view(self._load(pid))
+
+    def propose_texts(self, pid):
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed yet: the texts come from it")
+            if self._running(p, "texts"):
+                raise Conflict("the texts are already being proposed")
+            return self._spawn(pid, "texts", None, lambda jid: self._texts_body(pid, jid))
+
+    def put_texts(self, pid, texts):
+        """The texts the person keeps (corrected, or written by hand), written in the project. The proposal is settled."""
+        kept = workflow.texts_of(texts)
+        with self._op(pid):
+            self._mutate(pid, lambda q: q.update(texts={"kept": kept, "proposed": []}))
+            return self.get_texts(pid)
+
+    def _texts_body(self, pid, jid):
+        p = self._load(pid)
+        self._phase(pid, jid, "un agent écrit les textes")
+        work = self._pdir(pid) / "work" / "texts"
+        try:
+            inputs = {"brief": workflow.judge_brief(p["brief"]["fields"]), "brand": self._brand_words(p["brand"]), "language": p["brief"]["fields"].get("language") or "fr"}
+            texts = self._ask(self._joblog(pid, jid), "texts", inputs, work, 330)["texts"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(texts={"kept": (q.get("texts") or {}).get("kept", []), "proposed": texts}))
+
     # ---------- 3. the instructions to the agents ----------
     def get_mandates(self, pid):
         p = self._load(pid)
@@ -1941,6 +2010,94 @@ class StudioBackend:
         if not files:
             raise Conflict("no piece is kept yet")
         return Download(f"{pid}.zip", "application/zip", workflow.zip_of(files))
+
+    # ---------- storyboard: the script and the shots of the project's film, then the film ----------
+    def _film_view(self, pid):
+        f = self._piece_dir(pid) / "film.mp4"
+        return {"url": self._url(pid, "piece/film.mp4", f), "seconds": (self._load(pid).get("storyboard") or {}).get("film_seconds")} if f.is_file() else None
+
+    def get_storyboard(self, pid):
+        p = self._load(pid)
+        last = lambda kind: next((j for j in reversed(p["jobs"]) if j["kind"] == kind), None)
+        run, frun, fl = self._running(p, "storyboard"), self._running(p, "film"), last("film")
+        sl = last("storyboard")
+        return workflow.storyboard_view(p.get("storyboard"), p["brief"]["confirmed"], run["id"] if run else None,
+                                        sl["error"] if sl and sl["status"] == "failed" and not run else None, self._film_view(pid), frun["id"] if frun else None,
+                                        fl["error"] if fl and fl["status"] == "failed" and not frun else None)
+
+    def _storyboard_inputs(self, pid) -> dict:
+        """What the storyboard agent is told: the brand (its fields and the colours of the piece's brand.md) and the confirmed brief of the project."""
+        p = self._load(pid)
+        b = self._loadb(p["brand"])
+        kv = self._brand_kv(pid)
+        colours = [c for c in dict.fromkeys(x.lower() for x in [hex_of(kv.get(k)) for k in ("background", "text", "accent")] + re.findall(r"#[0-9a-fA-F]{6}\b", kv.get("extra colours", ""))) if c]
+        ident = self._identity(b, self._doc(b["id"]))
+        fields = p["brief"]["fields"]
+        return {"name": b["name"], "brand": {k: v["value"] for k, v in ident.items() if k != "colours" and v["state"] != "absent"}, "colours": colours,
+                "brief": {k: fields.get(k, "") for k in ("objective", "audience", "message", "cta")}, "language": fields.get("language") or "fr"}
+
+    def propose_storyboard(self, pid):
+        """The storyboard agent (`agents storyboard`): the script and five to eight shots, a job. What it proposes is kept as not yet saved."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running(p, "storyboard"):
+                raise Conflict("the storyboard is already being proposed")
+            if self._running(p, "film"):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
+            return self._spawn(pid, "storyboard", None, lambda jid: self._storyboard_body(pid, jid))
+
+    def _storyboard_body(self, pid, jid):
+        self._phase(pid, jid, "un agent écrit le script et les plans")
+        work = self._pdir(pid) / "work" / "storyboard"
+        try:
+            sb = self._ask(self._joblog(pid, jid), "storyboard", self._storyboard_inputs(pid), work, 330)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(storyboard={"script": sb["script"], "shots": sb["shots"], "saved": False}))
+        (self._piece_dir(pid) / "film.mp4").unlink(missing_ok=True)
+
+    def put_storyboard(self, pid, script, shots):
+        """The storyboard the person corrected and keeps: checked as the agent's answer is. The film made from an older one is dropped."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running(p, "film"):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
+            try:
+                sb = workflow.parse_storyboard({"script": script, "shots": shots}, self._storyboard_inputs(pid)["colours"])
+            except ValueError as err:
+                raise ValueError(f"storyboard: {err}") from None
+            self._mutate(pid, lambda q: q.update(storyboard={**sb, "saved": True}))
+            (self._piece_dir(pid) / "film.mp4").unlink(missing_ok=True)
+            return self.get_storyboard(pid)
+
+    def render_film(self, pid):
+        """The film of the saved storyboard (`film`, motion made by code, ffmpeg), a job."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not (p.get("storyboard") or {}).get("saved"):
+                raise Conflict("the storyboard is not saved: read it, correct it and save it first")
+            if self._running(p, "film"):
+                raise Conflict("the film is already being made")
+            return self._spawn(pid, "film", None, lambda jid: self._film_body(pid, jid))
+
+    def _film_body(self, pid, jid):
+        self._phase(pid, jid, "chaque plan est animé, capturé image par image, puis assemblé")
+        piece, sb = self._piece_dir(pid), self._load(pid)["storyboard"]
+        src = piece / "storyboard.json"
+        write_json(src, {"shots": sb["shots"]})
+        out = piece / "film.mp4"
+        res = json.loads(self._must(self._joblog(pid, jid), self._py(SCRIPTS / "film", piece, src, "--out", out), timeout=1500).out)
+        self._mutate(pid, lambda q: q["storyboard"].update(film_seconds=res["seconds"]))
+
+    def download_film(self, pid):
+        f = self._piece_dir(pid) / "film.mp4"
+        if not f.is_file():
+            raise Conflict("the film is not made yet")
+        return Download(f"{pid}.mp4", "video/mp4", f.read_bytes())
 
     # ---------- the files of a project, and of a brand ----------
     def file(self, pid, rel) -> Path:
