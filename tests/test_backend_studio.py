@@ -69,6 +69,7 @@ class Fake:
         self.inputs = ""  # the inputs.md the last judge read
         self.readers = []  # the inputs.md each reader read
         self.personas = "ok"  # what the personas agent answers: ok (two personas), bad (one that does not hold), down (it fails)
+        self.names = "ok"  # what the names agent answers: ok (two names), bad (a name without its line), down (it fails)
 
     def tool_env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
@@ -132,6 +133,8 @@ class Fake:
             return self.reader_agent(cwd)
         if '{"personas": [' in prompt:
             return self.personas_agent()
+        if '{"names": [' in prompt:
+            return self.names_agent()
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -175,6 +178,14 @@ class Fake:
                              {"need": "boire sans alcool", "lines": [{"from": "suppose", "say": "Tu vois le post au pouce, sans le son."}]}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def names_agent(self):
+        if self.names == "down":
+            return Result(1, "", "the agent gave up")
+        if self.names == "bad":
+            return Result(0, json.dumps({"names": [{"name": "Quai Ambré", "why": ""}]}), "")
+        body = {"names": [{"name": "Quai Ambré", "why": "Le port et la couleur de la boisson."}, {"name": "Bulle Lente", "why": "Une fermentation qui prend son temps."}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def image(self, argv):
         d = Path(argv[3])
         if self.image_fails:
@@ -211,6 +222,7 @@ class Base(unittest.TestCase):
         f.judge, f.judge_hold, f.readers = "ok", None, []
         f.judge, f.judge_hold = "ok", None
         f.personas = "ok"
+        f.names = "ok"
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -1021,6 +1033,44 @@ class Personas(Base):
             self.wait(self.call("POST", f"/api/brands/{bid}/personas/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/personas")
             self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+class Names(Base):
+    def test_an_agent_proposes_names_from_the_brief_and_the_chosen_one_becomes_the_brand_name(self):
+        bid = self.mkbrand(name="projet kombucha", site=None)
+        self.call("POST", f"/api/brands/{bid}/names/propose", code=409)  # the brief of the brand is not done
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un kombucha de port", "who": "des citadins", "voice": "simple, joueuse"}})
+        self.wait(self.call("POST", f"/api/brands/{bid}/names/propose"))
+        call = self.fake.where("--restricted")[-1]
+        prompt = call["argv"][2]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search on the web
+        self.assertIn("what it is: un kombucha de port", prompt)
+        self.assertIn("for whom: des citadins", prompt)
+        self.assertIn("projet kombucha", prompt)
+        got = self.call("GET", f"/api/brands/{bid}/names")
+        self.assertEqual((got["name"], got["names"], got["job"], got["error"]), ("projet kombucha", [], None, None))
+        self.assertEqual(got["proposed"], [{"name": "Quai Ambré", "why": "Le port et la couleur de la boisson."}, {"name": "Bulle Lente", "why": "Une fermentation qui prend son temps."}])
+        self.assertFalse((self.home / "marques" / bid / "work" / "names").exists())
+        kept = [got["proposed"][0], {"name": "Écrit à la main", "why": ""}]  # Bulle Lente dropped, one written
+        r = self.call("PUT", f"/api/brands/{bid}/names", {"names": kept})
+        self.assertEqual((r["names"], r["proposed"], r["name"]), (kept, [], "projet kombucha"))
+        self.call("PUT", f"/api/brands/{bid}/names", {"names": kept, "chosen": "Bulle Lente"}, code=400)  # not kept
+        r = self.call("PUT", f"/api/brands/{bid}/names", {"names": kept, "chosen": "Quai Ambré"})
+        self.assertEqual(r["name"], "Quai Ambré")
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}")["name"], "Quai Ambré")  # the same brand, its id unchanged
+        saved = json.loads((self.home / "marques" / bid / "marque.json").read_text())
+        self.assertEqual((saved["name"], saved["names"], saved["names_proposed"]), ("Quai Ambré", kept, []))
+        self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        bid = self.mkbrand(name="Noms Ratés", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "une boulangerie"}})
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.names = kind
+            self.wait(self.call("POST", f"/api/brands/{bid}/names/propose"), "failed")
+            got = self.call("GET", f"/api/brands/{bid}/names")
+            self.assertEqual((got["proposed"], got["name"]), ([], "Noms Ratés"))
             self.assertIn(word, got["error"])
 
 

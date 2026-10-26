@@ -54,7 +54,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand"}
 
 
 def slug(text: str) -> str:
@@ -801,3 +801,57 @@ def parse_personas(raw) -> list:
             rows.append(f"({src}) {say}")
         out.append("\n".join([PERSONA_HEAD, f"Besoin principal : {need}", *rows]))
     return out
+
+
+# ---------- the names of a brand: proposed by an agent from its brief, kept or dropped by the person, one of the kept chosen as its name ----------
+NAMES_MAX = 8
+
+
+def _name_item(x) -> dict:
+    return {"name": one_line(x.get("name"))[:80], "why": one_line(x.get("why"))[:300]} if isinstance(x, dict) else {"name": "", "why": ""}
+
+
+def names_of(raw) -> list:
+    """The names the person keeps (`PUT names`): a list of `{name, why}`, at most eight; the empty names and the repeated ones are dropped."""
+    if not isinstance(raw, list) or not all(isinstance(x, dict) for x in raw):
+        raise ValueError("names: a list of {name, why}")
+    out, seen = [], set()
+    for it in map(_name_item, raw):
+        if it["name"] and it["name"].casefold() not in seen:
+            seen.add(it["name"].casefold())
+            out.append(it)
+    if len(out) > NAMES_MAX:
+        raise ValueError(f"names: {NAMES_MAX} at most")
+    return out
+
+
+def parse_names(raw) -> list:
+    """What the names agent answers, checked: `{"names": [{"name", "why"}]}`, one to eight, each with its line, no name twice. A ValueError
+    says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("names") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= NAMES_MAX:
+        raise ValueError(f"il faut de un à {NAMES_MAX} noms")
+    out = [_name_item(x) for x in items]
+    if not all(x["name"] and x["why"] for x in out):
+        raise ValueError("chaque nom vient avec sa ligne : pourquoi ce nom, et ce qu'il évoque")
+    if len({x["name"].casefold() for x in out}) < len(out):
+        raise ValueError("un nom est proposé deux fois")
+    return out
+
+
+def chosen_of(chosen, names: list):
+    """The name chosen among the kept ones (`PUT names` `chosen`), or None when nothing is chosen; a ValueError when it is not kept."""
+    if chosen is None:
+        return None
+    name = one_line(chosen)
+    if not any(x["name"] == name for x in names):
+        raise ValueError("chosen: one of the names kept")
+    return name

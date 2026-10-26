@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -85,6 +85,13 @@ READING = {"aimed": "partly", "why": "Je vois une boisson et un marché, ça me 
            "bother": "« plus rien » : je ne sais pas si c'est le goût qui s'en va ou autre chose.",
            "unread": "Le bandeau du bas : je ne l'ai pas lu, il est trop petit.",
            "lacks": "Ce que ça a comme goût, en vrai, et où est ce marché."}
+# the simulated names agent's one answer, plausible and fixed
+NAMES = {"names": [
+    {"name": "Quai Ambré", "why": "Le port où l'on brasse et la couleur de la boisson dans la bouteille : un lieu et une lumière."},
+    {"name": "Bulle Lente", "why": "Une fermentation qui prend son temps : évoque la patience et une boisson qui pétille sans brusquer."},
+    {"name": "Petite Cuvée", "why": "Dit le petit lot et le soin, comme pour un vin : évoque l'artisan plus que la mode."},
+    {"name": "Marée Douce", "why": "Le bord de mer et une acidité tenue : évoque le large sans promettre de santé."},
+    {"name": "Thé Vivant", "why": "Dit ce que c'est, un thé qui fermente : évoque le vivant, simple à retenir au marché."}]}
 # the simulated personas agent's one answer, plausible and fixed (written as texts by workflow, as the real agent's)
 PERSONAS = {"personas": [
     {"need": "savoir si ça a bon goût avant d'en acheter une bouteille", "lines": [
@@ -236,7 +243,8 @@ class StubBackend:
             j["progress"] = min(1.0, (now - j["start"]) / j["duration"])
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
-                            "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas"}[j["kind"]]
+                            "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
+                            "names": "un agent cherche des noms"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -258,6 +266,11 @@ class StubBackend:
                 b = self.brands.get(j["brand"])
                 if b:
                     b["proposed"] = workflow.parse_personas(copy.deepcopy(PERSONAS))
+                continue
+            if j["kind"] == "names":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["names_proposed"] = workflow.parse_names(copy.deepcopy(NAMES))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -586,6 +599,42 @@ class StubBackend:
             b = self._b(bid)
             b["personas"], b["proposed"] = texts, []
             return self._personas_view(b)
+
+    # ---------- routes: the names of the brand ----------
+    def _names_view(self, b):
+        run = self._running("names", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "names" and j["brand"] == b["id"]), None)
+        return {"name": b["name"], "names": list(b.get("names", [])), "proposed": list(b.get("names_proposed", [])), "can_propose": b["brief_done"],
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_names(self, bid):
+        with self.lock:
+            self._tick()
+            return self._names_view(self._b(bid))
+
+    def propose_names(self, bid):
+        """The names agent: up to eight, from the brief of the brand (a job). The simulated one answers NAMES."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            if not b["brief_done"]:
+                raise Conflict("the brief of the brand is not done: the names come from it")
+            if self._running("names", brand=bid):
+                raise Conflict("the names are already being proposed")
+            return job_view(self._job("names", brand=bid))
+
+    def put_names(self, bid, names, chosen=None):
+        """The names the person keeps (or wrote); `chosen`, one of them, becomes the brand's name. The proposal is settled."""
+        kept = workflow.names_of(names)
+        name = workflow.chosen_of(chosen, kept)
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["names"], b["names_proposed"] = kept, []
+            if name:
+                b["name"] = name
+                self._touch(b)
+            return self._names_view(b)
 
     # ---------- routes: projects ----------
     def list_projects(self):

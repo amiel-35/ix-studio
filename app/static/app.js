@@ -46,6 +46,7 @@
     if (n("learn")) parts.push("lit la marque");
     if (n("mandates")) parts.push("prépare les consignes");
     if (n("personas")) parts.push("imagine les personas");
+    if (n("names")) parts.push("cherche des noms");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -1003,7 +1004,53 @@
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Visuels gardés" + (a.visuals.length ? " · " + a.visuals.length : "")),
           a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
             : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))),
+      h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }));
+  }
+
+  /* ---------- the names of a brand: the studio proposes up to eight, the person keeps or drops each, or writes one, and chooses one of
+     the kept as the brand's name (its id does not change) ---------- */
+  const NAMES_MAX = 8;
+  function Names({ ctx, bid }) {
+    const data = useLive(ctx, () => api.names(bid), bid);
+    const [ed, setEd] = useState(null); // the list being decided, [{name, why, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
+    useEffect(() => setEd(null), [bid]);
+    if (!data) return null;
+    const list = ed || data.names.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
+    const drop = (i) => setEd(list.filter((x, k) => k !== i));
+    const dirty = ed !== null || data.proposed.length > 0;
+    const propose = () => ctx.act(async () => { await api.proposeNames(bid); ctx.log("@" + bid, "toi", "Noms demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = (chosen) => ctx.act(async () => {
+      const names = list.filter((x) => x.kept && x.name.trim()).map((x) => ({ name: x.name.trim(), why: x.why || "" }));
+      await api.saveNames(bid, names, chosen);
+      ctx.log("@" + bid, "toi", chosen ? "Nom choisi : " + chosen : "Noms enregistrés", plural(names.length, "nom gardé", "noms gardés"));
+      setEd(null); ctx.touch(); await ctx.refresh();
+      ctx.notify(chosen ? "La marque s'appelle maintenant " + chosen + "." : plural(names.length, "nom est gardé", "noms sont gardés") + " dans la marque.");
+    });
+    return h("div", { id: "names" }, h(Where, null, "Ses noms"),
+      h("p", { className: "small muted" }, "Son nom aujourd'hui : " + data.name),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche des noms à partir du brief de la marque.")
+        : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun nom proposé. Le studio peut en proposer jusqu'à huit, ou tu en écris un toi-même."
+          : "Aucun nom proposé. Le studio en propose une fois le brief de la marque validé ; tu peux aussi en écrire un toi-même."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Garde ou écarte chaque nom. Personne n'a vérifié qu'il est libre."),
+      list.map((x, i) => h("div", { key: i, className: "editor", "data-name": x.kept ? "kept" : "proposed" },
+        h("label", { htmlFor: "name-" + i, className: "small cap" }, (x.kept ? "Nom gardé " : "Proposition ") + (i + 1)),
+        h("input", { id: "name-" + i, type: "text", value: x.name, readOnly: !!data.job, onChange: (e) => change(i, { name: e.target.value }) }),
+        x.why && h("p", { className: "small muted" }, x.why),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= NAMES_MAX || !x.name.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
+          x.kept && x.name.trim() === data.name ? h("span", { className: "small muted" }, "C'est son nom.")
+            : x.kept && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0 || !x.name.trim(), onClick: () => save(x.name.trim()), "aria-label": "Choisir " + x.name.trim() + " comme nom de la marque" }, "Choisir"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le nom " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        h(Button, { variant: "secondary", size: "sm", disabled: kept >= NAMES_MAX || !!data.job, onClick: () => setEd(list.concat([{ name: "", why: "", kept: true }])), "aria-label": "Écrire un nom toi-même" }, "Écrire un nom"),
+        data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des noms" }, list.length ? "En proposer d'autres" : "Proposer des noms"),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: () => save(), "aria-label": "Enregistrer les noms gardés dans la marque" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant de choisir ou d'enregistrer."),
+      kept >= NAMES_MAX && h("p", { className: "small muted" }, "Huit noms au plus."));
   }
 
   /* ---------- the personas of a brand: the studio proposes up to four, the person corrects each, keeps or drops it, or writes one by hand.
@@ -1442,7 +1489,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
