@@ -47,6 +47,7 @@
     if (n("mandates")) parts.push("prépare les consignes");
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
+    if (n("competitors")) parts.push("cherche les concurrents");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -1005,7 +1006,8 @@
           a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
             : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))),
       h(Names, { ctx, bid }),
-      h(Personas, { ctx, bid }));
+      h(Personas, { ctx, bid }),
+      h(Competitors, { ctx, bid }));
   }
 
   /* ---------- the names of a brand: the studio proposes up to eight, the person keeps or drops each, or writes one, and chooses one of
@@ -1091,6 +1093,46 @@
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les personas gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= PERSONAS_MAX && h("p", { className: "small muted" }, "Quatre personas au plus."));
+  }
+
+  /* ---------- competitors of a brand: the studio proposes up to six, the person corrects each, keeps or drops it, or writes one by hand.
+     Only the kept ones are saved in the brand ---------- */
+  const COMPETITORS_MAX = 6;
+  function Competitors({ ctx, bid }) {
+    const data = useLive(ctx, () => api.competitors(bid), bid);
+    const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
+    useEffect(() => setEd(null), [bid]);
+    if (!data) return null;
+    const list = ed || data.competitors.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
+    const drop = (i) => setEd(list.filter((x, k) => k !== i));
+    const dirty = ed !== null || data.proposed.length > 0;
+    const propose = () => ctx.act(async () => { await api.proposeCompetitors(bid); ctx.log("@" + bid, "toi", "Concurrents demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      const texts = list.filter((x) => x.kept).map((x) => x.text.trim()).filter(Boolean);
+      await api.saveCompetitors(bid, texts);
+      ctx.log("@" + bid, "toi", "Concurrents enregistrés", plural(texts.length, "concurrent gardé", "concurrents gardés"));
+      setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "concurrent est enregistré", "concurrents sont enregistrés") + " dans la marque." : "La marque n'a plus de concurrent.");
+    });
+    return h("div", { id: "concurrents" }, h(Where, null, "Ses concurrents"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche les concurrents à partir de ce qu'il sait de la marque et du marché.")
+        : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun concurrent. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
+          : "Aucun concurrent. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des hypothèses à vérifier : chaque fiche dit si elle vient du dossier ou si elle est supposée. Corrige, garde ou écarte chacune."),
+      list.map((x, i) => h("div", { key: i, className: "editor", "data-competitor": x.kept ? "kept" : "proposed" },
+        h("label", { htmlFor: "concurrent-" + i, className: "small cap" }, (x.kept ? "Concurrent gardé " : "Proposition ") + (i + 1)),
+        h("textarea", { id: "concurrent-" + i, rows: 4, value: x.text, readOnly: !!data.job, onChange: (e) => change(i, { text: e.target.value }) }),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= COMPETITORS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le concurrent " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        h(Button, { variant: "secondary", size: "sm", disabled: kept >= COMPETITORS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un concurrent toi-même" }, "Écrire un concurrent"),
+        data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des concurrents" }, list.length ? "En proposer d'autres" : "Proposer des concurrents"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les concurrents gardés dans la marque" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
+      kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
   }
 
   /* ---------- 3. a project: its seven steps, what waits ---------- */
@@ -1489,7 +1531,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;

@@ -104,6 +104,10 @@
     names: (b) => call("GET", B(b) + "/names"), // { name, names: [{name, why}], proposed: [{name, why}], can_propose, job, error }
     proposeNames: (b) => call("POST", B(b) + "/names/propose"),
     saveNames: (b, names, chosen) => call("PUT", B(b) + "/names", { names, chosen }), // chosen: one of names, becomes the brand's name
+    /* competitors: the studio proposes up to six (a job), the person keeps the ones they corrected or wrote */
+    competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
+    proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
+    saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
     createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
     downloadPiece: (p, i) => download(P(p) + "/pieces/" + encodeURIComponent(i) + "/download"), // the composed piece, a png at its size
     downloadKept: (p) => download(P(p) + "/download"), // every piece kept, a zip

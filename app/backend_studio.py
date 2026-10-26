@@ -49,7 +49,7 @@ STUDIO = SCRIPTS / "studio"
 BRANDKIT = SCRIPTS / "brandkit"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1218,6 +1218,74 @@ class StudioBackend:
         except ValueError as err:
             raise ToolError(f"réponse de l'agent illisible : {err}") from None
         self._mutateb(bid, lambda q: q.update(names_proposed=names))
+
+    # ---------- competitors of the brand ----------
+    def _competitors_view(self, b):
+        run = self._running(b, "competitors")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "competitors"), None)
+        return {"competitors": list(b.get("competitors", [])), "proposed": list(b.get("competitors_proposed", [])), "can_propose": b.get("brief_done", False),
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_competitors(self, bid):
+        return self._competitors_view(self._loadb(bid))
+
+    def propose_competitors(self, bid):
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            if not b.get("brief_done"):
+                raise Conflict("the brief of the brand is not done: the competitors come from it")
+            if self._running(b, "competitors"):
+                raise Conflict("the competitors are already being proposed")
+            return self._spawn(("brand", bid), "competitors", None, lambda jid: self._competitors_body(bid, jid))
+
+    def put_competitors(self, bid, competitors):
+        """The competitors the person keeps (corrected, or written by hand): only these are written in the brand. The proposal is settled."""
+        texts = workflow.competitors_of(competitors)
+        with self._op("brand:" + bid):
+            self._mutateb(bid, lambda q: q.update(competitors=texts, competitors_proposed=[]))
+            return self.get_competitors(bid)
+
+    def _competitors_prompt(self, b) -> str:
+        ident = self._identity(b, self._doc(b["id"]))
+        labels = {"what": "what it is", "who": "for whom", "voice": "its voice", "signature": "its signature", "never": "the words it never says", "colours": "its colours"}
+        brief = "\n".join(f"- {labels[k]}: {v['value']} ({'confirmed by the person' if v['state'] == 'confirmed' else 'deduced, not confirmed'})"
+                          for k, v in ident.items() if v["state"] != "absent")
+        words = one_line(b.get("answers"))
+        dossier = self._read_text(self._bdir(b["id"]) / "brand.json")[:30000]
+        return (
+            "You name the competitors of a brand: the others its customers could buy from instead. You use what is given below and what you know "
+            "of the market: no search, no other source. You write hypotheses for the person to check, not facts.\n\n"
+            f"=== the brand ===\nname: {b['name']}\nsite: {b.get('site') or '(none)'}\ndescription: {one_line(b.get('description')) or '(none)'}\n"
+            f"=== the brief of the brand ===\n{brief or '(empty)'}\n"
+            + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
+            + f"=== the dossier of the brand (brand.json) ===\n{dossier or '(empty)'}\n"
+            "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+            '{"competitors": [{"name": "...", "from": "dossier" | "supposé", "sells": "...", "differs": "..."}]}\n'
+            "- competitors: up to six, each a different name.\n"
+            "- sells: one line, in French: what it sells and to whom.\n"
+            "- differs: one line, in French: what sets it apart from the brand (its angle, its tone).\n"
+            "- from: \"dossier\" when the competitor is named in what is given above, \"supposé\" when you suppose it.\n"
+            "- No invented figure: no market share, no turnover, no ranking, no number of customers.\n"
+            "- Plain French, no em dash, no emoji.")
+
+    def _competitors_body(self, bid, jid):
+        b, owner = self._loadb(bid), ("brand", bid)
+        log = self._joblog(owner, jid)
+        work = self._mdir(bid) / "work" / "competitors"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        self._phase(owner, jid, "un agent cherche les concurrents")
+        try:
+            res = self._sh(log, self._claude(self._competitors_prompt(b), "--tools", ""), cwd=work, timeout=300, claude=True)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        if res.code:
+            raise ToolError("l'agent n'a pas répondu : " + tail(res))
+        try:
+            texts = workflow.parse_competitors(res.out)
+        except ValueError as err:
+            raise ToolError(f"réponse de l'agent illisible : {err}") from None
+        self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
 
     # ---------- the projects ----------
     def _new_pid(self, name) -> str:

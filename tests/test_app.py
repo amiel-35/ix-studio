@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
 import server  # noqa: E402
+import workflow  # noqa: E402
 from backend_stub import StubBackend  # noqa: E402
 
 
@@ -576,6 +577,41 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
         self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
         self.call("GET", "/api/brands/nope/names", code=404)
+    # competitors
+    def test_the_competitors_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
+        bid = self.call("POST", "/api/brands", {"name": "Pour les concurrents"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/competitors")
+        self.assertEqual((empty["competitors"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], False, None))
+        self.call("POST", f"/api/brands/{bid}/competitors/propose", code=409)  # no brief of the brand yet: nothing to work from
+        self.call("PUT", f"/api/brands/{bid}/competitors", {"competitors": ["Écrit à la main."]})  # but the person may write them
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un kombucha de port"}})
+        job = self.call("POST", f"/api/brands/{bid}/competitors/propose")
+        self.assertEqual(job["kind"], "competitors")
+        self.call("POST", f"/api/brands/{bid}/competitors/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/competitors")
+        self.assertEqual(got["competitors"], ["Écrit à la main."])  # a proposal never becomes the brand's by itself
+        self.assertTrue(1 <= len(got["proposed"]) <= 6)
+        for text in got["proposed"]:
+            lines = text.splitlines()
+            self.assertEqual(lines[0], "Hypothèse à vérifier, pas un fait.")
+            self.assertRegex(lines[1], r"^Nom : .+ \((dossier|supposé)\)$")
+            self.assertTrue(lines[2].startswith("Vend : ") and lines[3].startswith("Se distingue : "), text)
+        kept = [got["proposed"][0] + " Corrigé.", "", got["competitors"][0]]  # one kept and corrected, the others dropped, the hand-written one kept
+        r = self.call("PUT", f"/api/brands/{bid}/competitors", {"competitors": kept})
+        self.assertEqual((r["competitors"], r["proposed"]), ([kept[0], kept[2]], []))
+        self.call("PUT", f"/api/brands/{bid}/competitors", {"competitors": ["a"] * 7}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/competitors", {"competitors": "a"}, code=400)
+        self.call("GET", "/api/brands/nope/competitors", code=404)
+
+    def test_the_competitors_agent_answer_is_checked(self):
+        ok = {"competitors": [{"name": "A", "from": "suppose", "sells": "du thé", "differs": "plus doux"}]}
+        self.assertEqual(workflow.parse_competitors("Voici " + json.dumps(ok)), ["Hypothèse à vérifier, pas un fait.\nNom : A (supposé)\nVend : du thé\nSe distingue : plus doux"])
+        for bad in ("rien", "{pas du json}", {"competitors": []}, {"competitors": [ok["competitors"][0]] * 7},
+                    {"competitors": [ok["competitors"][0], ok["competitors"][0]]}, {"competitors": [{**ok["competitors"][0], "from": "vu"}]},
+                    {"competitors": [{**ok["competitors"][0], "differs": ""}]}):
+            with self.assertRaises(ValueError):
+                workflow.parse_competitors(bad)
 
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
