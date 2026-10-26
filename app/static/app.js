@@ -998,6 +998,9 @@
       brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
         label: b.name + ", " + (BRAND_STAGE[b.stage] || b.stage).toLowerCase() + (total(b) ? ", " + plural(total(b), "tâche", "tâches") : "") },
         h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))),
+      h(Where, null, "Le paysage"),
+      h(Row, { col: 0, select: true, sel: sel.panel === "landscape" ? level : null, onClick: ctx.newLandscape, label: "Le paysage d'un marché : décrire un marché" },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Le paysage d'un marché"), h("span", { className: "meta" }, "Un marché, ses acteurs"))),
       h(Where, null, "Le juge"),
       h(Row, { col: 0, select: true, sel: sel.panel === "newJudge" ? level : null, onClick: ctx.newJudge, label: "Juger une pièce : déposer une image et son brief" },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, "Une image, son brief, un verdict"))),
@@ -1200,6 +1203,44 @@
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les concurrents gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
+  }
+
+  /* ---------- landscape: the competitors of a market, without a brand. The studio answers at once; the person corrects each, keeps or drops it,
+     and may attach the kept ones to a brand (they are added to the brand's competitors) ---------- */
+  function LandscapeForm({ ctx }) {
+    const [market, setMarket] = useState("");
+    const [list, setList] = useState(null); // [{text, kept}] once the studio answered
+    const [brand, setBrand] = useState("");
+    const change = (i, o) => setList(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
+    const kept = list ? list.filter((x) => x.kept && x.text.trim()) : [];
+    const undecided = list ? list.filter((x) => !x.kept).length : 0;
+    const draw = () => ctx.act(async () => {
+      const r = await api.landscape(market.trim());
+      setList(r.competitors.map((text) => ({ text, kept: false })));
+    }, "Le studio dessine le paysage de ce marché.");
+    const attach = () => ctx.act(async () => {
+      const have = (await api.competitors(brand)).competitors;
+      if (have.length + kept.length > COMPETITORS_MAX) throw new Error("Cette marque a déjà " + plural(have.length, "concurrent", "concurrents") + " , six au plus : écarte-en pour en rattacher.");
+      await api.saveCompetitors(brand, have.concat(kept.map((x) => x.text.trim())));
+      ctx.touch(); ctx.notify(plural(kept.length, "concurrent est rattaché", "concurrents sont rattachés") + " à la marque.");
+    });
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Le paysage"), h("h2", { className: "titre" }, "Le paysage d'un marché")),
+      h("div", { className: "sec form" },
+        h("div", { className: "field" }, h("label", { htmlFor: "marche" }, "Le marché, en une ou deux phrases"),
+          h("textarea", { id: "marche", rows: 3, value: market, onChange: (e) => setMarket(e.target.value) })),
+        h("div", { className: "gestures" }, h(Button, { variant: list ? "secondary" : "primary", size: "md", disabled: ctx.busy || !market.trim(), onClick: draw, "aria-label": "Demander au studio le paysage de ce marché" }, list ? "Refaire le paysage" : "Dessiner le paysage"),
+          h(Button, { variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Fermer le paysage" }, "Fermer")),
+        list && h("p", { className: "small muted" }, "Ce sont des hypothèses à vérifier : chaque fiche dit si elle vient de ta description ou si elle est supposée. Corrige, garde ou écarte chacune."),
+        list && list.map((x, i) => h("div", { key: i, className: "editor", "data-competitor": x.kept ? "kept" : "proposed" },
+          h("label", { htmlFor: "acteur-" + i, className: "small cap" }, (x.kept ? "Acteur gardé " : "Acteur proposé ") + (i + 1)),
+          h("textarea", { id: "acteur-" + i, rows: 4, value: x.text, onChange: (e) => change(i, { text: e.target.value }) }),
+          h("div", { className: "row" },
+            !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder l'acteur " + (i + 1) }, "Garder"),
+            h(Button, { variant: "ghost", size: "sm", onClick: () => setList(list.filter((y, k) => k !== i)), "aria-label": "Écarter l'acteur " + (i + 1) }, "Écarter")))),
+        list && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque acteur avant de le rattacher."),
+        list && kept.length > 0 && undecided === 0 && h("div", { className: "field" }, h("label", { htmlFor: "rattacher" }, "Rattacher à une marque"),
+          h("select", { id: "rattacher", value: brand, onChange: (e) => setBrand(e.target.value) }, h("option", { value: "" }, "Pas de marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
+          h(Button, { variant: "primary", size: "md", disabled: ctx.busy || !brand, onClick: attach, "aria-label": "Rattacher les acteurs gardés à la marque" }, "Rattacher"))));
   }
 
   /* ---------- research: the studio searches the web for what is said of the brand (ten results at most); the person keeps or drops each.
@@ -1751,6 +1792,7 @@
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
     if (sel.panel === "newJudge") { c.push("newJudge"); return c; }
+    if (sel.panel === "landscape") { c.push("landscape"); return c; }
     if (sel.panel === "settings") { c.push("settings"); return c; } // engines
     if (sel.judgement) { c.push("judgement"); return c; }
     if (!sel.brand) return c;
@@ -1850,6 +1892,7 @@
     const selectStep = useCallback((key) => move((s) => ({ ...s, detail: { kind: "step", key }, panel: null, task: null })), [move]);
     const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
     const newJudge = useCallback(() => move(() => ({ ...EMPTY, panel: "newJudge" })), [move]);
+    const newLandscape = useCallback(() => move(() => ({ ...EMPTY, panel: "landscape" })), [move]);
     const openSettings = useCallback(() => move(() => ({ ...EMPTY, panel: "settings" })), [move]); // engines
     const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judgement: id }), text), [move]);
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
@@ -1918,7 +1961,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement, openSettings };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, newLandscape, selectJudgement, openSettings };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -1934,6 +1977,7 @@
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
       cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
       cmds.push({ id: "new-judge", group: "Créer", label: "Juger une pièce", run: newJudge });
+      cmds.push({ id: "landscape", group: "Créer", label: "Le paysage d'un marché", run: newLandscape });
       cmds.push({ id: "settings", group: "Aller", label: "Réglages : les moteurs", run: openSettings }); // engines
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
@@ -2034,12 +2078,12 @@
 
     /* ----- the columns ----- */
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
-      : kind === "settings" ? h(Settings, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+      : kind === "settings" ? h(Settings, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "landscape" ? h(LandscapeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", settings: "Réglages", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", settings: "Réglages", landscape: "Le paysage d'un marché", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
     const shell = (kind, i) => {
       const last = i === cols.length - 1;

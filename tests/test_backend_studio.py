@@ -1291,6 +1291,26 @@ class Logos(Base):
 
 # competitors
 class Competitors(Base):
+    def test_landscape_a_market_gives_its_players_through_the_command(self):
+        got = self.call("POST", "/api/competitors", {"market": "Le kombucha en canette."})["competitors"]
+        self.assertEqual(len(got), 2)
+        self.assertTrue(got[0].startswith("Hypothèse à vérifier, pas un fait.\nNom : Kombucha du Coin (supposé)"))
+        self.call("POST", "/api/competitors", {}, code=400)
+        for kind in ("bad", "down"):
+            self.fake.competitors = kind
+            self.call("POST", "/api/competitors", {"market": "Le kombucha."}, code=409)
+
+    def test_each_landscape_call_has_its_own_work_folder_and_leaves_nothing_behind(self):
+        before = len(self.fake.calls)
+        for _ in range(2):
+            self.call("POST", "/api/competitors", {"market": "Le kombucha en canette."})
+        runs = [c for c in self.fake.calls[before:] if c["argv"][2:3] == ["competitors"]]
+        folders = [Path(c["argv"][3]).parent for c in runs]
+        self.assertEqual(len(folders), 2)
+        self.assertNotEqual(folders[0], folders[1])  # not one shared folder that a call would empty under another
+        self.assertTrue(all(f.parent == self.home / "paysages" and f.name != "work" for f in folders), folders)
+        self.assertEqual(sorted(x.name for x in (self.home / "paysages").iterdir()), ["landscape.log"])  # each cleaned its own
+
     def test_an_agent_proposes_competitors_from_the_dossier_and_only_the_kept_ones_are_written(self):
         bid = self.mkbrand(name="Concurrents Kombucha")
         self.call("POST", f"/api/brands/{bid}/competitors/propose", code=409)  # the brief of the brand is not done

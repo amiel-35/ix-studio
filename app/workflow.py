@@ -744,6 +744,15 @@ def competitors_of(raw) -> list:
     return out
 
 
+# ---------- landscape: the competitors of a market, without a brand ----------
+def market_of(raw) -> str:
+    """The market the person describes (`POST /api/competitors`): one or two sentences."""
+    text = one_line(raw) if isinstance(raw, str) else ""
+    if not text:
+        raise ValueError("market: a sentence that describes the market")
+    return text[:600]
+
+
 # ---------- interview: a few questions, the brief of the project pre-filled from the answers, read and corrected by the person ----------
 def interview_answers_of(raw) -> list:
     """The answers the person gives (`POST interview`): a list of texts, one per question, five at most, at least one said."""

@@ -83,6 +83,8 @@ dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show 
 - `logos`: up to four logo tracks drawn in SVG, `{idea, svg}` (inputs: also `colours`, a list of hex, and `fonts`); checked, no script nor image; nobody checked that a logo is free. The person keeps or drops each.
 - `research`: given a name (the other inputs are optional), searches the web for the brand's site, campaigns and press: up to ten `{url, brings, belonging}` (`officielle`, `officielle relayée`, `probable`, `incertaine`), each with its address. Show them, let the person keep or drop each; nothing is downloaded, keep the addresses.
 
+- `competitors` with `market` (one or two sentences) as the only input, no brand: the landscape of that market, up to six players with their position; one not in the description is `supposé`; show it to the person, who keeps or drops each.
+
 They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`, `_LOGOS`, `_RESEARCH`) changes it.
 
 ## Reading the dossier from another module

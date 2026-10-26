@@ -6,6 +6,7 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     personas     the personas of a brand            inputs: name, site, description, brief, words, dossier        gives {"personas": [texts]}
     names        the names of a brand               inputs: name, description, brief, words                       gives {"names": [{name, why}]}
     competitors  the competitors of a brand         inputs: as personas                                           gives {"competitors": [texts]}
+                 or the landscape of a market       inputs: market (one or two sentences, no brand)               gives {"competitors": [texts]}
     research     what the web says of a brand       inputs: name, site, description                               gives {"research": [{url, brings, belonging}]}
     logos        the logo tracks of a brand         inputs: name, description, colours (hex), fonts, brief, words   gives {"logos": [{idea, svg}]}
     texts        the posts and hooks of a project     inputs: brief, brand, language                                  gives {"texts": [texts]}
@@ -219,7 +220,26 @@ def cmd_names(i, model, runner):
     return answer_of("names", i, names_prompt(i), parse_names, model, runner)
 
 
+# landscape: the same agent, given a market instead of a brand
+def landscape_prompt(i) -> str:
+    return (
+        "You draw the competitive landscape of a market: the players a customer of this market could buy from. You use what is given below and what "
+        "you know of the market: no search, no other source. You write hypotheses for the person to check, not facts.\n\n"
+        f"=== the market, in the person's words ===\n{one_line(i['market'])}\n"
+        "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"competitors": [{"name": "...", "from": "dossier" | "supposé", "sells": "...", "differs": "..."}]}\n'
+        "- competitors: up to six players of this market, each a different name.\n"
+        "- sells: one line, in French: what it sells and to whom.\n"
+        "- differs: one line, in French: its position in the market (its angle, its tone, what it is known for).\n"
+        "- from: \"dossier\" when the player is named in the description of the market above, \"supposé\" otherwise. A player you are not sure exists "
+        "is left out: nothing invented.\n"
+        "- No invented figure: no market share, no turnover, no price, no ranking, no number of customers.\n"
+        "- Plain French, no em dash, no emoji.")
+
+
 def cmd_competitors(i, model, runner):
+    if i.get("market"):
+        return answer_of("competitors", i, landscape_prompt(i), parse_competitors, model, runner)
     return answer_of("competitors", i, competitors_prompt(i), parse_competitors, model, runner)
 
 

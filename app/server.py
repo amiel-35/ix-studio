@@ -67,6 +67,7 @@ ROUTES = [
     ("GET", rf"/api/brands/{B}/competitors", lambda b, m, d: b.get_competitors(m["b"])),
     ("PUT", rf"/api/brands/{B}/competitors", lambda b, m, d: b.put_competitors(m["b"], d.get("competitors"))),
     ("POST", rf"/api/brands/{B}/competitors/propose", lambda b, m, d: b.propose_competitors(m["b"])),
+    ("POST", r"/api/competitors", lambda b, m, d: b.landscape(d.get("market"))),  # landscape
     # export
     ("GET", rf"/api/brands/{B}/export", lambda b, m, d: b.export_brand(m["b"])),
     # research

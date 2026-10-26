@@ -120,6 +120,8 @@
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* landscape: the competitors of a market, without a brand; asked and answered at once, nothing is kept (the person keeps through saveCompetitors) */
+    landscape: (market) => call("POST", "/api/competitors", { market }), // { competitors: [text] }
     /* research: the studio searches the web for what is said of a brand (a job, ten results at most), the person keeps or drops each; only addresses are kept */
     research: (b) => call("GET", B(b) + "/research"), // { research: [{url, brings, belonging}], proposed: [{url, brings, belonging}], job, error }
     proposeResearch: (b) => call("POST", B(b) + "/research/propose"),
