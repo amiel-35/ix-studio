@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "decline": 6.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -99,7 +99,7 @@ class StubBackend:
         self.missing = set(missing if missing is not None else (os.environ.get("STUDIO_STUB_MISSING") or "").replace(" ", "").split(",")) - {""}
         self.speed = speed  # 0.01 in tests: the jobs end at once
         self.static = static_url
-        self.brands, self.projects, self.jobs, self.judgements = {}, {}, {}, {}
+        self.brands, self.projects, self.jobs, self.judgements, self.declinaisons = {}, {}, {}, {}, {}
         self.ids = itertools.count(1)
         self._seed()
 
@@ -190,8 +190,8 @@ class StubBackend:
         for k in keys:
             p["since"][k] = time.time()
 
-    def _job(self, kind, brand=None, project=None, piece=None, judgement=None):
-        j = {"id": self._new_id("job"), "kind": kind, "brand": brand, "project": project, "piece": piece, "judgement": judgement, "start": time.time(),
+    def _job(self, kind, brand=None, project=None, piece=None, judgement=None, declinaison=None):
+        j = {"id": self._new_id("job"), "kind": kind, "brand": brand, "project": project, "piece": piece, "judgement": judgement, "declinaison": declinaison, "start": time.time(),
              "duration": DURATION[kind] * self.speed, "status": "running", "progress": 0.0, "message": "", "result": None, "error": None}
         self.jobs[j["id"]] = j
         if project:
@@ -206,7 +206,7 @@ class StubBackend:
                 continue
             j["progress"] = min(1.0, (now - j["start"]) / j["duration"])
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
-                            "image": "le modèle d'image dessine", "judge": "le juge relit la pièce"}[j["kind"]]
+                            "image": "le modèle d'image dessine", "judge": "le juge relit la pièce", "decline": "le studio décline la pièce"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -220,6 +220,11 @@ class StubBackend:
                 else:
                     self._discovered(b)
                 self._touch(b)
+                continue
+            if j["declinaison"]:  # a declination is drawn: the simulated studio has one picture for all of them
+                dc = self.declinaisons.get(j["declinaison"])
+                if dc:
+                    dc["pieces"][j["piece"]]["image"] = f"{self.static}/piece.png"
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -353,7 +358,7 @@ class StubBackend:
             brands = [(self._bstate(b), self._brand_projects(b)) for b in self.brands.values()]
             jobs = [{"id": j["id"], "project": j["project"], "brand": j["brand"] or (self.projects[j["project"]]["brand"] if j["project"] else None), "kind": j["kind"], "piece": j["piece"],
                      "progress": j["progress"], "message": j["message"], "since": j["start"], "eta": round(j["duration"] * (1 - j["progress"]), 1),
-                     "judgement": j["judgement"]}
+                     "judgement": j["judgement"], **({"declinaison": j["declinaison"]} if j["declinaison"] else {})}
                     for j in self.jobs.values() if j["status"] == "running"]
             return workflow.tasks_payload(entries, jobs, time.time(), brands)
 
@@ -896,3 +901,82 @@ class StubBackend:
                 raise Conflict("the judge has not given its verdict yet")
             page = workflow.judge_page(v["verdict"], v["image"], v["name"], v["brand_name"], time.strftime("%Y-%m-%d", time.localtime(v["at"])))
             return Download(f"{jid}.html", "text/html; charset=utf-8", page.encode("utf-8"))
+
+    # ---------- a piece declined on its own ----------
+    def _dc(self, did):
+        dc = self.declinaisons.get(did)
+        if not dc:
+            raise NotFound(f"no declination {did}")
+        return dc
+
+    def _dc_view(self, dc):
+        running = {j["piece"]: j["id"] for j in self.jobs.values() if j["declinaison"] == dc["id"] and j["status"] == "running"}
+        pieces = [{"format": f, "size": list(FORMATS[f]), "status": "running" if f in running else "done", "image": None if f in running else pc["image"],
+                   "decision": copy.deepcopy(pc["decision"]), "error": None} for f, pc in dc["pieces"].items()]
+        return {"id": dc["id"], "name": dc["name"], "brand": dc["brand"], "brand_name": dc["brand_name"], "words": dc["words"], "source": dc["source"],
+                "at": dc["at"], "status": "running" if running else "done", "pieces": pieces}
+
+    def list_declinaisons(self):
+        """The pieces declined on their own, the newest first."""
+        with self.lock:
+            self._tick()
+            return [{k: v[k] for k in ("id", "name", "brand", "brand_name", "status", "at")} for v in
+                    (self._dc_view(dc) for dc in sorted(self.declinaisons.values(), key=lambda x: -x["at"]))]
+
+    def create_declinaison(self, data, ctype="", name="", meta=None):
+        """A piece dropped to be declined, with what it says and, if any, its brand: one declination per format checked, each a job."""
+        ext = workflow.judge_image_ext(data, ctype)
+        m = workflow.decline_meta(meta)
+        with self.lock:
+            self._tick()
+            b = None
+            if m["brand"]:
+                b = self.brands.get(m["brand"])
+                if not b:
+                    raise ValueError(f"brand: no brand {m['brand']}")
+            did = self._new_id("declinaison")
+            mime = {"png": "image/png", "jpg": "image/jpeg"}[ext]
+            label = m["name"] or one_line(Path(name or "").stem) or "Pièce à décliner"
+            dc = {"id": did, "name": label[:120], "brand": b["id"] if b else None, "brand_name": b["name"] if b else "", "words": m["words"],
+                  "source": f"data:{mime};base64," + base64.b64encode(data).decode(), "at": time.time(),
+                  "pieces": {f: {"image": None, "decision": None} for f in m["formats"]}}
+            self.declinaisons[did] = dc
+            for f in m["formats"]:
+                self._job("decline", piece=f, declinaison=did)
+            return self._dc_view(dc)
+
+    def declinaison(self, did):
+        with self.lock:
+            self._tick()
+            return self._dc_view(self._dc(did))
+
+    def decide_declinaison(self, did, fmt, verdict, words):
+        """Keep a declination, or send it back with what is wrong: it is drawn again."""
+        with self.lock:
+            self._tick()
+            dc = self._dc(did)
+            pc = dc["pieces"].get(fmt)
+            if pc is None:
+                raise NotFound(f"no declination {did} in {fmt}")
+            if verdict not in ("keep", "again"):
+                raise ValueError("verdict is keep or again")
+            if not pc["image"] or any(j["declinaison"] == did and j["piece"] == fmt and j["status"] == "running" for j in self.jobs.values()):
+                raise Conflict("this declination is not drawn yet")
+            if verdict == "again" and not one_line(words):
+                raise ValueError("say what is wrong: the studio declines it again with it")
+            pc["decision"] = {"verdict": "keep", "words": one_line(words)} if verdict == "keep" else None
+            if verdict == "again":
+                pc["image"] = None
+                self._job("decline", piece=fmt, declinaison=did)
+            return self._dc_view(dc)
+
+    def download_declinaison(self, did):
+        """Every declination kept, in a zip."""
+        with self.lock:
+            self._tick()
+            dc = self._dc(did)
+            kept = [f for f, pc in dc["pieces"].items() if (pc["decision"] or {}).get("verdict") == "keep"]
+            if not kept:
+                raise Conflict("no declination is kept yet")
+            png = (Path(__file__).resolve().parent / "static" / "stub" / "piece.png").read_bytes()
+            return Download(f"{did}.zip", "application/zip", workflow.zip_of([(f"{did}-{f}.png", png) for f in kept]))

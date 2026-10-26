@@ -8,13 +8,13 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
 - `stub`: `backend_stub.py` is a simulated studio: nothing is generated, nothing calls a model. It starts with three brands in
   three stages (Marrowbay Ferments `ready` with two projects at two steps, Atelier Ondine `to_sort` with a project that waits for it,
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
-  piece dropped to be judged whose name contains `fail` makes the judge fail.
+  piece dropped to be judged whose name contains `fail` makes the judge fail. A piece dropped to be declined gets one fixed picture per format.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
 brand and the order of the steps are written once, in `workflow.py`, which both backends feed with plain data. Tomorrow the same routes can run on a central server, behind an authentication.
 
-Every route answers JSON, except the three downloads (a png, a zip, the page of a judgement). Every route but `GET /api/health` goes through the authentication hook
+Every route answers JSON, except the downloads (a png, a zip, the page of a judgement, the zip of a declination). Every route but `GET /api/health` goes through the authentication hook
 (`server.py`, `authenticate`): `STUDIO_AUTH=none` (default, local) lets everything through; `STUDIO_AUTH=token`
 asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that hook with its own (sessions, SSO).
 
@@ -69,7 +69,8 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
 - **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `mandates` (the real backend: an agent
-  proposes the instructions), `diverge`, `image` or `judge` (the judge reads a piece: one of a project, or one dropped on its own); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
+  proposes the instructions), `diverge`, `image`, `judge` (the judge reads a piece: one of a project, or one dropped on its own) or `decline` (one
+  format of a piece declined on its own; `piece` is the format); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
 - **piece**: `{id, label, variant, format, size, status, image, prompt, headline, subline, composed, check, decision, judge, bans}`. `headline` and `subline` are the words in effect: those of the variant, or the ones the person corrected (`PUT /variants/{v}/text`).
@@ -91,6 +92,11 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 - **judgement**: a piece judged on its own, `{id, name, brand, brand_name, brief, image, at, status, verdict, error, missing, job}`. `brief` is
   `{objective, audience, message, cta, fixed}`, `brand` the id of a brand or null, `image` the address of the piece, `status` `running`, `done`
   or `failed` (with `error`), `job` the running job's id or null.
+- **declination**: a piece declined on its own, `{id, name, brand, brand_name, words, source, at, status, pieces}`. `words` is what the person said the
+  piece says, in one line (its headline, its subline, its call to action), or `""`; `source` the address of the piece dropped; `status` `running` while
+  one of its formats is being declined, else `done`. `pieces`: one per format checked, in the order of the formats, `{format, size, status, image,
+  decision, error}`: `status` `running`, `done` (`image` the address of the composed declination) or `failed` (`error`, the reason); `decision` null
+  or `{verdict: "keep", words}`. **Same concept, the piece as reference, the layout fitted to the format**: no new variant.
 
 ## Routes
 
@@ -98,7 +104,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | --- | --- |
 | `GET /api/health` | `{ok, backend, auth}`, no authentication |
 | `GET /api/machine` | what the machine lacks to run the studio for real: `{ok, missing: [{key, label, say}]}`, `key` being `chrome` (reads a site, composes a piece), `claude` (Claude Code, writes the instructions and the variants) or `image` (an image engine: Codex, or `OPENAI_API_KEY` / `OPENROUTER_API_KEY`); `say` is what to install, in one sentence. The tools are looked for (as `studio compose` and `studio image` look for them), never run. The simulated backend lacks nothing, unless `STUDIO_STUB_MISSING=chrome,claude,image` says so |
-| `GET /api/tasks` | `{tasks, jobs, projects, brands, now}`: what waits for the person in every brand and project (the oldest first; see **task**), the running jobs of every brand and project and of every judgement (`{id, project, brand, kind, piece, progress, message, since, eta, judgement}`, `project` null for a brand's reading, `project` and `brand` null and `judgement` its id for the judge of a piece judged on its own, `eta` in seconds), the projects (`{id, name, brand, brand_name, can_learn, pieces, waiting}`) and the brands (`{id, name, site, stage, projects, waiting}`) |
+| `GET /api/tasks` | `{tasks, jobs, projects, brands, now}`: what waits for the person in every brand and project (the oldest first; see **task**), the running jobs of every brand and project and of every judgement (`{id, project, brand, kind, piece, progress, message, since, eta, judgement}`, `project` null for a brand's reading, `project` and `brand` null and `judgement` its id for the judge of a piece judged on its own, `declinaison` its id for a job of a piece declined on its own, `eta` in seconds), the projects (`{id, name, brand, brand_name, can_learn, pieces, waiting}`) and the brands (`{id, name, site, stage, projects, waiting}`) |
 | `GET /api/brands` | the brands: `[{id, name, site, stage, projects: [{id, name, type, rank, step_label, done, waiting}], waiting}]` (`waiting`: the number of the brand's tasks) |
 | `POST /api/brands` `{name, site?}` | a new brand (the name is required; a site is a public web address: `ftp:` and local or private addresses are refused with 400). A site starts the reading (a job, in `jobs` of the answer); no site, the brief of the brand is its first task. Answers the brand |
 | `GET /api/brands/{b}` | the whole brand (identity, assets, projects, tasks, jobs) |
@@ -138,9 +144,15 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `GET /api/judgements/{j}` | a judgement, its verdict once it is `done` |
 | `POST /api/judgements/{j}/run` | run its judge again (after a failure, or to read it once more): a job. 409 while it runs |
 | `GET /api/judgements/{j}/page` | **a file, not JSON**: the flat page of the verdict (the piece at the top, the list under it; the piece inside the page, so that it stands on its own), `text/html`, name `<j>.html`. 409 before the verdict |
-| `GET /api/jobs/{j}` | a job's progress (a brand's, a project's or a judgement's) |
+| `GET /api/declinaisons` | the pieces declined on their own, the newest first: `[{id, name, brand, brand_name, status, at}]` |
+| `POST /api/declinaisons` (the file itself) | **decline a piece on its own**: the body is the image, as for `POST /api/judgements` (`image/png` or `image/jpeg`, the first bytes must agree, 10 MB at most, its name an `X-Filename` header), and what comes with it the same `X-Judge` header, JSON, URL-encoded: `{name?, brand?, words?, formats}` (`formats`: at least one of the formats the studio knows, `GET /api/projects/{p}/brief` lists them; `words` what the piece says, one line, optional; `brand` the id of a brand, optional). 400 for another type, an empty, false or too big file, no format or an unknown one, an unknown brand, an `X-Judge` that is not JSON. One `decline` job per format starts at once. Answers the declination |
+| `GET /api/declinaisons/{d}` | a declination, its pieces |
+| `POST /api/declinaisons/{d}/pieces/{f}/decide` `{verdict, words}` | the declination in format `f`: `keep`, or `again` with what is wrong (required when it was drawn): it is declined again in its format, with those words (a failed one is run again this way). 404 for a format not checked, 409 while it runs, or to keep one that failed |
+| `GET /api/declinaisons/{d}/download` | **a file, not JSON**: a zip of the declinations **kept** (`<d>-<format>.png` each), name `<d>.zip`. 409 while none is kept |
+| `GET /api/jobs/{j}` | a job's progress (a brand's, a project's, a judgement's or a declination's) |
 | `GET /files/{p}/piece/{path}`, `GET /files/{p}/brand/{path}` | a file of the project's `piece/` folder; a file of its brand's dossier. |
 | `GET /files/_jugements/{j}/piece.png` (or `.jpg`, or `page.html`) | the piece of a judgement, or its page; nothing else of its folder. The simulated backend gives its pieces as `data:` addresses |
+| `GET /files/_declinaisons/{d}/source.png` (or `.jpg`), `GET /files/_declinaisons/{d}/{f}/piece.png` | the piece dropped to be declined, a composed declination; nothing else of its folder |
 | `GET /files/_marques/{b}/brand/{path}` | a file of a brand's dossier (the pictures the brand's shapes point to: `preview`). Anything that leaves those folders answers 404 (the first segment, `..` in any spelling, a link that points outside, a folder, a null byte). Same authentication as the API: with `STUDIO_AUTH=token` a page cannot load an `<img>` this way (a picture cannot send a header), which the central server's own hook has to solve. Served with `Content-Security-Policy: sandbox`. The simulated backend has none |
 
 Errors answer `{error}` with 400 (bad input, or the studio's own message when its tool refuses: a brief with an unknown
@@ -152,7 +164,8 @@ is not done, or the job is already running).
 On the disk, in `STUDIO_HOME`: `marques/<b>/marque.json` (name, site, description, the person's choices, the brief's flag, the jobs) and
 `marques/<b>/brand/` (the dossier of `scripts/brandkit`), `marques/<b>/projets/<p>/project.json` and `piece/` (the piece of `scripts/studio`);
 `jugements/<j>/` a piece judged on its own (`jugement.json`: its name, brand, brief, verdict and jobs; `piece.png` or `piece.jpg`; once judged,
-`judge.md` and `page.html`).
+`judge.md` and `page.html`); `declinaisons/<d>/` a piece declined on its own (`declinaison.json`: its name, brand, words, formats, the decisions and
+the jobs; `source.png` or `source.jpg`; `<format>/` one piece folder of `scripts/studio` per format).
 A project id is unique in the whole studio.
 
 Each long step is a job (a thread running sub-processes, the output kept in `logs/` of the brand or of the project); a restart marks the jobs that were
@@ -177,6 +190,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `pieces/{i}/decide` | `studio decide <piece>/pieces/<…> keep|again "<words>"` |
 | `judge` job (after `compose`, or `pieces/{i}/judge`) | in a folder of its own, `<p>/work/judge-<i>/`, with `piece.png` and `inputs.md` (the brief, the words of the piece, the brand's voice): `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools=Read,Write --permission-mode=acceptEdits --permission-prompts=none`; it writes `verdict.json`, checked (`workflow.parse_verdict`: anything else is a failed job); the verdict goes to `<piece>/pieces/<…>/judge.json` and, as notes, to `judge.md`, then `studio check <piece>/pieces/<…>` again so that `check.json` carries them. A piece that changed while the judge read it keeps no verdict |
 | `POST /judgements`, `judgements/{j}/run` | the same agent in `jugements/<j>/work/`, without the words of the piece (they are read on the image); the verdict goes to `jugement.json`, `judge.md` and `page.html` |
+| `decline` job (`POST /declinaisons`, `decide` `again`) | in `declinaisons/<d>/work/<f>/`, with the piece: `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools=Read,Write --permission-mode=acceptEdits --permission-prompts=none`; it writes `declinaison.json` (`headline, subline, image_prompt, layout, ground, background, text, why`). Then `<d>/<f>/` is a piece written by hand for `studio`: `brand.md` from the brand's dossier (`studio brand <f> --from-dossier <m>/brand --include-unconfirmed --force`) when there is a brand, the background and text colours it lacks (all of them without a brand) read on the piece and marked `(à confirmer)`; `brief.md` with the format and the layout the agent chose; `references.md` pointing to the piece dropped; then `studio image <f> --prompt=<image_prompt> --engine auto --force` (one of the four places of the images), `studio compose <f> --headline=<h> --subline=<s> --ground <g>`, `studio check <f>` |
 
 **A home in the old format** (`<home>/<p>/project.json` with a `brand_name` and its own `brand/` dossier) is opened into this layout when the backend
 starts, once: the brand is the one the project's `brand_name` names (projects that give the same name, by slug, go to the same brand); the dossier of

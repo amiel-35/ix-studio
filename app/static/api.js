@@ -83,6 +83,12 @@
     judge: (file, meta) => upload("/api/judgements", file, meta), // a png or jpg File; meta: { brand, brief: { objective, audience, message, cta, fixed } }. Answers the judgement
     runJudgement: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/run"),
     judgementPage: (j) => download("/api/judgements/" + encodeURIComponent(j) + "/page"), // the flat page of the verdict, an html file
+    /* a piece declined on its own: dropped with what it says and, if any, its brand; one declination per format checked */
+    declinaisons: () => call("GET", "/api/declinaisons"),
+    declinaison: (d) => call("GET", "/api/declinaisons/" + encodeURIComponent(d)),
+    decline: (file, meta) => upload("/api/declinaisons", file, meta), // a png or jpg File; meta: { brand, words, formats }. Answers the declination
+    decideDeclinaison: (d, f, verdict, words) => call("POST", "/api/declinaisons/" + encodeURIComponent(d) + "/pieces/" + encodeURIComponent(f) + "/decide", { verdict, words }),
+    downloadDeclinaison: (d) => download("/api/declinaisons/" + encodeURIComponent(d) + "/download"), // the kept declinations, a zip
     /* The studio holds brands, a brand holds projects. (The routes of a project's brand, `/api/projects/{p}/brand…`, are kept by the studio but the interface no longer uses them.) */
     brands: () => call("GET", "/api/brands"),
     getBrand: (b) => call("GET", B(b)),

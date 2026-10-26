@@ -683,3 +683,30 @@ def judge_meta(raw) -> dict:
 def judge_view(job_status, verdict, error=None) -> dict:
     """Where the judge of a piece stands, for the interface: `{status, verdict, error}`; `status` is `running`, `done` or `failed`."""
     return {"status": job_status, "verdict": verdict, "error": error}
+
+
+# ---------------------------------------------------------------- a piece declined on its own
+# A piece dropped with, if one wants, what it says in one line and its brand: the studio gives one declination per format checked, the same concept
+# and the piece as its reference, the layout fitted to the format. Each is kept or sent back; the kept ones are downloaded. The file is checked as a
+# piece to judge (`judge_image_ext`: a png or a jpg, 10 MB at most).
+
+def decline_meta(raw) -> dict:
+    """What comes with a piece dropped to be declined (the `X-Judge` header, JSON): `{name?, brand?, words?, formats}`, checked. `formats`: at least
+    one of FORMATS, each once, in the order of FORMATS."""
+    if raw in (None, ""):
+        raw = {}
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            raise ValueError("X-Judge: JSON {name, brand, words, formats}") from None
+    if not isinstance(raw, dict):
+        raise ValueError("X-Judge: JSON {name, brand, words, formats}")
+    brand = raw.get("brand") or None
+    if brand is not None and not re.fullmatch(r"[\w-]+", str(brand)):
+        raise ValueError("brand: an id of a brand")
+    fmts = raw.get("formats")
+    if not isinstance(fmts, list) or not fmts or not all(isinstance(f, str) and f in FORMATS for f in fmts):
+        raise ValueError(f"formats: at least one of {', '.join(FORMATS)}")
+    return {"name": one_line(raw.get("name"))[:120], "brand": brand, "words": one_line(raw.get("words"))[:300],
+            "formats": [f for f in FORMATS if f in fmts]}

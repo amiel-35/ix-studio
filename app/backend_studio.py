@@ -11,6 +11,8 @@ The studio holds brands, a brand holds projects. All of it is in STUDIO_HOME (de
     marques/<b>/projets/<p>/logs/        one log per job of the project
     jugements/<j>/jugement.json          a piece judged on its own: its name, its brand (if any), the brief it answers, the verdict, the jobs
     jugements/<j>/piece.png|jpg          the piece dropped; judge.md and page.html (the flat page of the verdict) once it is judged
+    declinaisons/<d>/declinaison.json    a piece declined on its own: its name, its brand (if any), what it says, the formats, the decisions, the jobs
+    declinaisons/<d>/source.png|jpg      the piece dropped; <format>/ one piece folder of scripts/studio per format checked
 
 A project id is unique in the whole studio (the routes name a project by its id alone). The brand of a project is learned once, at
 the brand's level; the project's `brand.md` is written from the brand's dossier when its brief is saved.
@@ -49,7 +51,7 @@ STUDIO = SCRIPTS / "studio"
 BRANDKIT = SCRIPTS / "brandkit"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "decline": 240.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -305,11 +307,11 @@ class StudioBackend:
 
     def _omutate(self, owner, fn):
         kind, oid = self._owner(owner)
-        return {"brand": self._mutateb, "judgement": self._mutatej}.get(kind, self._mutate)(oid, fn)
+        return {"brand": self._mutateb, "judgement": self._mutatej, "declinaison": self._mutated}.get(kind, self._mutate)(oid, fn)
 
     def _oload(self, owner) -> dict:
         kind, oid = self._owner(owner)
-        return {"brand": self._loadb, "judgement": self._loadj}.get(kind, self._load)(oid)
+        return {"brand": self._loadb, "judgement": self._loadj, "declinaison": self._loadd}.get(kind, self._load)(oid)
 
     # a piece judged on its own: a folder of `jugements/`, outside any brand
     def _jroot(self) -> Path:
@@ -366,6 +368,13 @@ class StudioBackend:
                     if j["status"] == "running":
                         j.update(status="failed", end=time.time(), error="interrompu : le serveur a redémarré", message="interrompu : le serveur a redémarré")
             self._mutatej(jid, fixj)
+        for did in self._dids():
+            def fixd(q):
+                for j in q["jobs"]:
+                    self._jobs[j["id"]] = ("declinaison", did)
+                    if j["status"] == "running":
+                        j.update(status="failed", end=time.time(), error="interrompu : le serveur a redémarré", message="interrompu : le serveur a redémarré")
+            self._mutated(did, fixd)
 
     @staticmethod
     def _mark(p, *keys):
@@ -544,9 +553,8 @@ class StudioBackend:
             for j in p["jobs"]:
                 if j["id"] == jid:
                     j.update(status=status, end=time.time(), error=error, message=message)
-                    steps = [workflow.KIND_STEP[j["kind"]]] + (["piece"] if j["kind"] == "image" and status == "done" else [])
                     if self._owner(owner)[0] == "project":
-                        self._mark(p, *steps)
+                        self._mark(p, workflow.KIND_STEP[j["kind"]], *(["piece"] if j["kind"] == "image" and status == "done" else []))
             if self._owner(owner)[0] == "brand":
                 self._retouch(p)
         self._omutate(owner, end)
@@ -560,7 +568,7 @@ class StudioBackend:
 
     def _joblog(self, owner, jid) -> Path:
         kind, oid = self._owner(owner)
-        return {"brand": self._mdir, "judgement": self._jdir}.get(kind, self._pdir)(oid) / "logs" / f"{jid}.log"
+        return {"brand": self._mdir, "judgement": self._jdir, "declinaison": self._ddir}.get(kind, self._pdir)(oid) / "logs" / f"{jid}.log"
 
     def _running(self, p, kind, piece=None):
         return next((j for j in p["jobs"] if j["kind"] == kind and j["status"] == "running" and (piece is None or j.get("piece") == piece)), None)
@@ -830,6 +838,12 @@ class StudioBackend:
                     pub = self._job_public(j, now)
                     jobs.append({"id": j["id"], "project": None, "brand": None, "kind": j["kind"], "piece": None, "progress": pub["progress"],
                                  "message": pub["message"], "since": j["start"], "eta": pub["eta"], "judgement": jid})
+        for did in self._dids():
+            for j in self._loadd(did)["jobs"]:
+                if j["status"] == "running":
+                    pub = self._job_public(j, now)
+                    jobs.append({"id": j["id"], "project": None, "brand": None, "kind": j["kind"], "piece": j.get("piece"), "progress": pub["progress"],
+                                 "message": pub["message"], "since": j["start"], "eta": pub["eta"], "judgement": None, "declinaison": did})
         return workflow.tasks_payload(entries, jobs, now, brands)
 
     def project(self, pid):
@@ -1889,6 +1903,188 @@ class StudioBackend:
             raise Conflict("the judge has not given its verdict yet")
         return Download(f"{jid}.html", "text/html; charset=utf-8", f.read_bytes())
 
+    # ---------- a piece declined on its own ----------
+    def _droot(self) -> Path:
+        return self.home / "declinaisons"
+
+    def _ddir(self, did) -> Path:
+        if not re.fullmatch(r"[\w-]+", did or ""):
+            raise NotFound(f"no declination {did}")
+        return self._droot() / did
+
+    def _loadd(self, did) -> dict:
+        dc = read_json(self._ddir(did) / "declinaison.json")
+        if not isinstance(dc, dict):
+            raise NotFound(f"no declination {did}")
+        return dc
+
+    def _mutated(self, did, fn):
+        with self._state:
+            dc = self._loadd(did)
+            out = fn(dc)
+            write_json(self._ddir(did) / "declinaison.json", dc)
+            return out
+
+    def _dids(self) -> list:
+        found = []
+        for x in self._droot().iterdir() if self._droot().is_dir() else []:
+            dc = read_json(x / "declinaison.json") if x.is_dir() else None
+            if isinstance(dc, dict) and dc.get("id") == x.name:
+                found.append((dc.get("created", 0), x.name))
+        return [i for _, i in sorted(found, reverse=True)]  # the newest first
+
+    def _dc_view(self, dc) -> dict:
+        d, q = self._ddir(dc["id"]), urllib.parse.quote(dc["id"])
+        src = d / f"source.{dc['ext']}"
+        pieces = []
+        for f in dc["formats"]:
+            run = self._running(dc, "decline", f)
+            last = next((j for j in reversed(dc["jobs"]) if j.get("piece") == f), None)
+            png = d / f / "piece.png"
+            status = "running" if run else "done" if png.is_file() else "failed" if last and last["status"] == "failed" else "running"
+            pieces.append({"format": f, "size": list(FORMATS[f]), "status": status,
+                           "image": f"/files/_declinaisons/{q}/{f}/piece.png?v={int(png.stat().st_mtime)}" if status == "done" else None,
+                           "decision": dc["decisions"].get(f) if status == "done" else None, "error": last.get("error") if status == "failed" else None})
+        return {"id": dc["id"], "name": dc["name"], "brand": dc.get("brand"), "brand_name": dc.get("brand_name", ""), "words": dc["words"],
+                "source": f"/files/_declinaisons/{q}/{src.name}?v={int(src.stat().st_mtime)}" if src.exists() else None, "at": dc["created"],
+                "status": "running" if any(p["status"] == "running" for p in pieces) else "done", "pieces": pieces}
+
+    def list_declinaisons(self):
+        return [{k: v[k] for k in ("id", "name", "brand", "brand_name", "status", "at")} for v in (self._dc_view(self._loadd(did)) for did in self._dids())]
+
+    def declinaison(self, did):
+        return self._dc_view(self._loadd(did))
+
+    def create_declinaison(self, data, ctype="", name="", meta=None):
+        """A piece dropped to be declined: its folder in `declinaisons/`, the picture, what it says, its brand if any; one job per format checked."""
+        ext = workflow.judge_image_ext(data, ctype)
+        m = workflow.decline_meta(meta)
+        brand_name = ""
+        if m["brand"]:
+            try:
+                brand_name = self._loadb(m["brand"])["name"]
+            except NotFound:
+                raise ValueError(f"brand: no brand {m['brand']}") from None
+        with self._state:
+            did = "d-" + time.strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6]
+            d = self._ddir(did)
+            (d / "logs").mkdir(parents=True)
+            (d / f"source.{ext}").write_bytes(data)
+            label = m["name"] or one_line(Path(name or "").stem) or "Pièce à décliner"
+            write_json(d / "declinaison.json", {"id": did, "name": label[:120], "brand": m["brand"], "brand_name": brand_name, "words": m["words"],
+                                                "formats": m["formats"], "ext": ext, "created": time.time(), "decisions": {}, "jobs": []})
+        for f in m["formats"]:
+            self._spawn(("declinaison", did), "decline", f, lambda job, f=f: self._decline_body(did, job, f, ""))
+        return self.declinaison(did)
+
+    @staticmethod
+    def _decline_prompt(source, fmt, size, words, again, lang="fr") -> str:
+        return (
+            "You decline one still ad (a poster or a social post) into another format. The concept does not move: the same idea, the same words, the "
+            "same kind of image. Only the layout is fitted to the new format. You invent no new variant.\n\n"
+            f"Open ./{source} with the Read tool: it is the piece to decline. The new format is {fmt}, {size[0]}x{size[1]} pixels.\n"
+            + (f"What the piece says, given by the person (it wins over what you read on the image): {words}\n" if words else "Its words are the ones you read on the image.\n")
+            + (f"The person sent back the previous declination in this format, saying: {again}\n" if again else "")
+            + "\nWrite ONE file, ./declinaison.json, a UTF-8 JSON object with exactly these keys:\n"
+            '  "headline": the headline of the piece, as it is (shorten it only if it cannot fit this format);\n'
+            '  "subline": the line under it (the call to action may go there), or "";\n'
+            '  "image_prompt": the image of the piece in plain words, so that it can be drawn again for this format; the image carries no text and no letters;\n'
+            '  "layout": one of side, stack, ground, overlay-top, overlay-bottom, full: the one that fits this format best without covering the subject;\n'
+            '  "ground": one of background, text, accent (the colour of the text zone);\n'
+            '  "background" and "text": the background colour and the text colour of the piece, each as #rrggbb;\n'
+            '  "why": one sentence: how this layout fits the format.\n'
+            "Nothing is invented: no figure, place, label, award or promise that is neither on the piece nor in the words given.\n"
+            f"Write the text in the language of the piece (by default {lang}). Write only that one file, and read and write nothing outside the current folder. "
+            "When it is written, answer with its name and nothing else.")
+
+    def _decline_body(self, did, job, fmt, again):
+        """One declination: an agent reads the piece and writes what it becomes in the format (its words, its image, its layout), then the studio
+        draws its image, composes it and checks it, in `<d>/<format>/`. The piece dropped is the reference (`references.md`)."""
+        owner, dc = ("declinaison", did), self._loadd(did)
+        d, log = self._ddir(did), self._joblog(owner, job)
+        src, piece, wdir = d / f"source.{dc['ext']}", d / fmt, d / "work" / fmt
+        shutil.rmtree(piece, ignore_errors=True)
+        shutil.rmtree(wdir, ignore_errors=True)
+        wdir.mkdir(parents=True)
+        shutil.copy2(src, wdir / src.name)
+        self._phase(owner, job, "un agent relit la pièce pour ce format")
+        try:
+            res = self._sh(log, self._claude(self._decline_prompt(src.name, fmt, FORMATS[fmt], dc["words"], again), "--tools=Read,Write",
+                                             "--permission-mode=acceptEdits", "--permission-prompts=none"), cwd=wdir, timeout=600, claude=True)
+            out = wdir / "declinaison.json"
+            if not out.exists():
+                raise ToolError("l'agent n'a pas écrit la déclinaison" + (f" : {tail(res)}" if res.code else ""))
+            try:
+                v = json.loads(out.read_text(encoding="utf-8", errors="replace"))
+            except ValueError:
+                v = None
+        finally:
+            shutil.rmtree(wdir, ignore_errors=True)
+        sf = studio_files()
+        if not isinstance(v, dict):
+            raise ToolError("déclinaison illisible : il faut un objet JSON")
+        headline, prompt, layout = one_line(v.get("headline")), one_line(v.get("image_prompt")), sf.norm_layout(one_line(v.get("layout")).lower())
+        if not headline or not prompt or layout not in sf.LAYOUTS or v.get("ground") not in sf.GROUNDS:
+            raise ToolError("déclinaison incomplète : il faut headline, image_prompt, layout et ground")
+        piece.mkdir(parents=True)
+        if dc.get("brand") and (self._bdir(dc["brand"]) / "brand.json").is_file():
+            self._studio(log, "brand", piece, "--from-dossier", self._bdir(dc["brand"]), "--include-unconfirmed", "--force")
+        f = piece / "brand.md"
+        text = f.read_text(encoding="utf-8") if f.exists() else ""
+        have = {k for k, x in sf.parse_kv(text).items() if x}
+        add = [] if "name" in have else [f"- name: {dc.get('brand_name') or dc['name']}"]
+        for k in ("background", "text"):  # what the brand does not give is read on the piece, to confirm
+            if k not in have:
+                if not hex_of(v.get(k)):
+                    raise ToolError(f"l'agent n'a pas lu la couleur {k} de la pièce")
+                add.append(f"- {k}: {hex_of(v[k])} (à confirmer: lue sur la pièce de départ)")
+        f.write_text(text + ("\n" if text else "") + "\n".join(add) + "\n", encoding="utf-8")
+        (piece / "brief.md").write_text("\n".join([f"objective: décliner la pièce « {dc['name']} » au format {fmt}", "audience: celle de la pièce de départ",
+                                                   f"message: {dc['words'] or 'celui de la pièce de départ'}", f"format: {fmt}", f"layout: {layout}",
+                                                   "language: fr"]) + "\n", encoding="utf-8")
+        (piece / "references.md").write_text(f"- ../{src.name} | la pièce de départ, à décliner\n", encoding="utf-8")
+        self._phase(owner, job, "en attente d'une place")
+        with self._drawing:  # one piece written by hand for studio: no variant to pick, the layout in the brief, the words given to compose
+            self._phase(owner, job, "le modèle d'image dessine")
+            res = self._studio(log, "image", piece, f"--prompt={prompt}", "--engine", self.image_engine, "--force")
+        if not any((piece / n).exists() for n in ("image.png", "image.jpg")):
+            line = next((x for x in reversed(res.out.splitlines()) if x.startswith("image:")), "")
+            raise ToolError(one_line(line.removeprefix("image:"))[:300] or "no image was drawn")
+        self._phase(owner, job, "le studio compose la déclinaison")
+        self._studio(log, "compose", piece, f"--headline={headline}", f"--subline={one_line(v.get('subline'))}", "--ground", v["ground"])
+        if not (piece / "piece.png").exists():
+            raise ToolError("the piece could not be rendered to an image: no headless Chrome found (set CHROME=/path/to/chrome)")
+        self._studio(log, "check", piece)
+
+    def decide_declinaison(self, did, fmt, verdict, words):
+        """Keep a declination, or send it back with what is wrong: it is declined again in its format (a failed one is run again)."""
+        with self._op("declinaison:" + did):
+            dc = self._loadd(did)
+            if fmt not in dc["formats"]:
+                raise NotFound(f"no declination {did} in {fmt}")
+            if verdict not in ("keep", "again"):
+                raise ValueError("verdict is keep or again")
+            status = next(p["status"] for p in self._dc_view(dc)["pieces"] if p["format"] == fmt)
+            if status == "running" or (status == "failed" and verdict == "keep"):
+                raise Conflict("this declination is not drawn yet")
+            if verdict == "again" and status == "done" and not one_line(words):
+                raise ValueError("say what is wrong: the studio declines it again with it")
+            if verdict == "keep":
+                self._mutated(did, lambda q: q["decisions"].update({fmt: {"verdict": "keep", "words": one_line(words)}}))
+            else:
+                self._mutated(did, lambda q: q["decisions"].pop(fmt, None))
+                self._spawn(("declinaison", did), "decline", fmt, lambda job: self._decline_body(did, job, fmt, one_line(words)))
+            return self.declinaison(did)
+
+    def download_declinaison(self, did):
+        """Every declination kept, in a zip."""
+        dc, d = self._loadd(did), self._ddir(did)
+        files = [(f"{did}-{f}.png", (d / f / "piece.png").read_bytes()) for f in dc["formats"]
+                 if (dc["decisions"].get(f) or {}).get("verdict") == "keep" and (d / f / "piece.png").is_file()]
+        if not files:
+            raise Conflict("no declination is kept yet")
+        return Download(f"{did}.zip", "application/zip", workflow.zip_of(files))
+
     # ---------- taking the pieces out of the studio ----------
     def download_piece(self, pid, i):
         """The composed piece as a png file, at the size of its format (the file `studio compose` made)."""
@@ -1917,13 +2113,21 @@ class StudioBackend:
         `/files/<project>/piece/...`   the piece folder of the project;
         `/files/<project>/brand/...`   the brand dossier of the project's brand (kept: the pictures the brand routes of a project point to);
         `/files/_marques/<brand>/brand/...`   the brand dossier of a brand;
-        `/files/_jugements/<j>/piece.png`   a piece judged on its own (its picture, or its page.html)."""
+        `/files/_jugements/<j>/piece.png`   a piece judged on its own (its picture, or its page.html);
+        `/files/_declinaisons/<d>/source.png`, `/files/_declinaisons/<d>/<format>/piece.png`   a piece declined on its own, and its declinations."""
         if not rel or "\x00" in rel:
             raise NotFound("no such file")
         if pid == "_jugements":  # a piece judged on its own: its picture and its page, nothing else of its folder
             jid, _, name = rel.partition("/")
             f = self._jdir(jid) / name
             if name not in ("piece.png", "piece.jpg", "page.html") or not (self._jdir(jid) / "jugement.json").is_file() or not f.is_file() or f.is_symlink():
+                raise NotFound("no such file")
+            return f
+        if pid == "_declinaisons":  # a piece declined on its own: the piece dropped and the composed declinations, nothing else of its folder
+            did, _, name = rel.partition("/")
+            dc = self._loadd(did)
+            f = self._ddir(did) / name
+            if name not in (f"source.{dc['ext']}", *(f"{x}/piece.png" for x in dc["formats"])) or not f.is_file() or f.is_symlink():
                 raise NotFound("no such file")
             return f
         if pid == "_marques":
