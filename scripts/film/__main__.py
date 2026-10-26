@@ -66,7 +66,10 @@ def shot_page(shot, brand, piece, palette) -> str:
 def capture(chrome, page: Path, t: float, png: Path):
     cmd = [chrome, "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars", "--virtual-time-budget=3000", f"--screenshot={png}",
            f"--window-size={SIZE[0]},{SIZE[1]}", f"{page.resolve().as_uri()}#t={t:.3f}"]
-    subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    try:
+        subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise StudioError(f"Chrome a mis plus de 60 s à capturer {page.name} à {t:.2f} s") from None
     if not png.exists() or not png.stat().st_size:
         raise StudioError(f"Chrome did not capture {page.name} at {t:.2f} s")
 

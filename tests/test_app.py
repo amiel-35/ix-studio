@@ -636,6 +636,30 @@ class Api(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.parse_competitors(bad)
 
+    # texts
+    def test_the_texts_of_a_project_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
+        bid = self.ready_brand(name="Pour les textes")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "Textes"})["id"]
+        empty = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual((empty["texts"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], False, None))
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # the brief is not confirmed: nothing to work from
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["Écrit à la main."]})  # but the person may write them
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {"objective": "o", "audience": "a", "message": "m"}})
+        job = self.call("POST", f"/api/projects/{pid}/texts/propose")
+        self.assertEqual(job["kind"], "texts")
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual(got["texts"], ["Écrit à la main."])  # a proposal never becomes the project's by itself
+        self.assertTrue(got["can_propose"] and 1 <= len(got["proposed"]) <= 6)
+        kept = [got["proposed"][0] + " Corrigé.", "", got["texts"][0]]  # one kept and corrected, the others dropped, the hand-written one kept
+        r = self.call("PUT", f"/api/projects/{pid}/texts", {"texts": kept})
+        self.assertEqual((r["texts"], r["proposed"]), ([kept[0], kept[2]], []))
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/texts")["texts"], r["texts"])
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["a"] * 7}, code=400)
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": "a"}, code=400)
+        self.call("GET", "/api/projects/nope/texts", code=404)
+
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
         self.call("GET", "/api/projects/nope", code=404)
@@ -718,6 +742,35 @@ class Machine(unittest.TestCase):
         self.assertIn("Google Chrome", got["missing"][0]["say"])
         self.assertIn("Codex", got["missing"][1]["say"])
         self.assertEqual(self.get(self.serve(["claude"]), "/api/machine")["missing"][0]["label"], "Claude Code")
+
+
+class FilmBusy(unittest.TestCase):
+    """While the film of a project is being made, its storyboard is not touched: the simulated studio, at full speed so that the job is still running."""
+
+    def test_the_storyboard_is_not_proposed_nor_saved_while_the_film_is_rendered(self):
+        from backend_stub import STORYBOARD
+        httpd = server.serve("127.0.0.1", 0, StubBackend(speed=1.0))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(lambda: (httpd.shutdown(), httpd.server_close()))
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def call(method, path, body=None, code=200):
+            req = urllib.request.Request(base + path, method=method, data=json.dumps(body).encode() if body is not None else None, headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req) as r:
+                    got, data = r.status, json.loads(r.read())
+            except urllib.error.HTTPError as err:
+                got, data = err.code, json.loads(err.read())
+                err.close()
+            self.assertEqual(got, code, data)
+            return data
+
+        pid = next(x["id"] for x in call("GET", "/api/projects") if x["name"] == "Campagne de rentrée")
+        call("PUT", f"/api/projects/{pid}/storyboard", STORYBOARD)
+        call("POST", f"/api/projects/{pid}/storyboard/render")
+        for method, path, body in (("PUT", "storyboard", STORYBOARD), ("POST", "storyboard/propose", None)):
+            err = call(method, f"/api/projects/{pid}/{path}", body, code=409)
+            self.assertIn("rendu", err["error"])
 
 
 if __name__ == "__main__":

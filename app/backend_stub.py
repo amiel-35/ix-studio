@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "storyboard": 4.0, "film": 5.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "texts": 4.0, "storyboard": 4.0, "film": 5.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -133,6 +133,13 @@ COMPETITORS = {"competitors": [
     {"name": "Thé Vagabond", "from": "dossier", "sells": "des thés en vrac et des infusions froides aux cafés de la ville.",
      "differs": "Il vend la feuille, à infuser soi-même ; la marque vend une boisson prête, fermentée, à boire tout de suite."}]}
 
+# texts: the simulated texts agent's one answer, plausible and fixed
+TEXTS = {"texts": [
+    {"kind": "accroche", "text": "Du thé qui a un peu fait la fête."},
+    {"kind": "accroche", "text": "Le kombucha, version sans prise de tête."},
+    {"kind": "post", "text": "Tu croyais que le kombucha était une mode bien-être ?\nC'est du thé qui a un peu fait la fête, et c'est bon.\nRetrouvez-nous au marché."},
+    {"kind": "post", "text": "Pas de promesse, pas de sermon.\nUn thé fermenté, acidulé, à boire frais.\nGoûtez-le, vous nous direz."}]}
+
 
 def default_brief():
     return {"objective": "faire connaître le kombucha à des citadins qui n'en ont jamais bu",
@@ -234,6 +241,7 @@ class StubBackend:
             pid = f"{base}-{n}"
         p = {"id": pid, "name": name or "Nouveau projet", "brand": b["id"], "type": "campagne", "since": {},
              "brief": {"confirmed": False, "fields": copy.deepcopy(src["brief"]["fields"]) if src else default_brief()},
+             "texts": {"kept": [], "proposed": []},
              "mandates": {"confirmed": False, "common": "Écrire en français, au vouvoiement ; aucun chiffre ni promesse inventés ; relire chaque ligne pour y traquer un double sens ; l'image ne contient aucun texte.",
                           "items": [{"id": v["id"], "mandate": v["mandate"]} for v in VARIANTS]},
              "variants": [], "pieces": []}
@@ -265,7 +273,8 @@ class StubBackend:
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
                             "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents",
-                            "storyboard": "un agent écrit le script et les plans", "film": "chaque plan est animé puis assemblé"}[j["kind"]]
+                            "texts": "un agent écrit les textes", "storyboard": "un agent écrit le script et les plans",
+                            "film": "chaque plan est animé puis assemblé"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -303,6 +312,10 @@ class StubBackend:
                     p["storyboard"] = {**workflow.parse_storyboard(copy.deepcopy(STORYBOARD)), "saved": False, "film": False}
                 elif p:
                     p["storyboard"]["film"] = True
+            if j["kind"] == "texts":
+                p = self.projects.get(j["project"])
+                if p:
+                    p["texts"]["proposed"] = workflow.parse_texts(copy.deepcopy(TEXTS))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -700,6 +713,38 @@ class StubBackend:
             b["competitors"], b["competitors_proposed"] = texts, []
             return self._competitors_view(b)
 
+    # ---------- routes: texts of a project ----------
+    def _texts_view(self, p):
+        run = self._running("texts", project=p["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "texts" and j["project"] == p["id"]), None)
+        return {"texts": list(p["texts"]["kept"]), "proposed": list(p["texts"]["proposed"]), "can_propose": p["brief"]["confirmed"],
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_texts(self, pid):
+        with self.lock:
+            self._tick()
+            return self._texts_view(self._p(pid))
+
+    def propose_texts(self, pid):
+        """The texts agent: up to six hooks and posts, from the brief of the project (a job). The simulated one answers TEXTS."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed yet: the texts come from it")
+            if self._running("texts", project=pid):
+                raise Conflict("the texts are already being proposed")
+            return job_view(self._job("texts", project=pid))
+
+    def put_texts(self, pid, texts):
+        """The texts the person keeps (corrected, or written by hand): only these are the project's. The proposal is settled."""
+        kept = workflow.texts_of(texts)
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            p["texts"].update(kept=kept, proposed=[])
+            return self._texts_view(p)
+
     # ---------- routes: projects ----------
     def list_projects(self):
         with self.lock:
@@ -975,14 +1020,19 @@ class StubBackend:
                 raise Conflict("the brief is not confirmed: the film comes from it")
             if self._running("storyboard", project=pid):
                 raise Conflict("the storyboard is already being proposed")
+            if self._running("film", project=pid):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
             return job_view(self._job("storyboard", project=pid))
 
     def put_storyboard(self, pid, script, shots):
         """The storyboard the person corrected and keeps; the film of an older one is dropped."""
         with self.lock:
+            self._tick()
             p = self._p(pid)
             if not p["brief"]["confirmed"]:
                 raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running("film", project=pid):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
             try:
                 p["storyboard"] = {**workflow.parse_storyboard({"script": script, "shots": shots}), "saved": True, "film": False}
             except ValueError as err:

@@ -108,6 +108,10 @@
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* texts: the studio proposes up to six hooks and posts for a project (a job), the person keeps the ones they corrected or wrote */
+    texts: (p) => call("GET", P(p) + "/texts"), // { texts: [text], proposed: [text], can_propose, job, error }
+    proposeTexts: (p) => call("POST", P(p) + "/texts/propose"),
+    saveTexts: (p, texts) => call("PUT", P(p) + "/texts", { texts }), // only these are the project's; the proposal is settled
     /* storyboard: the script and the shots of a project's film: the studio proposes (a job), the person corrects and saves, then the film is rendered (a job) */
     storyboard: (p) => call("GET", P(p) + "/storyboard"), // { script, shots: [{ seconds, visual, text, colour, read }], saved, can_propose, job, error, film: { url, seconds } | null, film_job, film_error }
     proposeStoryboard: (p) => call("POST", P(p) + "/storyboard/propose"),

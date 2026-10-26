@@ -39,7 +39,7 @@ class Film(unittest.TestCase):
         r = self.run_cmd(SHOTS, "--fps", "4")
         self.assertEqual(r.returncode, 0, r.stderr)
         got = json.loads(r.stdout)
-        self.assertEqual((got["video"], got["seconds"], got["frames"]), (str(self.tmp / "film.mp4"), 2.0, 8))
+        self.assertEqual((Path(got["video"]).resolve(), got["seconds"], got["frames"]), ((self.tmp / "film.mp4").resolve(), 2.0, 8))  # the tool resolves its output path (/var is /private/var on macOS)
         probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", got["video"]], capture_output=True, text=True)
         self.assertEqual(probe.stdout.strip(), "1080,1920")
 
@@ -51,6 +51,23 @@ class Film(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (1, ""))
                 self.assertTrue(r.stderr.startswith("film: "), r.stderr)
                 self.assertIn(word, r.stderr)
+
+    def test_a_chrome_that_takes_too_long_is_an_error_of_the_tool_not_a_trace(self):
+        import importlib.util
+        import unittest.mock as mock
+        spec = importlib.util.spec_from_file_location("film_cmd", FILM / "__main__.py")
+        film = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(film)
+        with mock.patch.object(film.subprocess, "run", side_effect=subprocess.TimeoutExpired("chrome", 60)):
+            with self.assertRaises(film.StudioError) as ctx:
+                film.capture("chrome", self.tmp / "shot-0.html", 0.5, self.tmp / "f.png")
+        self.assertIn("plus de 60 s", str(ctx.exception))
+        sb = self.tmp / "storyboard.json"
+        sb.write_text(json.dumps({"shots": SHOTS}), encoding="utf-8")
+        with mock.patch.object(film.compose, "find_chrome", return_value="chrome"), mock.patch.object(film.shutil, "which", return_value="/usr/bin/ffmpeg"), \
+                mock.patch.object(film.subprocess, "run", side_effect=subprocess.TimeoutExpired("chrome", 60)), mock.patch("sys.stderr") as err:
+            self.assertEqual(film.main([str(self.piece), str(sb), "--out", str(self.tmp / "film.mp4")]), 1)
+        self.assertIn("film: Chrome a mis plus de 60 s", "".join(c.args[0] for c in err.write.call_args_list))
 
     def test_a_piece_without_brand_is_an_error(self):
         (self.piece / "brand.md").unlink()
