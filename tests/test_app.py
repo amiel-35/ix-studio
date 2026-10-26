@@ -659,6 +659,28 @@ class Api(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.parse_competitors(bad)
 
+    def test_the_research_of_a_brand_is_proposed_then_kept_or_dropped_and_only_the_kept_ones_stay(self):
+        bid = self.call("POST", "/api/brands", {"name": "Pour la recherche"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/research")
+        self.assertEqual((empty["research"], empty["proposed"], empty["job"]), ([], [], None))
+        job = self.call("POST", f"/api/brands/{bid}/research/propose")  # a name is enough
+        self.assertEqual(job["kind"], "research")
+        self.call("POST", f"/api/brands/{bid}/research/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/research")
+        self.assertEqual(got["research"], [])  # a proposal never becomes the brand's by itself
+        self.assertTrue(1 <= len(got["proposed"]) <= 10)
+        for x in got["proposed"]:
+            self.assertTrue(x["url"].startswith("https://") and x["brings"])
+            self.assertIn(x["belonging"], ("officielle", "officielle relayée", "probable", "incertaine"))
+        r = self.call("PUT", f"/api/brands/{bid}/research", {"research": got["proposed"][:2]})
+        self.assertEqual((r["research"], r["proposed"]), (got["proposed"][:2], []))
+        self.call("PUT", f"/api/brands/{bid}/research", {"research": [{"url": "", "brings": "x", "belonging": "probable"}]}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/research", {"research": got["proposed"] * 3}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/research", {"research": "a"}, code=400)
+        self.assertEqual(self.call("PUT", f"/api/brands/{bid}/research", {"research": []})["research"], [])
+        self.call("GET", "/api/brands/nope/research", code=404)
+
     # texts
     def test_the_texts_of_a_project_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
         bid = self.ready_brand(name="Pour les textes")

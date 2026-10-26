@@ -76,6 +76,7 @@ class Fake:
         self.readers = []  # the inputs.md each reader read
         self.personas = "ok"  # what the personas agent answers: ok (two personas), bad (one that does not hold), down (it fails)
         self.names = "ok"  # what the names agent answers: ok (two names), bad (a name without its line), down (it fails)
+        self.research = "ok"  # what the research agent answers: ok, bad, down
         self.logos = "ok"  # what the logos agent answers: ok (two tracks), bad (a drawing with a script), down (it fails)
         self.competitors = "ok"  # what the competitors agent answers: ok (two), bad (one that does not hold), down (it fails)
         self.storyboard = "ok"  # what the storyboard agent answers: ok (six shots on the colours it is given), bad (a film of three seconds), down (it fails)
@@ -159,6 +160,8 @@ class Fake:
             return self.names_agent()
         if '{"competitors": [' in prompt:
             return self.competitors_agent()
+        if '{"research": [' in prompt:
+            return self.research_agent()
         if '{"logos": [' in prompt:
             return self.logos_agent(prompt)
         if '{"script": "...", "shots"' in prompt:
@@ -234,6 +237,15 @@ class Fake:
                                 {"name": "Brasserie du Quai", "from": "dossier", "sells": "de la bière au port.", "differs": "L'apéro, avec alcool."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def research_agent(self):
+        if self.research == "down":
+            return Result(1, "", "the agent gave up")
+        if self.research == "bad":
+            return Result(0, json.dumps({"research": [{"url": "", "brings": "un site", "belonging": "officielle"}]}), "")
+        body = {"research": [{"url": "https://cabane.test/", "brings": "Le site : couleurs et ton.", "belonging": "officielle"},
+                             {"url": "https://presse.test/cabane", "brings": "Un article sur la campagne.", "belonging": "officielle relayée"}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def storyboard_agent(self, prompt):
         if self.storyboard == "down":
             return Result(1, "", "the agent gave up")
@@ -241,6 +253,7 @@ class Fake:
         shot = lambda n, sec, visual="texte": {"seconds": sec, "visual": visual, "text": f"Texte {n}" if visual == "texte" else "", "colour": cols[n % len(cols)], "read": f"On lit {n}."}
         shots = [shot(1, 1)] if self.storyboard == "bad" else [shot(n, 3) for n in range(1, 6)] + [shot(6, 2, "logo")]
         return Result(0, "Voici :\n" + json.dumps({"script": "Une question, puis la marque.", "shots": shots}, ensure_ascii=False) + "\n", "")
+
     def texts_agent(self):
         if self.texts == "down":
             return Result(1, "", "the agent gave up")
@@ -287,6 +300,7 @@ class Base(unittest.TestCase):
         f.personas = "ok"
         f.names = "ok"
         f.competitors = "ok"
+        f.research = "ok"
         f.logos = "ok"
         f.storyboard, f.film_fails, f.film_hold = "ok", False, None
         f.texts = "ok"
@@ -1295,6 +1309,34 @@ class Competitors(Base):
             self.fake.competitors = kind
             self.wait(self.call("POST", f"/api/brands/{bid}/competitors/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/competitors")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+# research
+class Research(Base):
+    def test_an_agent_searches_the_web_and_only_the_kept_results_are_written(self):
+        bid = self.mkbrand(name="Recherche Kombucha")
+        self.wait(self.call("POST", f"/api/brands/{bid}/research/propose"))  # no brief needed: a name is enough
+        call = self.fake.where("--restricted")[-1]
+        self.assertIn("--tools=WebSearch", call["argv"])
+        self.assertIn("Recherche Kombucha", call["argv"][2])
+        got = self.call("GET", f"/api/brands/{bid}/research")
+        self.assertEqual((got["research"], got["job"], got["error"]), ([], None, None))
+        self.assertEqual([x["belonging"] for x in got["proposed"]], ["officielle", "officielle relayée"])
+        self.assertFalse((self.home / "marques" / bid / "work" / "research").exists())
+        r = self.call("PUT", f"/api/brands/{bid}/research", {"research": got["proposed"][1:]})
+        self.assertEqual((r["research"], r["proposed"]), (got["proposed"][1:], []))
+        saved = json.loads((self.home / "marques" / bid / "marque.json").read_text())
+        self.assertEqual((saved["research"], saved["research_proposed"]), (r["research"], []))
+        self.call("PUT", f"/api/brands/{bid}/research", {"research": [{"url": "x", "brings": "y", "belonging": "probable"}]}, code=400)
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        bid = self.mkbrand(name="Recherche Ratée", site=None)
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.research = kind
+            self.wait(self.call("POST", f"/api/brands/{bid}/research/propose"), "failed")
+            got = self.call("GET", f"/api/brands/{bid}/research")
             self.assertEqual(got["proposed"], [])
             self.assertIn(word, got["error"])
 

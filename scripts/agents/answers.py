@@ -314,6 +314,47 @@ def parse_texts(raw, source="") -> list:
     return out
 
 
+# ---------- research: what the web says of a brand ----------
+RESEARCH_MAX = 10
+RESEARCH_BELONGING = {"officielle": "officielle", "officielle relayée": "officielle relayée", "officielle relayee": "officielle relayée",
+                      "probable": "probable", "incertaine": "incertaine"}
+
+
+def research_item(x) -> dict:
+    """One result, checked: `{"url", "brings", "belonging"}`. A ValueError says what does not hold: no result without an address."""
+    x = x if isinstance(x, dict) else {}
+    url, brings = one_line(x.get("url"))[:500], one_line(x.get("brings"))[:300]
+    belonging = RESEARCH_BELONGING.get(one_line(x.get("belonging")).lower())
+    if not url.startswith(("http://", "https://")) or " " in url:
+        raise ValueError("chaque résultat a une adresse (http ou https)")
+    if not brings or not belonging:
+        raise ValueError("chaque résultat dit ce qu'il apporte et son appartenance (officielle, officielle relayée, probable, incertaine)")
+    return {"url": url, "brings": brings, "belonging": belonging}
+
+
+def research_list(items) -> list:
+    if not isinstance(items, list) or not 1 <= len(items) <= RESEARCH_MAX:
+        raise ValueError(f"il faut de un à {RESEARCH_MAX} résultats")
+    out = [research_item(x) for x in items]
+    if len({x["url"] for x in out}) < len(out):
+        raise ValueError("une adresse est rendue deux fois")
+    return out
+
+
+def parse_research(raw) -> list:
+    """What the research agent answers, checked: `{"research": [{"url", "brings", "belonging"}]}`, one to ten, each with its address, a sentence on
+    what it brings, and its belonging (officielle, officielle relayée, probable, incertaine). A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    return research_list(raw.get("research") if isinstance(raw, dict) else None)
+
+
 def parse_proposal(text: str) -> dict:
     """What the mandates agent answers: `{"common": "...", "mandates": [four]}`, checked and put on one line each."""
     a, b = text.find("{"), text.rfind("}")

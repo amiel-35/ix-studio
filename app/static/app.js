@@ -48,6 +48,7 @@
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
+    if (n("research")) parts.push("cherche sur le web");
     if (n("logos")) parts.push("dessine des pistes de logo");
     if (n("texts")) parts.push("écrit les textes");
     if (n("storyboard")) parts.push("écrit le découpage du film");
@@ -1015,6 +1016,7 @@
       h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }),
       h(Competitors, { ctx, bid }),
+      h(Research, { ctx, bid }),
       h(Logos, { ctx, bid }));
   }
 
@@ -1142,6 +1144,41 @@
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
   }
+
+  /* ---------- research: the studio searches the web for what is said of the brand (ten results at most); the person keeps or drops each.
+     Only the kept ones are saved in the brand: their addresses, nothing is downloaded ---------- */
+  const BELONGING = { "officielle": "Officielle", "officielle relayée": "Officielle relayée", "probable": "Probable", "incertaine": "Incertaine" };
+  function Research({ ctx, bid }) {
+    const data = useLive(ctx, () => api.research(bid), bid);
+    const [ed, setEd] = useState(null); // the list being decided, [{url, brings, belonging, kept}]; null: nothing touched
+    useEffect(() => setEd(null), [bid]);
+    if (!data) return null;
+    const list = ed || data.research.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const dirty = ed !== null || data.proposed.length > 0;
+    const search = () => ctx.act(async () => { await api.proposeResearch(bid); ctx.log("@" + bid, "toi", "Recherche sur le web demandée au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      const found = list.filter((x) => x.kept).map(({ url, brings, belonging }) => ({ url, brings, belonging }));
+      await api.saveResearch(bid, found);
+      ctx.log("@" + bid, "toi", "Résultats du web enregistrés", plural(found.length, "résultat gardé", "résultats gardés"));
+      setEd(null); ctx.touch(); ctx.notify(found.length ? plural(found.length, "résultat est enregistré", "résultats sont enregistrés") + " dans la marque." : "La marque n'a plus de résultat du web.");
+    });
+    return h("div", { id: "sur-le-web" }, h(Where, null, "Sur le web"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche sur le web ce qui parle de la marque.")
+        : list.length === 0 && h("p", { className: "vide" }, "Rien pour l'instant. Le studio peut chercher sur le web le site de la marque, ses campagnes et ce que la presse en dit."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La recherche n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Le studio garde l'adresse, il ne télécharge rien. Vérifie chaque résultat : garde-le ou écarte-le."),
+      list.map((x, i) => h("div", { key: x.url, className: "editor", "data-research": x.kept ? "kept" : "proposed" },
+        h("p", { className: "small cap" }, (BELONGING[x.belonging] || x.belonging) + (x.kept ? " · gardé" : " · proposition")),
+        h("p", null, h("a", { href: x.url, target: "_blank", rel: "noopener noreferrer" }, x.url)),
+        h("p", { className: "small" }, x.brings),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", onClick: () => setEd(list.map((y, k) => (k === i ? { ...y, kept: true } : y))), "aria-label": "Garder le résultat " + (i + 1) }, "Garder"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y, k) => k !== i)), "aria-label": "Écarter le résultat " + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: search, "aria-label": "Demander au studio de chercher sur le web" }, list.length ? "Chercher encore" : "Chercher sur le web"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les résultats gardés dans la marque" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque résultat avant d'enregistrer."));
 
   /* ---------- logos: the studio draws up to four tracks in SVG, the person keeps or drops each, and chooses one of the kept as the brand's logo ---------- */
   const LOGOS_MAX = 4;
@@ -1727,7 +1764,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "logos" ? "Les pistes de logo sont dessinées" : j.kind === "texts" ? "Les textes sont proposés" : j.kind === "storyboard" ? "Le découpage du film est proposé" : j.kind === "film" ? "Le film est prêt" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "research" ? "La recherche sur le web est terminée" : j.kind === "logos" ? "Les pistes de logo sont dessinées" : j.kind === "texts" ? "Les textes sont proposés" : j.kind === "storyboard" ? "Le découpage du film est proposé" : j.kind === "film" ? "Le film est prêt" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;

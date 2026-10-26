@@ -37,7 +37,7 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
 from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, LOGOS_MAX, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
                      PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, TEXTS_MAX, _name_item, judge_missing, one_line, parse_competitors, parse_logos, parse_names,  # noqa: F401
-                     parse_personas, parse_reading, parse_rounds, parse_storyboard, parse_texts, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
+                     parse_personas, parse_reading, parse_research, parse_rounds, parse_storyboard, parse_texts, parse_verdict, research_list)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -62,7 +62,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "logos": "brand", "texts": "texts", "storyboard": "film", "film": "film"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "research": "brand", "logos": "brand", "texts": "texts", "storyboard": "film", "film": "film"}
 
 
 def slug(text: str) -> str:
@@ -736,6 +736,17 @@ def competitors_of(raw) -> list:
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
     return out
+
+
+# ---------- research: what the web says of a brand, proposed by an agent, kept or dropped by the person ----------
+def research_of(raw) -> list:
+    """The results the person keeps (`PUT research`): `[{url, brings, belonging}]`, at most ten, checked as the agent's are; none is allowed."""
+    if raw == []:
+        return []
+    try:
+        return research_list(raw)
+    except ValueError as err:
+        raise ValueError(f"research: {err}") from None
 
 
 # ---------- logos: up to four tracks of logo drawn in SVG by an agent, kept or dropped by the person, one of the kept chosen as the brand's logo ----------

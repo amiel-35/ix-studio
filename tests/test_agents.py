@@ -29,6 +29,7 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"research": [': {{"research": [{{"url": "https://cabane.fr/", "brings": "Le site, ses couleurs.", "belonging": "officielle"}}]}},
     '{{"logos": [': {{"logos": [{{"idea": "Le nom en capitales.", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'><text x='10' y='60' fill='#123456'>Cabane</text></svg>"}}]}},
     '"script": "...",': {{"script": "Une question, puis le geste, puis la marque.", "shots": [
         {{"seconds": 3, "visual": "texte", "text": "C'est quoi ?", "colour": "#1E2A24", "read": "C'est quoi ?"}},
@@ -100,6 +101,7 @@ class Agents(unittest.TestCase):
         "personas": (BRAND, "personas", ["personas"]),
         "names": (BRAND, "names", ["names"]),
         "competitors": (BRAND, "competitors", ["competitors"]),
+        "research": ({"name": "Cabane"}, "research", ["research"]),
         "logos": ({**BRAND, "colours": ["#123456", "#FFFFFF"], "fonts": ["Georgia"]}, "logos", ["logos"]),
         "texts": ({"brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "cta": "viens"}, "brand": {"name": "Cabane", "voice": "franche"}, "language": "fr"}, "texts", ["texts"]),
         "mandates": ({"dir": "piece", "language": "fr"}, "common", ["common", "mandates"]),
@@ -118,6 +120,24 @@ class Agents(unittest.TestCase):
                 got = json.loads(r.stdout)
                 for k in keys:
                     self.assertIn(k, got)
+
+    def test_the_research_agent_has_the_web_search_and_nothing_else_and_its_results_hold(self):
+        r = self.run_cmd("research", {"name": "Cabane"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"research": [{"url": "https://cabane.fr/", "brings": "Le site, ses couleurs.", "belonging": "officielle"}]})
+        argv = self.calls()[-1]["argv"]
+        self.assertIn("--tools=WebSearch", argv)
+        self.assertNotIn("--permission-mode=acceptEdits", argv)  # it writes nothing: no right to edit
+        from importlib import util
+        spec = util.spec_from_file_location("answers", AGENTS / "answers.py")
+        answers = util.module_from_spec(spec)
+        spec.loader.exec_module(answers)
+        one = {"url": "https://a.fr/", "brings": "Un site.", "belonging": "probable"}
+        for bad in ({"research": []}, {"research": [{**one, "url": ""}]}, {"research": [{**one, "url": "a.fr"}]}, {"research": [{**one, "belonging": "sûre"}]},
+                    {"research": [{**one, "brings": ""}]}, {"research": [one, one]}, {"research": [{**one, "url": f"https://a.fr/{n}"} for n in range(11)]}, "rien"):
+            with self.assertRaises(ValueError):
+                answers.parse_research(bad)
+        self.assertEqual(answers.parse_research({"research": [{**one, "belonging": "officielle relayee"}]})[0]["belonging"], "officielle relayée")
 
     def test_the_storyboard_is_checked_and_its_prompt_gives_only_the_brief_and_the_brand(self):
         inputs = self.CASES["storyboard"][0]
@@ -226,7 +246,7 @@ class Agents(unittest.TestCase):
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 7 + ["claude-fable-5-1"] * 2 + ["sonnet"])
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 8 + ["claude-fable-5-1"] * 2 + ["sonnet"])
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")

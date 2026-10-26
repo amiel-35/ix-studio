@@ -114,6 +114,10 @@
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* research: the studio searches the web for what is said of a brand (a job, ten results at most), the person keeps or drops each; only addresses are kept */
+    research: (b) => call("GET", B(b) + "/research"), // { research: [{url, brings, belonging}], proposed: [{url, brings, belonging}], job, error }
+    proposeResearch: (b) => call("POST", B(b) + "/research/propose"),
+    saveResearch: (b, research) => call("PUT", B(b) + "/research", { research }), // only these are the brand's; the proposal is settled
     /* logos: the studio proposes up to four tracks drawn in SVG (a job), the person keeps or drops each, and chooses one of the kept as the brand's logo */
     logos: (b) => call("GET", B(b) + "/logo/tracks"), // { tracks: [{id, idea, svg}], proposed: [{id, idea, svg}], can_propose, job, error }
     proposeLogos: (b) => call("POST", B(b) + "/logo/propose"),

@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "research": 90.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
 DURATION["rounds"] = 240.0  # rounds: three judges side by side, then the comparison
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
@@ -1185,6 +1185,34 @@ class StudioBackend:
     def _competitors_body(self, bid, jid):
         texts = self._brand_agent(bid, jid, "competitors", "un agent cherche les concurrents")
         self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
+
+    # ---------- research on the web ----------
+    def _research_view(self, b):
+        run = self._running(b, "research")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "research"), None)
+        return {"research": list(b.get("research", [])), "proposed": list(b.get("research_proposed", [])),
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_research(self, bid):
+        return self._research_view(self._loadb(bid))
+
+    def propose_research(self, bid):
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            if self._running(b, "research"):
+                raise Conflict("the research is already running")
+            return self._spawn(("brand", bid), "research", None, lambda jid: self._research_body(bid, jid))
+
+    def put_research(self, bid, research):
+        """The results the person keeps: only these are written in the brand (their addresses, nothing downloaded). The proposal is settled."""
+        kept = workflow.research_of(research)
+        with self._op("brand:" + bid):
+            self._mutateb(bid, lambda q: q.update(research=kept, research_proposed=[]))
+            return self.get_research(bid)
+
+    def _research_body(self, bid, jid):
+        found = self._brand_agent(bid, jid, "research", "un agent cherche sur le web")
+        self._mutateb(bid, lambda q: q.update(research_proposed=found))
 
     # ---------- the logo tracks of the brand ----------
     def _logos_view(self, b):
