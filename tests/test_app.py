@@ -604,6 +604,17 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/competitors", {"competitors": "a"}, code=400)
         self.call("GET", "/api/brands/nope/competitors", code=404)
 
+    def test_landscape_a_market_gives_its_players_and_nothing_is_kept_until_attached(self):
+        bid = self.call("POST", "/api/brands", {"name": "Cabane"})["id"]
+        self.call("POST", "/api/competitors", {}, code=400)
+        self.call("POST", "/api/competitors", {"market": "  "}, code=400)
+        got = self.call("POST", "/api/competitors", {"market": "Le kombucha en canette."})["competitors"]
+        self.assertEqual(len(got), 4)
+        self.assertTrue(all(t.startswith("Hypothèse à vérifier, pas un fait.\nNom : ") for t in got))
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}/competitors")["competitors"], [])  # shown, not kept
+        r = self.call("PUT", f"/api/brands/{bid}/competitors", {"competitors": got[:2]})  # attached to a brand
+        self.assertEqual(r["competitors"], got[:2])
+
     def test_the_competitors_agent_answer_is_checked(self):
         ok = {"competitors": [{"name": "A", "from": "suppose", "sells": "du thé", "differs": "plus doux"}]}
         self.assertEqual(workflow.parse_competitors("Voici " + json.dumps(ok)), ["Hypothèse à vérifier, pas un fait.\nNom : A (supposé)\nVend : du thé\nSe distingue : plus doux"])

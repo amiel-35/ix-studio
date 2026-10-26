@@ -106,6 +106,21 @@ class Agents(unittest.TestCase):
                 for k in keys:
                     self.assertIn(k, got)
 
+    # landscape: the competitors agent given a market, no brand
+    def test_landscape_a_market_alone_gives_its_players(self):
+        r = self.run_cmd("competitors", {"market": "Le kombucha en canette, vendu aux citadins."})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)["competitors"]
+        self.assertTrue(got[0].startswith("Hypothèse à vérifier, pas un fait.\nNom : Kombucha du Coin (supposé)"))
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_landscape_an_unreadable_answer_or_a_failing_agent_is_an_error(self):
+        for mode, said in (("bad", "pas de json ici"), ("down", "not signed in")):
+            with self.subTest(mode=mode):
+                r = self.run_cmd("competitors", {"market": "Le kombucha."}, mode)
+                self.assertEqual((r.returncode, r.stdout), (1, ""))
+                self.assertIn(said, r.stderr)
+
     def test_the_answer_can_also_go_in_a_file(self):
         out = self.tmp / "answer.json"
         r = self.run_cmd("names", self.BRAND, "ok", "--out", str(out))

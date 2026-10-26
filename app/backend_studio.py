@@ -1154,6 +1154,17 @@ class StudioBackend:
         texts = self._brand_agent(bid, jid, "competitors", "un agent cherche les concurrents")
         self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
 
+    # ---------- landscape: the competitors of a market, without a brand (asked and answered at once, nothing kept) ----------
+    def landscape(self, market):
+        market = workflow.market_of(market)
+        work = self.home / "paysages" / "work"
+        try:
+            return {"competitors": self._ask(self.home / "paysages" / "landscape.log", "competitors", {"market": market}, work, 330)["competitors"]}
+        except ToolError as err:
+            raise Conflict(f"le studio n'a pas pu dessiner le paysage : {err}") from None
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
     # ---------- the projects ----------
     def _new_pid(self, name) -> str:
         base = slug(name) or "projet"

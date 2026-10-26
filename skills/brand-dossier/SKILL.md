@@ -77,6 +77,8 @@ dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show 
 - `names`: up to eight names with their why; when the brand has only a working title. Nobody checked that a name is free.
 - `competitors`: up to six, each marked `dossier` or `supposé`; no figure.
 
+- `competitors` with `market` (one or two sentences) as the only input, no brand: the landscape of that market, up to six players with their position; one not in the description is `supposé`; show it to the person, who keeps or drops each.
+
 They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`) changes it.
 
 ## Reading the dossier from another module

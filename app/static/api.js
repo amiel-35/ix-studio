@@ -108,6 +108,8 @@
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* landscape: the competitors of a market, without a brand; asked and answered at once, nothing is kept (the person keeps through saveCompetitors) */
+    landscape: (market) => call("POST", "/api/competitors", { market }), // { competitors: [text] }
     createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
     downloadPiece: (p, i) => download(P(p) + "/pieces/" + encodeURIComponent(i) + "/download"), // the composed piece, a png at its size
     downloadKept: (p) => download(P(p) + "/download"), // every piece kept, a zip

@@ -1095,6 +1095,15 @@ class Names(Base):
             self.assertEqual((got["proposed"], got["name"]), ([], "Noms Ratés"))
 # competitors
 class Competitors(Base):
+    def test_landscape_a_market_gives_its_players_through_the_command(self):
+        got = self.call("POST", "/api/competitors", {"market": "Le kombucha en canette."})["competitors"]
+        self.assertEqual(len(got), 2)
+        self.assertTrue(got[0].startswith("Hypothèse à vérifier, pas un fait.\nNom : Kombucha du Coin (supposé)"))
+        self.call("POST", "/api/competitors", {}, code=400)
+        for kind in ("bad", "down"):
+            self.fake.competitors = kind
+            self.call("POST", "/api/competitors", {"market": "Le kombucha."}, code=409)
+
     def test_an_agent_proposes_competitors_from_the_dossier_and_only_the_kept_ones_are_written(self):
         bid = self.mkbrand(name="Concurrents Kombucha")
         self.call("POST", f"/api/brands/{bid}/competitors/propose", code=409)  # the brief of the brand is not done

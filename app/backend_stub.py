@@ -683,6 +683,12 @@ class StubBackend:
             b["competitors"], b["competitors_proposed"] = texts, []
             return self._competitors_view(b)
 
+    # ---------- landscape: the competitors of a market, without a brand ----------
+    def landscape(self, market):
+        """The competitors agent given a market: the simulated one answers COMPETITORS at once. Nothing is kept: the person keeps through put_competitors."""
+        workflow.market_of(market)
+        return {"competitors": workflow.parse_competitors(copy.deepcopy(COMPETITORS))}
+
     # ---------- routes: projects ----------
     def list_projects(self):
         with self.lock:

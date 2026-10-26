@@ -708,3 +708,12 @@ def competitors_of(raw) -> list:
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
     return out
+
+
+# ---------- landscape: the competitors of a market, without a brand ----------
+def market_of(raw) -> str:
+    """The market the person describes (`POST /api/competitors`): one or two sentences."""
+    text = one_line(raw) if isinstance(raw, str) else ""
+    if not text:
+        raise ValueError("market: a sentence that describes the market")
+    return text[:600]
