@@ -21,6 +21,7 @@ The state a backend gives (a dict):
 """
 
 import copy
+import hashlib
 import html
 import io
 import ipaddress
@@ -34,8 +35,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
-from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
-                     PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
+from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, LOGOS_MAX, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
+                     PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_logos, parse_names,  # noqa: F401
                      parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
@@ -61,7 +62,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "logos": "brand"}
 
 
 def slug(text: str) -> str:
@@ -708,3 +709,30 @@ def competitors_of(raw) -> list:
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
     return out
+
+
+# ---------- logos: up to four tracks of logo drawn in SVG by an agent, kept or dropped by the person, one of the kept chosen as the brand's logo ----------
+def logo_tracks(items) -> list:
+    """What `parse_logos` gives, each track with its id (from its drawing, so the same drawing keeps the same id): [{id, idea, svg}]."""
+    return [{"id": "t" + hashlib.sha256(x["svg"].encode("utf-8")).hexdigest()[:8], "idea": x["idea"], "svg": x["svg"]} for x in items]
+
+
+def logos_kept(ids, kept: list, proposed: list) -> list:
+    """The tracks the person keeps (`PUT logo/tracks` `keep`, a list of ids among the kept and the proposed ones), at most four, in the order given."""
+    if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
+        raise ValueError("keep: a list of ids of tracks")
+    known = {t["id"]: t for t in kept + proposed}
+    if any(x not in known for x in ids):
+        raise ValueError("keep: an unknown track")
+    out = [known[x] for x in dict.fromkeys(ids)]
+    if len(out) > LOGOS_MAX:
+        raise ValueError(f"keep: {LOGOS_MAX} at most")
+    return out
+
+
+def logo_chosen(tid, kept: list) -> bytes:
+    """The drawing of the kept track `tid` (`POST logo/choose`), or a ValueError when it is not kept."""
+    t = next((x for x in kept if x["id"] == tid), None) if isinstance(tid, str) else None
+    if not t:
+        raise ValueError("id: one of the tracks kept")
+    return t["svg"].encode("utf-8")

@@ -6,6 +6,7 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     personas     the personas of a brand            inputs: name, site, description, brief, words, dossier        gives {"personas": [texts]}
     names        the names of a brand               inputs: name, description, brief, words                       gives {"names": [{name, why}]}
     competitors  the competitors of a brand         inputs: as personas                                           gives {"competitors": [texts]}
+    logos        the logo tracks of a brand         inputs: name, description, colours (hex), fonts, brief, words   gives {"logos": [{idea, svg}]}
     mandates     the instructions of a project      inputs: dir (a piece folder of scripts/studio), words, language   gives {"common", "mandates": [four]}
     variant      one variant of a project           inputs: dir, id, mandate, common, language, work (its folder)                   writes <dir>/variants/<id>.json, gives it
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
@@ -32,11 +33,11 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
-                     parse_reading, parse_verdict)
+from answers import (check_variant, judge_missing, one_line, parse_competitors, parse_logos, parse_names, parse_personas,  # noqa: E402
+                     parse_proposal, parse_reading, parse_verdict)
 
 BEST, DEFAULT = "claude-fable-5-1", "sonnet"
-MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
+MODELS = {"personas": DEFAULT, "names": DEFAULT, "competitors": DEFAULT, "logos": DEFAULT, "mandates": DEFAULT, "variant": DEFAULT, "judge": BEST, "reader": BEST}
 WRITES = ["--tools=Read,Write", "--permission-mode=acceptEdits", "--permission-prompts=none"]  # an agent that writes a file in its own folder
 NOTHING = ["--tools", ""]  # an agent that only answers: no tool, no search, nothing but what it is given
 
@@ -188,6 +189,33 @@ def cmd_names(i, model, runner):
 
 def cmd_competitors(i, model, runner):
     return answer_of("competitors", i, competitors_prompt(i), parse_competitors, model, runner)
+
+
+# ---------- logos: the logo tracks of a brand, drawn in SVG ----------
+def logos_prompt(i) -> str:
+    brief = "\n".join(f"- {LABELS[x['key']]}: {x['value']}" for x in i.get("brief") or [] if x["key"] != "colours")
+    words, colours, fonts = one_line(i.get("words")), ", ".join(i.get("colours") or []), ", ".join(i.get("fonts") or [])
+    return (
+        "You draw logo tracks for a brand, in SVG, by hand: you write the SVG code, there is no image engine. You only use what is given below: no "
+        "search, no other source.\n\n"
+        f"=== the brand ===\nname: {i['name']}\ndescription: {one_line(i.get('description')) or '(none)'}\n"
+        f"colours (hex): {colours or '(none given: choose two or three that fit)'}\nfonts: {fonts or '(none given: use a generic family such as Georgia or Arial)'}\n"
+        f"=== the brief of the brand ===\n{brief or '(empty)'}\n"
+        + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
+        + "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+        '{"logos": [{"idea": "...", "svg": "<svg ...>...</svg>"}]}\n'
+        "- logos: up to four, each with a different idea (a wordmark, a monogram, a symbol with the name, a badge...).\n"
+        "- idea: one sentence in French: what the logo says and why.\n"
+        "- svg: one complete drawing on a viewBox (for instance viewBox=\"0 0 240 120\"), the name of the brand written in it with a <text> element in the "
+        "fonts of the brand, in its colours, on a transparent background or one of its colours. Simple shapes (rect, circle, path, line, text, g). "
+        "No script, no <style>, no <image>, no link, no href, no external address, no filter, no animation; every attribute is written inline. "
+        "Under 4000 characters each.\n"
+        "- Do not claim a logo is free to use: nobody checked.\n"
+        "- Plain French in the ideas, no em dash, no emoji.")
+
+
+def cmd_logos(i, model, runner):
+    return answer_of("logos", i, logos_prompt(i), parse_logos, model, runner)
 
 
 # ---------- the project: mandates, variants ----------
@@ -404,7 +432,7 @@ def cmd_reader(i, model, runner):
                       "le lecteur n'a pas écrit sa lecture", "lecture illisible", parse_reading)
 
 
-COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "mandates": cmd_mandates, "variant": cmd_variant,
+COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "logos": cmd_logos, "mandates": cmd_mandates, "variant": cmd_variant,
             "judge": cmd_judge, "reader": cmd_reader}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 

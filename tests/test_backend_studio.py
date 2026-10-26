@@ -76,6 +76,7 @@ class Fake:
         self.readers = []  # the inputs.md each reader read
         self.personas = "ok"  # what the personas agent answers: ok (two personas), bad (one that does not hold), down (it fails)
         self.names = "ok"  # what the names agent answers: ok (two names), bad (a name without its line), down (it fails)
+        self.logos = "ok"  # what the logos agent answers: ok (two tracks), bad (a drawing with a script), down (it fails)
         self.competitors = "ok"  # what the competitors agent answers: ok (two), bad (one that does not hold), down (it fails)
 
     def tool_env(self):
@@ -147,6 +148,8 @@ class Fake:
             return self.names_agent()
         if '{"competitors": [' in prompt:
             return self.competitors_agent()
+        if '{"logos": [' in prompt:
+            return self.logos_agent(prompt)
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -198,6 +201,15 @@ class Fake:
         body = {"names": [{"name": "Quai Ambré", "why": "Le port et la couleur de la boisson."}, {"name": "Bulle Lente", "why": "Une fermentation qui prend son temps."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def logos_agent(self, prompt):
+        if self.logos == "down":
+            return Result(1, "", "the agent gave up")
+        svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'><text x='10' y='60'>{}</text></svg>"
+        if self.logos == "bad":
+            return Result(0, json.dumps({"logos": [{"idea": "Piégé.", "svg": svg.format("<script>alert(1)</script>")}]}), "")
+        body = {"logos": [{"idea": "Le nom en capitales.", "svg": svg.format("A")}, {"idea": "Le nom en minuscules.", "svg": svg.format("B")}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def competitors_agent(self):
         if self.competitors == "down":
             return Result(1, "", "the agent gave up")
@@ -245,6 +257,7 @@ class Base(unittest.TestCase):
         f.personas = "ok"
         f.names = "ok"
         f.competitors = "ok"
+        f.logos = "ok"
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -1093,6 +1106,41 @@ class Names(Base):
             self.wait(self.call("POST", f"/api/brands/{bid}/names/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/names")
             self.assertEqual((got["proposed"], got["name"]), ([], "Noms Ratés"))
+# logos
+class Logos(Base):
+    def test_an_agent_draws_logo_tracks_the_kept_ones_stay_and_the_chosen_one_is_the_logo(self):
+        bid = self.mkbrand(name="Logos Kombucha", site=None)  # no brief needed: a name is enough
+        self.wait(self.call("POST", f"/api/brands/{bid}/logo/propose"))
+        call = self.fake.where("--restricted")[-1]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search, no image engine
+        self.assertIn("Logos Kombucha", call["argv"][2])
+        got = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+        self.assertEqual((got["tracks"], got["job"], got["error"], len(got["proposed"])), ([], None, None, 2))  # a proposal never becomes the brand's
+        self.assertFalse((self.home / "marques" / bid / "work" / "logos").exists())
+        self.assertFalse(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        first, second = got["proposed"]
+        self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": first["id"]}, code=400)  # not kept yet
+        self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": ["nope"]}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": "x"}, code=400)
+        r = self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": [second["id"]]})  # the first one dropped
+        self.assertEqual((r["tracks"], r["proposed"]), ([second], []))
+        r = self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": second["id"]})
+        self.assertEqual(r["tracks"], [second])
+        self.assertTrue(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        saved = json.loads((self.home / "marques" / bid / "marque.json").read_text())
+        self.assertEqual((saved["logo_tracks"], saved["logo_tracks_proposed"]), ([second], []))
+        self.call("GET", "/api/brands/nope/logo/tracks", code=404)
+
+    def test_a_drawing_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        bid = self.mkbrand(name="Logos Ratés", site=None)
+        for kind, word in (("bad", "script"), ("down", "gave up")):
+            self.fake.logos = kind
+            self.wait(self.call("POST", f"/api/brands/{bid}/logo/propose"), "failed")
+            got = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
 # competitors
 class Competitors(Base):
     def test_an_agent_proposes_competitors_from_the_dossier_and_only_the_kept_ones_are_written(self):

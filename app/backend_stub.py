@@ -16,6 +16,7 @@ then `ready`. A site whose host contains "fail" makes the reading fail (a `job-f
 
 import base64
 import copy
+import html
 import itertools
 import os
 import threading
@@ -27,7 +28,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "logos": 4.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -123,6 +124,21 @@ COMPETITORS = {"competitors": [
      "differs": "Doux et sucré, pour les enfants aussi ; la marque est acidulée et vise les adultes."},
     {"name": "Thé Vagabond", "from": "dossier", "sells": "des thés en vrac et des infusions froides aux cafés de la ville.",
      "differs": "Il vend la feuille, à infuser soi-même ; la marque vend une boisson prête, fermentée, à boire tout de suite."}]}
+
+
+# logos: the simulated logos agent's answer, plausible and fixed: three drawings of the brand's name, in the colours of the brand
+def logos_answer(name, colours):
+    n, (ink, ground) = html.escape(name), (colours + ["#1E2A3A", "#E8EEF7"])[:2]
+    box = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'>"
+    return {"logos": [
+        {"idea": "Le nom seul, en capitales espacées : sobre, il laisse la marque parler.",
+         "svg": box + f"<text x='120' y='68' text-anchor='middle' font-family='Georgia, serif' font-size='24' letter-spacing='4' fill='{ink}'>{n.upper()}</text></svg>"},
+        {"idea": "Un rond plein avec l'initiale, et le nom dessous : un sceau facile à reconnaître en petit.",
+         "svg": box + f"<circle cx='120' cy='46' r='30' fill='{ink}'/><text x='120' y='58' text-anchor='middle' font-family='Georgia, serif' font-size='34' fill='{ground}'>{n[:1]}</text>"
+                      f"<text x='120' y='108' text-anchor='middle' font-family='Arial, sans-serif' font-size='16' fill='{ink}'>{n}</text></svg>"},
+        {"idea": "Un trait sous le nom, comme une ligne d'horizon : calme et posé.",
+         "svg": box + f"<text x='120' y='62' text-anchor='middle' font-family='Arial, sans-serif' font-size='26' fill='{ink}'>{n}</text>"
+                      f"<line x1='40' y1='80' x2='200' y2='80' stroke='{ink}' stroke-width='3'/></svg>"}]}
 
 
 def default_brief():
@@ -255,7 +271,8 @@ class StubBackend:
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
-                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents"}[j["kind"]]
+                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents",
+                            "logos": "un agent dessine des pistes de logo"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -286,6 +303,11 @@ class StubBackend:
                 b = self.brands.get(j["brand"])
                 if b:
                     b["competitors_proposed"] = workflow.parse_competitors(copy.deepcopy(COMPETITORS))
+                continue
+            if j["kind"] == "logos":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["logo_tracks_proposed"] = workflow.logo_tracks(workflow.parse_logos(logos_answer(b["name"], [c["hex"] for c in b["colours"]])))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -650,6 +672,41 @@ class StubBackend:
                 b["name"] = name
                 self._touch(b)
             return self._names_view(b)
+
+    # ---------- routes: the logo tracks of the brand ----------
+    def _logos_view(self, b):
+        run = self._running("logos", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "logos" and j["brand"] == b["id"]), None)
+        return {"tracks": list(b.get("logo_tracks", [])), "proposed": list(b.get("logo_tracks_proposed", [])), "can_propose": True,
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_logos(self, bid):
+        with self.lock:
+            self._tick()
+            return self._logos_view(self._b(bid))
+
+    def propose_logos(self, bid):
+        """The logos agent: up to four tracks drawn in SVG, from the name and the colours of the brand (a job). The simulated one answers logos_answer."""
+        with self.lock:
+            self._tick()
+            self._b(bid)
+            if self._running("logos", brand=bid):
+                raise Conflict("the logos are already being proposed")
+            return job_view(self._job("logos", brand=bid))
+
+    def put_logos(self, bid, keep):
+        """The tracks the person keeps, among the kept and the proposed ones: only these stay. The proposal is settled."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["logo_tracks"], b["logo_tracks_proposed"] = workflow.logos_kept(keep, b.get("logo_tracks", []), b.get("logo_tracks_proposed", [])), []
+            return self._logos_view(b)
+
+    def choose_logo(self, bid, tid):
+        """A kept track becomes the logo of the brand, as a logo dropped by the person."""
+        data = workflow.logo_chosen(tid, self._b(bid).get("logo_tracks", []))
+        self.add_logo(bid, data, "image/svg+xml", "piste de logo")
+        return self.get_logos(bid)
 
     # ---------- routes: competitors of the brand ----------
     def _competitors_view(self, b):

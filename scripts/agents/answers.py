@@ -7,6 +7,7 @@ scripts/studio.
 import importlib.util
 import json
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 STUDIO = Path(__file__).resolve().parent.parent / "studio"
@@ -217,6 +218,60 @@ def parse_competitors(raw) -> list:
         out.append("\n".join([COMPETITOR_HEAD, f"Nom : {name} ({src})", f"Vend : {sells}", f"Se distingue : {differs}"]))
     return out
 
+
+
+# ---------- logos: up to four tracks of logo, each drawn in SVG by the agent ----------
+LOGOS_MAX = 4
+LOGO_SVG_MAX = 20000  # characters of one drawing
+LOGO_BANNED_TAGS = {"script", "foreignobject", "image", "iframe", "object", "embed", "a", "use", "style", "animate", "set"}
+LOGO_BANNED_VALUES = ("http", "javascript:", "data:", "@import", "//")
+
+
+def check_svg(text) -> str:
+    """A drawing the agent made, kept only if it is well formed, drawn on a viewBox, with no script, no image, no link and nothing outside it.
+    Returns it as it is, or raises a ValueError that says what does not hold."""
+    text = str(text or "").strip()
+    if not text or len(text) > LOGO_SVG_MAX:
+        raise ValueError(f"le dessin est vide ou dépasse {LOGO_SVG_MAX} caractères")
+    if "<!" in text.replace("<!--", ""):
+        raise ValueError("le dessin déclare un type ou une entité")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as err:
+        raise ValueError(f"le dessin n'est pas du SVG bien formé ({err})") from None
+    if root.tag.rsplit("}", 1)[-1] != "svg" or not root.get("viewBox"):
+        raise ValueError("le dessin est un élément svg avec un viewBox")
+    for el in root.iter():
+        if not isinstance(el.tag, str) or el.tag.rsplit("}", 1)[-1].lower() in LOGO_BANNED_TAGS:
+            raise ValueError("le dessin contient un script, une image, un lien ou un style")
+        for k, v in el.attrib.items():
+            if k.rsplit("}", 1)[-1].lower().startswith(("on", "href")) or any(w in v.lower() for w in LOGO_BANNED_VALUES):
+                raise ValueError("le dessin contient un script, une image ou un lien extérieur")
+    return text
+
+
+def parse_logos(raw) -> list:
+    """What the logos agent answers, checked: `{"logos": [{"idea", "svg"}]}`, one to four, each with its idea in a sentence and its drawing
+    (see check_svg). A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("logos") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= LOGOS_MAX:
+        raise ValueError(f"il faut de une à {LOGOS_MAX} pistes de logo")
+    out = []
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        idea = one_line(it.get("idea"))[:300]
+        if not idea:
+            raise ValueError("chaque piste dit son idée en une phrase")
+        out.append({"idea": idea, "svg": check_svg(it.get("svg"))})
+    return out
 
 
 def parse_proposal(text: str) -> dict:

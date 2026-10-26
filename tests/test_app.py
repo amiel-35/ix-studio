@@ -577,6 +577,29 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
         self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
         self.call("GET", "/api/brands/nope/names", code=404)
+    # logos
+    def test_logo_tracks_are_proposed_kept_or_dropped_and_the_chosen_one_becomes_the_logo(self):
+        bid = self.call("POST", "/api/brands", {"name": "Cabane"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+        self.assertEqual((empty["tracks"], empty["proposed"], empty["can_propose"], empty["job"]), ([], [], True, None))
+        job = self.call("POST", f"/api/brands/{bid}/logo/propose")  # a name is enough
+        self.assertEqual(job["kind"], "logos")
+        self.call("POST", f"/api/brands/{bid}/logo/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+        self.assertEqual(got["tracks"], [])  # a proposal never becomes the brand's by itself
+        self.assertTrue(1 <= len(got["proposed"]) <= 4)
+        self.assertTrue(all(t["id"] and t["idea"] and "cabane" in t["svg"].lower() for t in got["proposed"]))
+        first = got["proposed"][0]
+        self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": first["id"]}, code=400)  # not kept yet
+        self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": ["nope"]}, code=400)
+        r = self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": [first["id"]]})
+        self.assertEqual((r["tracks"], r["proposed"]), ([first], []))
+        self.assertFalse(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": first["id"]})
+        self.assertTrue(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        self.call("GET", "/api/brands/nope/logo/tracks", code=404)
+
     # competitors
     def test_the_competitors_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
         bid = self.call("POST", "/api/brands", {"name": "Pour les concurrents"})["id"]
