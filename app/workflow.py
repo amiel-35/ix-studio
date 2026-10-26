@@ -54,7 +54,7 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "personas": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand"}
 
 
 def slug(text: str) -> str:
@@ -540,12 +540,13 @@ JUDGE_TYPES = {"image/png": "png", "image/jpeg": "jpg"}
 
 
 def judge_brief(raw) -> dict:
-    """The brief a judge reads, from what the person filled in (or a project's brief): the five keys, one line each. Unknown keys are left out."""
+    """The brief a judge reads, from what the person filled in (or a project's brief): the five keys, one line each, and the personas its readers
+    take (see the readers, below; the judge does not read them). Unknown keys are left out."""
     if raw is None:
         raw = {}
     if not isinstance(raw, dict):
         raise ValueError("brief: an object")
-    return {k: one_line(raw.get(k))[:600] for k, _ in JUDGE_BRIEF}
+    return {**{k: one_line(raw.get(k))[:600] for k, _ in JUDGE_BRIEF}, "personas": brief_personas_of(raw.get("personas"))}
 
 
 def judge_missing(brief: dict) -> list:
@@ -685,8 +686,37 @@ def judge_view(job_status, verdict, error=None) -> dict:
     return {"status": job_status, "verdict": verdict, "error": error}
 
 
-# ---------- the personas of a brand: proposed by an agent from what the studio knows, corrected and kept by the person ----------
+# ---------------------------------------------------------------- the readers
+# A brief may name one to four personas, written by the person. Each one is a reader: the piece read by that persona, in "I", in a call of its own
+# (it sees neither the brief nor the other readers). It says whether the piece aims at it, what it understands, keeps, does not read, misses and
+# what bothers it; never whether it would buy. The readings are shown side by side, without a synthesis. The judge stays as it is beside them.
+#
+#     aimed       does the piece aim at me: `yes`, `partly` or `no`
+#     why         why, in "I"
+#     understand  what I understand
+#     retain      what I keep
+#     bother      what bothers me
+#     unread      what I do not read
+#     lacks       what I miss
+
 PERSONAS_MAX = 4
+READING_AIMED = ("yes", "partly", "no")
+READING_KEYS = ("why", "understand", "retain", "bother", "unread", "lacks")
+
+
+def brief_personas_of(raw) -> list:
+    """The personas of a brief: a list of one to four free texts (the empty ones left out), or a ValueError."""
+    if raw in (None, ""):
+        return []
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        raise ValueError("personas: a list of texts")
+    out = [one_line(x)[:1200] for x in raw if one_line(x)]
+    if len(out) > PERSONAS_MAX:
+        raise ValueError(f"personas: {PERSONAS_MAX} at most")
+    return out
+
+
+# ---------- the personas of a brand: proposed by an agent from what the studio knows, corrected and kept by the person ----------
 PERSONA_HEAD = "Hypothèses à corriger, pas des faits."
 PERSONA_FROM = {"dossier": "dossier", "supposé": "supposé", "suppose": "supposé"}
 
@@ -699,6 +729,43 @@ def personas_of(raw) -> list:
     if len(out) > PERSONAS_MAX:
         raise ValueError(f"personas: {PERSONAS_MAX} at most")
     return out
+
+
+def parse_reading(raw) -> dict:
+    """The reading of one reader, checked and put in its one shape (see above), or a ValueError that says what is wrong."""
+    if isinstance(raw, (str, bytes)):
+        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        a, b = text.find("{"), text.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("no JSON object in the reading")
+        try:
+            raw = json.loads(text[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"the reading is not readable JSON ({err})") from None
+    if not isinstance(raw, dict):
+        raise ValueError("the reading is a JSON object")
+    if raw.get("aimed") not in READING_AIMED:
+        raise ValueError(f"aimed: one of {', '.join(READING_AIMED)}")
+    out = {"aimed": raw["aimed"]}
+    for k in READING_KEYS:
+        if not isinstance(raw.get(k), str):
+            raise ValueError(f"{k}: a text (an empty one says there is nothing)")
+        out[k] = one_line(raw[k])[:600]
+    if not out["why"]:
+        raise ValueError("why: say why")
+    return out
+
+
+def reader_view(n: int, persona: str, job, saved) -> dict:
+    """Where reader `n` stands: `running`, `done` (its reading), `failed` (the reason) or `todo` (never read, or its persona changed since).
+    `job` is its last job (`{id, status, error}`) or None, `saved` what it wrote last (`{persona, reading}`) or None."""
+    if job and job["status"] == "running":
+        return {"n": n, "persona": persona, "status": "running", "reading": None, "error": None, "job": job["id"]}
+    if isinstance(saved, dict) and saved.get("persona") == persona and saved.get("reading"):
+        return {"n": n, "persona": persona, "status": "done", "reading": saved["reading"], "error": None, "job": None}
+    if job and job["status"] == "failed":
+        return {"n": n, "persona": persona, "status": "failed", "reading": None, "error": job.get("error"), "job": None}
+    return {"n": n, "persona": persona, "status": "todo", "reading": None, "error": None, "job": None}
 
 
 def parse_personas(raw) -> list:

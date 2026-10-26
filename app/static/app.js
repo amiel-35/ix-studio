@@ -47,6 +47,7 @@
     if (n("mandates")) parts.push("prépare les consignes");
     if (n("personas")) parts.push("imagine les personas");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
+    if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
     return "Le studio " + parts.join(" et ") + ", " + eta(left);
   }
@@ -537,6 +538,7 @@
           : cur.area ? h("textarea", { id: "ed", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value) })
           : h("input", { id: "ed", type: "text", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
         h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
+      h(BriefPersonas, { list: fields.personas || [], set: (v) => set("personas", v), id: "pe" }),
       away.length > 0 && h("div", { className: "aside" },
         h("p", null, "Le studio ne sait pas faire « " + away.join(", ") + " ». On le met de côté, il reste dans le brief."),
         h("div", { className: "field" }, h("label", { htmlFor: "away-note", className: "small" }, "Un mot, pour t'en souvenir"),
@@ -635,6 +637,31 @@
       heads.map(([k, label]) => h("section", { key: k }, h("h3", { className: "cap" }, label),
         v[k].length ? h("ul", { className: "annots" }, v[k].map((n, i) => h("li", { key: i }, h("span", { className: "small muted" }, cap1(n.where)), h("span", null, n.say))))
           : h("p", { className: "small muted" }, "Rien à signaler."))));
+  }
+
+  /* ================= the readers: one per persona of the brief, side by side, without a synthesis ================= */
+  const AIMED = { yes: "oui", partly: "en partie", no: "non" };
+  const READ_HEADS = [["understand", "Ce que je comprends"], ["retain", "Ce que je retiens"], ["bother", "Ce qui me gêne"], ["unread", "Ce que je ne lis pas"], ["lacks", "Ce qui me manque"]];
+  function BriefPersonas({ list, set, id }) {
+    const put = (i, v) => set(list.map((x, j) => (j === i ? v : x)));
+    return h("div", { className: "sec" },
+      h("p", { className: "small muted" }, "Les personas visés, si tu veux : un à quatre, écrits par toi. Chacun lit la pièce seul, à côté du juge."),
+      list.map((x, i) => h("div", { key: i, className: "field" },
+        h("label", { htmlFor: id + i, className: "small" }, "Persona " + (i + 1)),
+        h("textarea", { id: id + i, value: x, onChange: (e) => put(i, e.target.value), placeholder: "Par exemple : tu as 55 ans, artisan, tu ne vas chez le médecin que quand ta femme insiste" }),
+        h("div", null, h("button", { type: "button", className: "linkbtn", onClick: () => set(list.filter((_, j) => j !== i)), "aria-label": "Retirer le persona " + (i + 1) }, "Retirer")))),
+      list.length < 4 && h("div", null, h("button", { type: "button", className: "linkbtn", onClick: () => set([...list, ""]) }, list.length ? "Ajouter un persona" : "Viser un persona")));
+  }
+  function Readers({ readers, busy, run }) {
+    if (!readers || !readers.length) return null;
+    return h("div", { className: "lecteurs", "aria-live": "polite" }, h("p", { className: "cap" }, readers.length > 1 ? "Les lecteurs" : "Le lecteur"),
+      h("div", { className: "cote" }, readers.map((r) => h("section", { key: r.n, className: "lecteur" },
+        h("p", { className: "small muted" }, r.persona),
+        r.status === "done" ? h(React.Fragment, null, h("p", null, h("strong", null, "Elle me vise : " + AIMED[r.reading.aimed] + ". "), r.reading.why),
+          READ_HEADS.filter(([k]) => r.reading[k]).map(([k, label]) => h("div", { key: k }, h("h3", { className: "cap" }, label), h("p", null, r.reading[k]))))
+          : r.status === "running" ? h("p", { className: "small muted" }, "Ce lecteur lit la pièce.")
+          : h("p", { className: "small" }, r.status === "failed" ? "Ce lecteur n'a pas pu la lire : " + dot(r.error) + ". " : "Pas encore lue. ",
+            h("button", { type: "button", className: "linkbtn", disabled: busy, onClick: () => run(r.n), "aria-label": "Relancer le lecteur " + (r.n + 1) }, "Relancer"))))));
   }
 
   /* ================= 6. a piece: prompt, composition, decision ================= */
@@ -757,7 +784,7 @@
 
   function Decide({ ctx, pid, id }) {
     const [pc, setPc] = usePiece(ctx, pid, id);
-    useEffect(() => { if (pc && pc.judge && pc.judge.status === "running") api.piece(pid, id).then(setPc).catch(() => { /* the next look will say */ }); }, [ctx.rev]); // the judge ends: its verdict comes in
+    useEffect(() => { if (pc && ((pc.judge && pc.judge.status === "running") || (pc.readers || []).some((r) => r.status === "running"))) api.piece(pid, id).then(setPc).catch(() => { /* the next look will say */ }); }, [ctx.rev]); // the judge ends: its verdict comes in
     const [notes, setNotes] = useState(false);
     const [back, setBack] = useState(false);
     const [words, setWords] = useState("");
@@ -769,6 +796,7 @@
     });
     const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le png.");
     const rejudge = () => ctx.act(async () => { await api.judgePiece(pid, id); setPc(await api.piece(pid, id)); await ctx.refresh(); }, "Le studio relance le juge.");
+    const reread = (n) => ctx.act(async () => { await api.runReader(pid, id, n); setPc(await api.piece(pid, id)); await ctx.refresh(); }, "Le studio relance ce lecteur.");
     useCmds(ctx, pc ? [
       !pc.decision && { id: "keep", label: "Garder " + pc.label, run: () => send("keep") },
       { id: "take", label: "Télécharger " + pc.label + " en png", run: take },
@@ -790,6 +818,7 @@
           : pc.judge.status === "failed" ? h("p", { className: "small" }, "Le juge n'a pas pu la relire : " + dot(pc.judge.error) + ". ",
             h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: rejudge, "aria-label": "Relancer le juge sur " + pc.label }, "Relancer"))
           : h(Verdict, { v: pc.judge.verdict })),
+      h(Readers, { readers: pc.readers, busy: ctx.busy, run: reread }),
       pc.decision && h("p", { className: "small" }, h(Badge, { tone: "success" }, "Gardée"), " ", pc.decision.words || "Sans commentaire."),
       back ? h("div", { className: "sec" },
         h("div", { className: "field" }, h("label", { htmlFor: "words" }, "Qu'est-ce qui ne va pas ?"),
@@ -1221,7 +1250,7 @@
   function JudgeForm({ ctx }) {
     const [file, setFile] = useState(null);
     const [url, setUrl] = useState(null);
-    const [fields, setFields] = useState({ objective: "", audience: "", message: "", cta: "", fixed: "" });
+    const [fields, setFields] = useState({ objective: "", audience: "", message: "", cta: "", fixed: "", personas: [] });
     const [open, setOpen] = useState(null);
     const [brand, setBrand] = useState("");
     const input = useRef(null);
@@ -1260,6 +1289,7 @@
           cur.area ? h("textarea", { id: "jed", autoFocus: true, value: fields[cur.k], onChange: (e) => set(cur.k, e.target.value) })
             : h("input", { id: "jed", type: "text", autoFocus: true, value: fields[cur.k], onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
           h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer : " + cur.label }, "Fait"))),
+        h(BriefPersonas, { list: fields.personas, set: (v) => set("personas", v), id: "jpe" }),
         h("div", { className: "field" }, h("label", { htmlFor: "jb" }, "Sa marque (facultatif)"),
           h("select", { id: "jb", value: brand, onChange: (e) => setBrand(e.target.value), "aria-describedby": "jb-hint" }, h("option", { value: "" }, "Sans marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
           h("span", { id: "jb-hint", className: "small muted" }, "Avec une marque, le juge regarde aussi sa voix et son ton.")),
@@ -1274,6 +1304,7 @@
     if (!jg) return h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("p", { className: "vide" }, "Un instant."));
     const b = jg.brief;
     const again = () => ctx.act(async () => { await api.runJudgement(jid); ctx.touch(); await ctx.refresh(); ctx.notify("Le juge relit " + jg.name + "."); }, "Le studio relance le juge.");
+    const reread = (n) => ctx.act(async () => { await api.runJudgementReader(jid, n); ctx.touch(); await ctx.refresh(); }, "Le studio relance ce lecteur.");
     const page = () => ctx.act(async () => { const f = await api.judgementPage(jid); saveFile(f); ctx.notify(f.name + " est téléchargée."); }, "Le studio prépare la page.");
     const said = [b.objective && "Je veux " + BRIEF_SHOW.objective(b.objective), b.audience && "Pour " + BRIEF_SHOW.audience(b.audience), b.message && "Le message : " + dot(b.message),
       b.cta && "Pour finir : « " + dot(b.cta) + " »", b.fixed && "Les assets : " + dot(b.fixed)].filter(Boolean);
@@ -1287,7 +1318,8 @@
           : jg.status === "failed" ? h(React.Fragment, null, h(Callout, { tone: "risk", label: "Le juge n'a pas pu la relire" }, jg.error || "raison inconnue"),
             h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
           : h(React.Fragment, null, h(Verdict, { v: jg.verdict }),
-            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page")))));
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page"))),
+        h(Readers, { readers: jg.readers, busy: ctx.busy, run: reread })));
   }
 
   /* ================= the palette and the menu ================= */
@@ -1406,7 +1438,7 @@
         const r = await api.tasks();
         skew.current = r.now * 1000 - Date.now();
         const STEP_OF = { learn: "brand", mandates: "mandates", diverge: "diverge", image: "image", judge: "check" };
-        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id) && !j.judgement).forEach((j) => { // a piece judged on its own has no journal
+        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id) && !j.judgement && j.kind !== "reader").forEach((j) => { // a piece judged on its own has no journal, nor do the readers
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);

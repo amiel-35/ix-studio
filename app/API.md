@@ -8,7 +8,8 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
 - `stub`: `backend_stub.py` is a simulated studio: nothing is generated, nothing calls a model. It starts with three brands in
   three stages (Marrowbay Ferments `ready` with two projects at two steps, Atelier Ondine `to_sort` with a project that waits for it,
   Kestrel Bakehouse `to_confirm`); a site whose host contains `fail` makes the reading fail. Its judge gives one plausible, fixed verdict; a
-  piece dropped to be judged whose name contains `fail` makes the judge fail. Its personas agent gives three plausible, fixed personas.
+  piece dropped to be judged whose name contains `fail` makes the judge fail. Its readers give one fixed reading; a persona whose text contains `fail`
+  makes its reader fail; its personas agent gives three plausible, fixed personas.
 
 **The studio holds brands, a brand holds projects.** A brand is learned once (its site read, its visuals sorted, a brief of the
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
@@ -69,13 +70,14 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
     (the reading failed: run `discover` again). `id` is `@<brand>:<kind>`. A brand's task is listed once, whatever the number of its projects.
   - `since` is when the hand came to the person (epoch seconds). The list is the oldest first, brand and project tasks together.
 - **job**: `{id, kind, status, progress, message, result}`; `kind` is `learn` (a brand's reading of its site), `personas` (an agent proposes a brand's personas), `mandates` (the real backend: an agent
-  proposes the instructions), `diverge`, `image` or `judge` (the judge reads a piece: one of a project, or one dropped on its own); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
+  proposes the instructions), `diverge`, `image`, `judge` (the judge reads a piece: one of a project, or one dropped on its own) or `reader` (a persona reads it); `status` is `running`, `done` or `failed`; `progress` goes from 0 to 1 (the real backend estimates
   it on an expected duration per kind and never shows more than 0.95 while the job runs). A failed job's `message` is the reason (the end of the failing
   command's output); the real backend also gives `error` and `eta`, and keeps the whole output in a log (`logs/<job>.log` of the brand or of the project).
-- **piece**: `{id, label, variant, format, size, status, image, prompt, headline, subline, composed, check, decision, judge, bans}`. `headline` and `subline` are the words in effect: those of the variant, or the ones the person corrected (`PUT /variants/{v}/text`).
+- **piece**: `{id, label, variant, format, size, status, image, prompt, headline, subline, composed, check, decision, judge, readers, bans}`. `headline` and `subline` are the words in effect: those of the variant, or the ones the person corrected (`PUT /variants/{v}/text`).
   `judge` is null until the piece is composed (and again once its image is redone or it is sent back), then `{status, verdict, error}`: `status` is
   `running` (the judge reads it), `done` (`verdict`, see **verdict**) or `failed` (`error`, the reason; the project then has a `job-failed` ask of
   step `check` for the piece, beside its decision). `check.notes` keeps the mechanical checks; the judge's notes are in `judge`, not twice.
+  `readers` is `[]` until the piece is composed, or when the brief has no persona; then one **reader** per persona of the project's brief.
 - **verdict**: what the judge says of a piece, **in words and without a score**: `{target, works, snags, unsourced, brand, missing}`.
   `target` is `{reached, why}`, `reached` being `yes`, `partly`, `no` (the person aimed at is reached, partly, not, from their point of view) or
   `unjudgeable` (the brief does not say who it is for: `why` is then "non jugeable sur la cible : il manque la cible"). `works` (what works),
@@ -88,8 +90,8 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   the assets or not), the piece (its image and its words) and the brand if there is one (its voice, its tone; colours, type, contrast, banned words,
   hierarchy and signature stay with the mechanical checks). It blocks nothing, nothing starts after it, it does not judge the morals of the brand or
   of its product. Both backends check what their judge writes the same way (`workflow.parse_verdict`).
-- **judgement**: a piece judged on its own, `{id, name, brand, brand_name, brief, image, at, status, verdict, error, missing, job}`. `brief` is
-  `{objective, audience, message, cta, fixed}`, `brand` the id of a brand or null, `image` the address of the piece, `status` `running`, `done`
+- **judgement**: a piece judged on its own, `{id, name, brand, brand_name, brief, image, at, status, verdict, error, missing, job, readers}`. `brief` is
+  `{objective, audience, message, cta, fixed, personas}`, `readers` one **reader** per persona (`[]` without), `brand` the id of a brand or null, `image` the address of the piece, `status` `running`, `done`
   or `failed` (with `error`), `job` the running job's id or null.
 - **personas**: the people a brand's pieces will meet, `{personas, proposed, can_propose, job, error}`. `personas` are the texts the person kept
   (only these are the brand's), `proposed` the texts the last `personas` job proposed and that the person has not settled yet (`PUT` settles
@@ -98,6 +100,17 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
   faits.`, its second `Besoin principal : …` (each persona its own need), then one line each, prefixed `(dossier)` or `(supposé)`: who it is,
   where and how it meets an ad of the brand, what it already thinks of the brand and of the subject, its own words. At most four
   (`workflow.parse_personas`, the same for both backends). What the person keeps is free text.
+
+- **reader**: a persona of the brief reading the piece, `{n, persona, status, reading, error, job}`. **A brief may name one to four personas**
+  (`personas`, a list of free texts written by the person: "tu as 55 ans, artisan, …"; empty texts are left out, more than four is a 400). Each
+  persona is a reader, **in a call of its own**: it sees the piece (its image and, in a project, its words) and its own persona, not the brief,
+  not the brand, not the other readers. The judge does not read the personas: it stays as it is beside them, and without persona nothing changes.
+  `n` is its rank in `personas` (from 0), `status` `running`, `done` (`reading`), `failed` (`error`) or `todo` (never read, or its persona changed
+  since: run it again), `job` the running job's id or null. `reading` is `{aimed, why, understand, retain, bother, unread, lacks}`, in "I":
+  `aimed` is `yes`, `partly` or `no` (does the piece aim at me), `why` why, then what I understand, keep, what bothers me, what I do not read,
+  what I miss (`""` when nothing). **It never says whether it would buy**: the studio checks that the piece holds with its brief, it does not
+  predict its effect. The readings are shown side by side, without a synthesis. Both backends check what a reader writes the same way
+  (`workflow.parse_reading`). A reader blocks nothing and has no task: one that fails is run again alone (`…/readers/{n}/run`).
 
 ## Routes
 
@@ -126,7 +139,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/projects/{p}/brand/learn` `{mode, answers?}` | **kept, the interface no longer uses it**: acts on the project's brand. `learn` (read the site, a job), `answer` (what the person says, in `answers`, required, goes to the dossier), `create` (nothing read) |
 | `GET /api/projects/{p}/brand` | **kept**: the brand's evidence to keep or discard, the logo candidates, the measured colours (`{hex, status, source}`), the person's `answers` |
 | `POST /api/projects/{p}/brand/keep` `{kept: [ids], logo}` | **kept**: the same as the brand's `keep`, answering `{kept, discarded, logo, colours}` |
-| `GET /api/projects/{p}/brief` / `PUT` `{fields}` | the project's brief, prefilled; the person corrects it. `PUT` answers 409 while the brand is not `ready`. `GET` also gives `formats` (what the studio can make), `chosen` (the formats the brief asks for that it can make) and `left_out` (the ones it puts aside, a film for instance) |
+| `GET /api/projects/{p}/brief` / `PUT` `{fields}` | the project's brief, prefilled; the person corrects it. `fields.personas` is the list of personas (see **reader**), the other fields are strings. `PUT` answers 409 while the brand is not `ready`. `GET` also gives `formats` (what the studio can make), `chosen` (the formats the brief asks for that it can make) and `left_out` (the ones it puts aside, a film for instance) |
 | `GET /api/projects/{p}/mandates` / `PUT` `{mandates, common}` | the instructions the agents will get, read and corrected before any run |
 | `POST /api/projects/{p}/diverge` | write the variants: a job |
 | `GET /api/projects/{p}/variants` | the variants |
@@ -140,13 +153,15 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/projects/{p}/pieces/{i}/image` | draw the image: a job |
 | `POST /api/projects/{p}/pieces/{i}/compose` | compose the piece and check it; then **the judge reads it** (a `judge` job of the piece: its `judge` is `running`). The answer does not wait for it, and the decision does not either |
 | `POST /api/projects/{p}/pieces/{i}/judge` | run the judge of a composed piece again (a job; the call of a `job-failed` ask of step `check`). 409 while the piece is not composed, or while its judge reads it |
+| `POST /api/projects/{p}/pieces/{i}/readers/{n}/run` | run reader `n` of a composed piece again, alone (a `reader` job). 404 for a reader that is not there, 409 while the piece is not composed or while that reader reads |
 | `POST /api/projects/{p}/pieces/{i}/decide` `{verdict, words}` | `keep`, or `again` with what is wrong |
 | `GET /api/projects/{p}/pieces/{i}/download` | **a file, not JSON**: the composed piece as a png at the size of its format (the file `studio compose` made), sent as an attachment (`Content-Disposition`, name `<project>-<piece>.png`). 409 while the piece is not composed. The simulated backend has one picture for all of them |
 | `GET /api/projects/{p}/download` | **a file, not JSON**: a zip of every piece **kept** (`<project>-<piece>.png` each, written with the standard library), name `<project>.zip`. 409 while no piece is kept |
 | `GET /api/judgements` | the pieces judged on their own, the newest first: `[{id, name, brand, brand_name, status, at}]` |
-| `POST /api/judgements` (the file itself) | **judge a piece on its own**: the body is the image, not JSON (`Content-Type` `image/png` or `image/jpeg`, the first bytes must agree; 10 MB at most), its name an `X-Filename` header, and what comes with it an `X-Judge` header, JSON, URL-encoded: `{name?, brand?, brief}` (`brief`: any of `objective, audience, message, cta, fixed`, the same sentence as a project's brief; `brand` the id of a brand, optional). 400 for another type, an empty, false or too big file, an unknown brand, an `X-Judge` that is not JSON. The judge starts at once (a job). Answers the judgement. `name` defaults to the file's name |
+| `POST /api/judgements` (the file itself) | **judge a piece on its own**: the body is the image, not JSON (`Content-Type` `image/png` or `image/jpeg`, the first bytes must agree; 10 MB at most), its name an `X-Filename` header, and what comes with it an `X-Judge` header, JSON, URL-encoded: `{name?, brand?, brief}` (`brief`: any of `objective, audience, message, cta, fixed`, the same sentence as a project's brief, and `personas`; `brand` the id of a brand, optional). 400 for another type, an empty, false or too big file, an unknown brand, an `X-Judge` that is not JSON. The judge starts at once (a job), and one reader per persona beside it. Answers the judgement. `name` defaults to the file's name |
 | `GET /api/judgements/{j}` | a judgement, its verdict once it is `done` |
 | `POST /api/judgements/{j}/run` | run its judge again (after a failure, or to read it once more): a job. 409 while it runs |
+| `POST /api/judgements/{j}/readers/{n}/run` | run reader `n` of a judgement again, alone (a `reader` job). 404 for a reader that is not there, 409 while it reads |
 | `GET /api/judgements/{j}/page` | **a file, not JSON**: the flat page of the verdict (the piece at the top, the list under it; the piece inside the page, so that it stands on its own), `text/html`, name `<j>.html`. 409 before the verdict |
 | `GET /api/jobs/{j}` | a job's progress (a brand's, a project's or a judgement's) |
 | `GET /files/{p}/piece/{path}`, `GET /files/{p}/brand/{path}` | a file of the project's `piece/` folder; a file of its brand's dossier. |
@@ -188,6 +203,7 @@ running as failed. The commands, with `<m>` the brand's folder, `<p>` the projec
 | `pieces/{i}/decide` | `studio decide <piece>/pieces/<…> keep|again "<words>"` |
 | `judge` job (after `compose`, or `pieces/{i}/judge`) | in a folder of its own, `<p>/work/judge-<i>/`, with `piece.png` and `inputs.md` (the brief, the words of the piece, the brand's voice): `claude -p <prompt> --model sonnet --no-session-persistence --restricted --tools=Read,Write --permission-mode=acceptEdits --permission-prompts=none`; it writes `verdict.json`, checked (`workflow.parse_verdict`: anything else is a failed job); the verdict goes to `<piece>/pieces/<…>/judge.json` and, as notes, to `judge.md`, then `studio check <piece>/pieces/<…>` again so that `check.json` carries them. A piece that changed while the judge read it keeps no verdict |
 | `POST /judgements`, `judgements/{j}/run` | the same agent in `jugements/<j>/work/`, without the words of the piece (they are read on the image); the verdict goes to `jugement.json`, `judge.md` and `page.html` |
+| `reader` job (after `compose` and `POST /judgements`, one per persona, beside the judge; `…/readers/{n}/run`) | in a folder of its own (`<p>/work/reader-<i>-<n>/`, `jugements/<j>/lecteur-<n>/`), with `piece.png` and `inputs.md` (its persona and, in a project, the words of the piece; nothing else): the same `claude -p` as the judge; it writes `reading.json`, checked (`workflow.parse_reading`); the reading goes to `<piece>/pieces/<…>/reader-<n>.json` (a new image or a new composition removes them) or to `readings` in `jugement.json`, with the persona it read. A piece that changed while it read keeps no reading |
 
 **A home in the old format** (`<home>/<p>/project.json` with a `brand_name` and its own `brand/` dossier) is opened into this layout when the backend
 starts, once: the brand is the one the project's `brand_name` names (projects that give the same name, by slug, go to the same brand); the dossier of

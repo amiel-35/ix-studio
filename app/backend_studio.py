@@ -49,7 +49,7 @@ STUDIO = SCRIPTS / "studio"
 BRANDKIT = SCRIPTS / "brandkit"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "personas": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -510,11 +510,11 @@ class StudioBackend:
         return {"id": j["id"], "kind": j["kind"], "status": j["status"], "progress": round(progress, 3), "message": j.get("message", ""),
                 "result": j.get("result"), "piece": j.get("piece"), "error": j.get("error"), "eta": eta}
 
-    def _spawn(self, owner, kind, piece, body):
-        """Start a job of a project (`owner` is its id) or of a brand (`owner` is ("brand", id))."""
+    def _spawn(self, owner, kind, piece, body, reader=None):
+        """Start a job of a project (`owner` is its id) or of a brand (`owner` is ("brand", id)). A `reader` job says which reader it is."""
         owner = self._owner(owner)
         job = {"id": "job-" + uuid.uuid4().hex[:10], "kind": kind, "piece": piece, "status": "running", "start": time.time(),
-               "message": "", "error": None, "result": None}
+               "message": "", "error": None, "result": None, **({"reader": reader} if reader is not None else {})}
 
         def add(p):
             p["jobs"].append(job)
@@ -753,6 +753,7 @@ class StudioBackend:
                 "image": self._url(pid, f"{rel}/{img}", d / img) if img else None,
                 "composed": self._url(pid, f"{rel}/piece.png", png) if composed else None, "check": check, "decision": decision,
                 "judge": self._judge_state(pid, e, d, composed, self._load(pid)["jobs"] if jobs is None else jobs),
+                "readers": self._readers_state(pid, e, d, composed, jobs),
                 "status": status, "bans": list(e.get("bans", []))}
 
     def _failed(self, p) -> list:
@@ -1315,7 +1316,7 @@ class StudioBackend:
             for k in ("objective", "audience", "message"):
                 if not (fields.get(k) or "").strip():
                     raise ValueError(f"brief: {k} is required")
-            merged = {**p["brief"]["fields"], **{k: str(v) for k, v in fields.items()}}
+            merged = {**p["brief"]["fields"], **{k: workflow.brief_personas_of(v) if k == "personas" else str(v) for k, v in fields.items()}}
             chosen = workflow.formats_of(merged.get("format", ""))
             lines = [f"{k}: {one_line(merged.get(k, '')) if k != 'format' else ', '.join(chosen)}" for k in BRIEF_FILE_KEYS if k == "format" or merged.get(k, "").strip()]
             piece = self._piece_dir(pid)
@@ -1681,6 +1682,8 @@ class StudioBackend:
             d = self._piece_dir(pid) / e["dir"]
             for n in ("image.png", "image.jpg", "image.json", "piece.html", "piece.png", "check.json", "decision.md", "judge.json", "judge.md"):
                 (d / n).unlink(missing_ok=True)
+            for f in d.glob("reader-*.json"):
+                f.unlink()
             self._mutate(pid, lambda q: self._entry(q, i).update(decision=None))
             return self._spawn(pid, "image", i, lambda jid: self._image_body(pid, jid, i))
 
@@ -1715,12 +1718,16 @@ class StudioBackend:
                 raise Conflict("no image yet")
             for n in ("piece.png", "judge.json", "judge.md"):  # a new piece is judged anew
                 (d / n).unlink(missing_ok=True)
+            for f in d.glob("reader-*.json"):  # and read anew
+                f.unlink()
             self._studio(log, "compose", d)
             if not (d / "piece.png").exists():
                 raise ToolError("the piece could not be rendered to an image: no headless Chrome found (set CHROME=/path/to/chrome)")
             self._studio(log, "check", d)
             self._mutate(pid, lambda q: self._mark(q, "image", "piece", "decide"))
             self._spawn(pid, "judge", i, lambda jid: self._judge_body(pid, jid, i))  # it blocks nothing; a judge still reading the old piece keeps no verdict
+            for n in range(len(workflow.brief_personas_of(p["brief"]["fields"].get("personas")))):  # one reader per persona of the brief, beside the judge
+                self._spawn(pid, "reader", i, lambda jid, n=n: self._reader_body(pid, jid, i, n), reader=n)
             return self._piece_view(pid, e)
 
     def compose_all(self, pid):
@@ -1893,13 +1900,15 @@ class StudioBackend:
         d = self._jdir(j["id"])
         img = d / f"piece.{j['ext']}"
         run = self._running(j, "judge")
-        last = j["jobs"][-1] if j["jobs"] else None
+        last = next((x for x in reversed(j["jobs"]) if x["kind"] == "judge"), None)
         status = "running" if run else "done" if j.get("verdict") else "failed" if last and last["status"] == "failed" else "running"
         brand_name = j.get("brand_name", "")
         return {"id": j["id"], "name": j["name"], "brand": j.get("brand"), "brand_name": brand_name, "brief": dict(j["brief"]),
                 "image": f"/files/_jugements/{urllib.parse.quote(j['id'])}/{img.name}?v={int(img.stat().st_mtime)}" if img.exists() else None,
                 "at": j["created"], "status": status, "verdict": j.get("verdict") if status == "done" else None,
-                "error": last.get("error") if status == "failed" else None, "missing": workflow.judge_missing(j["brief"]), "job": run["id"] if run else None}
+                "error": last.get("error") if status == "failed" else None, "missing": workflow.judge_missing(j["brief"]), "job": run["id"] if run else None,
+                "readers": [workflow.reader_view(n, persona, self._last_reader(j["jobs"], None, n), (j.get("readings") or {}).get(str(n)))
+                            for n, persona in enumerate(j["brief"].get("personas") or [])]}
 
     def list_judgements(self):
         return [{k: v[k] for k in ("id", "name", "brand", "brand_name", "status", "at")} for v in (self._jg_view(self._loadj(jid)) for jid in self._jids())]
@@ -1926,6 +1935,8 @@ class StudioBackend:
             write_json(d / "jugement.json", {"id": jid, "name": label[:120], "brand": m["brand"], "brand_name": brand_name, "brief": m["brief"],
                                              "ext": ext, "created": time.time(), "verdict": None, "jobs": []})
         self._spawn(("judgement", jid), "judge", None, lambda job: self._judgement_body(jid, job))
+        for n in range(len(m["brief"]["personas"])):  # one reader per persona of the brief, beside the judge
+            self._spawn(("judgement", jid), "reader", None, lambda job, n=n: self._jreader_body(jid, job, n), reader=n)
         return self.judgement(jid)
 
     def _judgement_body(self, jid, job):
@@ -1957,6 +1968,120 @@ class StudioBackend:
         if v["status"] != "done" or not f.is_file():
             raise Conflict("the judge has not given its verdict yet")
         return Download(f"{jid}.html", "text/html; charset=utf-8", f.read_bytes())
+
+    # ---------- 9. the readers: one per persona of the brief, each in a call of its own ----------
+    @staticmethod
+    def _last_reader(jobs, piece, n):
+        return next((j for j in reversed(jobs) if j["kind"] == "reader" and j.get("piece") == piece and j.get("reader") == n), None)
+
+    def _readers_state(self, pid, e, d, composed, jobs=None):
+        """The readers of a composed piece, one per persona of the project's brief ([] without persona, or while the piece is not composed)."""
+        if not composed:
+            return []
+        p = self._load(pid)
+        jobs = p["jobs"] if jobs is None else jobs
+        return [workflow.reader_view(n, persona, self._last_reader(jobs, e["id"], n), read_json(d / f"reader-{n}.json"))
+                for n, persona in enumerate(workflow.brief_personas_of(p["brief"]["fields"].get("personas")))]
+
+    @staticmethod
+    def _reader_inputs(persona: str, texts=None) -> str:
+        """inputs.md, what a reader reads beside the picture: who it is, and the words of the piece. Not the brief, not the brand, not the other readers."""
+        lines = ["# Qui tu es", "", persona, "", "## La pièce", "- son image : piece.png (ouvre-la)"]
+        if texts:
+            lines += [f"- titre : {texts.get('headline') or '(aucun)'}", f"- sous-ligne : {texts.get('subline') or '(aucune)'}"]
+        else:
+            lines.append("- ses textes : ceux qu'on lit sur l'image")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _reader_prompt(lang="fr") -> str:
+        return (
+            "You are not a critic. Read ./inputs.md: its first part says who you are. Be that person, and only that person. Then open ./piece.png "
+            "with the Read tool: it is an ad (a poster or a social post) you come across. You are told nothing else about it.\n\n"
+            "Write ONE file, ./reading.json, a UTF-8 JSON object with exactly these keys, every text in the first person (\"je\"), as this person "
+            "would say it:\n"
+            '  "aimed": "yes" | "partly" | "no": does this piece speak to me;\n'
+            '  "why": why, from my life;\n'
+            '  "understand": what I understand it says;\n'
+            '  "retain": what I keep of it once I have looked away;\n'
+            '  "bother": what bothers me, or "" if nothing;\n'
+            '  "unread": what I do not read, do not see or skip, or "";\n'
+            '  "lacks": what I miss to understand or to believe it, or "".\n'
+            "Never say whether you would buy, try or do what it asks: say what you understand, what you do not read and what you miss. "
+            "Do not grade the piece, do not give advice to whoever made it.\n"
+            f"Write in the language of the piece ({lang}), plainly, a few sentences at most per key, without em dashes nor emoji.\n"
+            "Write only that one file, and read and write nothing outside the current folder. When it is written, answer with its name and nothing else.")
+
+    def _run_reader(self, log, wdir: Path, image: Path, persona: str, texts=None, lang="fr") -> dict:
+        """One reader, in a folder of its own: the picture and inputs.md in, reading.json out, checked. A ToolError says why it failed."""
+        shutil.rmtree(wdir, ignore_errors=True)
+        wdir.mkdir(parents=True)
+        shutil.copy2(image, wdir / "piece.png")
+        (wdir / "inputs.md").write_text(self._reader_inputs(persona, texts), encoding="utf-8")
+        try:
+            res = self._sh(log, self._claude(self._reader_prompt(lang), "--tools=Read,Write", "--permission-mode=acceptEdits",
+                                             "--permission-prompts=none"), cwd=wdir, timeout=400, claude=True)
+            f = wdir / "reading.json"
+            if not f.exists():
+                raise ToolError("le lecteur n'a pas écrit sa lecture" + (f" : {tail(res)}" if res.code else ""))
+            try:
+                return workflow.parse_reading(f.read_text(encoding="utf-8", errors="replace"))
+            except ValueError as err:
+                raise ToolError(f"lecture illisible : {err}") from None
+        finally:
+            shutil.rmtree(wdir, ignore_errors=True)
+
+    def _reader_body(self, pid, jid, i, n):
+        p = self._load(pid)
+        e = self._entry(p, i)
+        d, log = self._piece_dir(pid) / e["dir"], self._joblog(pid, jid)
+        png = d / "piece.png"
+        personas = workflow.brief_personas_of(p["brief"]["fields"].get("personas"))
+        if not png.exists():
+            raise ToolError("la pièce n'est plus composée")
+        if n >= len(personas):
+            raise ToolError("ce persona n'est plus dans le brief")
+        stamp = png.stat().st_mtime_ns
+        view = self._piece_view(pid, e, p["jobs"])
+        self._phase(pid, jid, "un lecteur lit la pièce")
+        r = self._run_reader(log, self._pdir(pid) / "work" / f"reader-{i}-{n}", png, personas[n], {"headline": view["headline"], "subline": view["subline"]},
+                             p["brief"]["fields"].get("language") or "fr")
+        with self._op(pid):
+            if not png.exists() or png.stat().st_mtime_ns != stamp:
+                return "la pièce a changé pendant que le lecteur la lisait : sa lecture est laissée de côté"
+            write_json(d / f"reader-{n}.json", {"persona": personas[n], "reading": r})
+
+    def run_reader(self, pid, i, n):
+        """Run reader `n` of a composed piece again, alone."""
+        with self._op(pid):
+            p = self._load(pid)
+            e = self._entry(p, i)
+            view = self._piece_view(pid, e, p["jobs"])
+            if not view["composed"]:
+                raise Conflict("this piece is not composed yet")
+            if not 0 <= n < len(view["readers"]):
+                raise NotFound(f"no reader {n}")
+            if view["readers"][n]["status"] == "running":
+                raise Conflict("this reader is already reading the piece")
+            return self._spawn(pid, "reader", i, lambda jid: self._reader_body(pid, jid, i, n), reader=n)
+
+    def _jreader_body(self, jid, job, n):
+        owner, j = ("judgement", jid), self._loadj(jid)
+        d = self._jdir(jid)
+        persona = j["brief"]["personas"][n]
+        self._phase(owner, job, "un lecteur lit la pièce")
+        r = self._run_reader(self._joblog(owner, job), d / f"lecteur-{n}", d / f"piece.{j['ext']}", persona)
+        self._mutatej(jid, lambda q: q.setdefault("readings", {}).update({str(n): {"persona": persona, "reading": r}}))
+
+    def run_judgement_reader(self, jid, n):
+        """Run reader `n` of a judgement again, alone."""
+        with self._op("judgement:" + jid):
+            v = self.judgement(jid)
+            if not 0 <= n < len(v["readers"]):
+                raise NotFound(f"no reader {n}")
+            if v["readers"][n]["status"] == "running":
+                raise Conflict("this reader is already reading the piece")
+            return self._spawn(("judgement", jid), "reader", None, lambda job: self._jreader_body(jid, job, n), reader=n)
 
     # ---------- taking the pieces out of the studio ----------
     def download_piece(self, pid, i):
