@@ -43,6 +43,11 @@ def png(w=64, h=80, rgb=(200, 80, 40)):
 VARIANT = {"default": {"headline": "Le titre qu'on aurait fait", "image": "Le produit sur une table"}, "subline": "", "ground": "background",
            "why": "Il regarde ailleurs."}
 LAYOUTS = ["side", "stack", "ground", "overlay-top"]
+JUDGED = {"target": {"reached": "partly", "why": "Un citadin comprend la boisson, pas pourquoi la choisir."}, "score": 7,
+          "works": [{"where": "l'image", "say": "La lumière installe le matin."}],
+          "snags": [{"where": "le titre en haut", "say": "Un double sens possible sur « plus rien »."}],
+          "unsourced": [{"where": "le bandeau du bas", "say": "« n°1 en ville » : rien ne permet de le croire."}],
+          "brand": [{"where": "le titre en haut", "say": "C'est sa voix, franche."}]}
 
 
 class Fake:
@@ -59,6 +64,9 @@ class Fake:
         self.extra_screen = False  # the next reading of a site finds one more visual
         self.hold = None  # an Event: claude calls wait for it
         self.env_seen = []
+        self.judge = "ok"  # what the judge writes: ok (a verdict), none (nothing), bad (a verdict that does not hold)
+        self.judge_hold = None  # an Event: the judge waits for it
+        self.inputs = ""  # the inputs.md the last judge read
 
     def tool_env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
@@ -116,6 +124,8 @@ class Fake:
         if self.claude_down:
             return Result(1, "", "Claude Code is not signed in")
         prompt = argv[2]
+        if "./verdict.json" in prompt:
+            return self.judge_agent(prompt, cwd)
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -127,6 +137,16 @@ class Fake:
         v = {"mandate": mandate, "headline": f"Titre de {vid}", "image_prompt": f"Une image pour {vid}, aucun texte.", "layout": LAYOUTS[n % 4], **VARIANT}
         (Path(cwd) / f"{vid}.json").write_text(json.dumps(v), encoding="utf-8")
         return Result(0, f"{vid}.json\n", "")
+
+    def judge_agent(self, prompt, cwd):
+        if self.judge_hold is not None:
+            self.judge_hold.wait(10)
+        self.inputs = (Path(cwd) / "inputs.md").read_text(encoding="utf-8")
+        if self.judge == "none":
+            return Result(1, "", "the judge gave up")
+        v = {"target": {"reached": "maybe"}} if self.judge == "bad" else JUDGED
+        (Path(cwd) / "verdict.json").write_text(json.dumps(v, ensure_ascii=False), encoding="utf-8")
+        return Result(0, "verdict.json\n", "")
 
     def image(self, argv):
         d = Path(argv[3])
@@ -161,6 +181,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         f = self.fake
         f.agents_fail, f.claude_down, f.image_fails, f.collect_fails, f.hold, f.fake_png, f.extra_screen = set(), False, False, False, None, True, False
+        f.judge, f.judge_hold = "ok", None
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,

@@ -21,9 +21,11 @@
     return data;
   }
 
-  /* a file as the body of the request (the logo): its type is the Content-Type, its name goes in X-Filename */
-  async function upload(path, file) {
+  /* a file as the body of the request (the logo, a piece to judge): its type is the Content-Type, its name goes in X-Filename, and what comes
+     with it, if anything, in X-Judge (JSON) */
+  async function upload(path, file, meta) {
     const h = { "Content-Type": file.type || "application/octet-stream", "X-Filename": encodeURIComponent(file.name || "") };
+    if (meta) h["X-Judge"] = encodeURIComponent(JSON.stringify(meta));
     if (api.token) h.Authorization = "Bearer " + api.token;
     const r = await fetch(api.base + path, { method: "POST", headers: h, body: file });
     const data = await r.json().catch(() => ({}));
@@ -74,6 +76,13 @@
     drawImage: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/image"),
     compose: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/compose"),
     decide: (p, i, verdict, words) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/decide", { verdict, words }),
+    judgePiece: (p, i) => call("POST", P(p) + "/pieces/" + encodeURIComponent(i) + "/judge"), // the judge of a composed piece, run again
+    /* a piece judged on its own: dropped with the brief it answers and, if any, its brand */
+    judgements: () => call("GET", "/api/judgements"),
+    judgement: (j) => call("GET", "/api/judgements/" + encodeURIComponent(j)),
+    judge: (file, meta) => upload("/api/judgements", file, meta), // a png or jpg File; meta: { brand, brief: { objective, audience, message, cta, fixed } }. Answers the judgement
+    runJudgement: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/run"),
+    judgementPage: (j) => download("/api/judgements/" + encodeURIComponent(j) + "/page"), // the flat page of the verdict, an html file
     /* The studio holds brands, a brand holds projects. (The routes of a project's brand, `/api/projects/{p}/brand…`, are kept by the studio but the interface no longer uses them.) */
     brands: () => call("GET", "/api/brands"),
     getBrand: (b) => call("GET", B(b)),

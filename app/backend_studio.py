@@ -9,6 +9,8 @@ The studio holds brands, a brand holds projects. All of it is in STUDIO_HOME (de
     marques/<b>/projets/<p>/project.json name, brand, type, origin, the brief and the instructions, the pieces, the jobs
     marques/<b>/projets/<p>/piece/       the piece of scripts/studio: brand.md, brief.md, references.md, variants/, pieces/<piece>/
     marques/<b>/projets/<p>/logs/        one log per job of the project
+    jugements/<j>/jugement.json          a piece judged on its own: its name, its brand (if any), the brief it answers, the verdict, the jobs
+    jugements/<j>/piece.png|jpg          the piece dropped; judge.md and page.html (the flat page of the verdict) once it is judged
 
 A project id is unique in the whole studio (the routes name a project by its id alone). The brand of a project is learned once, at
 the brand's level; the project's `brand.md` is written from the brand's dossier when its brief is saved.
@@ -21,6 +23,7 @@ steps are jobs: a thread that runs sub-processes through an injected `runner(arg
 tests give it a fake one that calls neither `claude`, nor `codex`, nor the network.
 """
 
+import base64
 import contextlib
 import hashlib
 import importlib.util
@@ -46,7 +49,7 @@ STUDIO = SCRIPTS / "studio"
 BRANDKIT = SCRIPTS / "brandkit"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -302,11 +305,41 @@ class StudioBackend:
 
     def _omutate(self, owner, fn):
         kind, oid = self._owner(owner)
-        return (self._mutateb if kind == "brand" else self._mutate)(oid, fn)
+        return {"brand": self._mutateb, "judgement": self._mutatej}.get(kind, self._mutate)(oid, fn)
 
     def _oload(self, owner) -> dict:
         kind, oid = self._owner(owner)
-        return self._loadb(oid) if kind == "brand" else self._load(oid)
+        return {"brand": self._loadb, "judgement": self._loadj}.get(kind, self._load)(oid)
+
+    # a piece judged on its own: a folder of `jugements/`, outside any brand
+    def _jroot(self) -> Path:
+        return self.home / "jugements"
+
+    def _jdir(self, jid) -> Path:
+        if not re.fullmatch(r"[\w-]+", jid or ""):
+            raise NotFound(f"no judgement {jid}")
+        return self._jroot() / jid
+
+    def _loadj(self, jid) -> dict:
+        j = read_json(self._jdir(jid) / "jugement.json")
+        if not isinstance(j, dict):
+            raise NotFound(f"no judgement {jid}")
+        return j
+
+    def _mutatej(self, jid, fn):
+        with self._state:
+            j = self._loadj(jid)
+            out = fn(j)
+            write_json(self._jdir(jid) / "jugement.json", j)
+            return out
+
+    def _jids(self) -> list:
+        found = []
+        for d in self._jroot().iterdir() if self._jroot().is_dir() else []:
+            j = read_json(d / "jugement.json") if d.is_dir() else None
+            if isinstance(j, dict) and j.get("id") == d.name:
+                found.append((j.get("created", 0), d.name))
+        return [i for _, i in sorted(found, reverse=True)]  # the newest first
 
     def _recover(self):
         """After a restart: the jobs that were running died with the server. Say so, and index the others."""
@@ -326,6 +359,13 @@ class StudioBackend:
                         j.update(status="failed", end=time.time(), error="interrompu : le serveur a redémarré", message="interrompu : le serveur a redémarré")
                         p["since"][workflow.KIND_STEP[j["kind"]]] = time.time()
             self._mutate(pid, fix)
+        for jid in self._jids():
+            def fixj(q):
+                for j in q["jobs"]:
+                    self._jobs[j["id"]] = ("judgement", jid)
+                    if j["status"] == "running":
+                        j.update(status="failed", end=time.time(), error="interrompu : le serveur a redémarré", message="interrompu : le serveur a redémarré")
+            self._mutatej(jid, fixj)
 
     @staticmethod
     def _mark(p, *keys):
@@ -482,7 +522,7 @@ class StudioBackend:
                 p["jobs"] = [j for j in p["jobs"] if j["status"] == "running"] + [j for j in p["jobs"] if j["status"] != "running"][-60:]
             if owner[0] == "brand":
                 self._retouch(p)
-            else:
+            elif owner[0] == "project":
                 self._mark(p, workflow.KIND_STEP[kind])
         self._omutate(owner, add)
         self._jobs[job["id"]] = owner
@@ -520,7 +560,7 @@ class StudioBackend:
 
     def _joblog(self, owner, jid) -> Path:
         kind, oid = self._owner(owner)
-        return (self._mdir(oid) if kind == "brand" else self._pdir(oid)) / "logs" / f"{jid}.log"
+        return {"brand": self._mdir, "judgement": self._jdir}.get(kind, self._pdir)(oid) / "logs" / f"{jid}.log"
 
     def _running(self, p, kind, piece=None):
         return next((j for j in p["jobs"] if j["kind"] == kind and j["status"] == "running" and (piece is None or j.get("piece") == piece)), None)
@@ -675,7 +715,22 @@ class StudioBackend:
     def _url(self, pid, rel, f: Path) -> str:
         return f"/files/{urllib.parse.quote(pid)}/{urllib.parse.quote(rel)}?v={int(f.stat().st_mtime)}"
 
-    def _piece_view(self, pid, e) -> dict:
+    def _judge_state(self, pid, e, d, composed, jobs):
+        """Where the judge of a piece stands: running, done (its verdict, in judge.json), failed (the reason), or None (never judged)."""
+        if not composed:
+            return None
+        mine = [j for j in jobs if j["kind"] == "judge" and j.get("piece") == e["id"]]
+        run = next((j for j in mine if j["status"] == "running"), None)
+        if run:
+            return workflow.judge_view("running", None)
+        v = read_json(d / "judge.json")
+        if isinstance(v, dict) and v.get("target"):
+            return workflow.judge_view("done", v)
+        if mine and mine[-1]["status"] == "failed":
+            return workflow.judge_view("failed", None, mine[-1].get("error"))
+        return None
+
+    def _piece_view(self, pid, e, jobs=None) -> dict:
         d = self._piece_dir(pid) / e["dir"]
         rel = f"piece/{e['dir']}".rstrip("/")
         v = read_json(d / "variants" / f"{e['variant']}.json", {}) or {}
@@ -686,7 +741,8 @@ class StudioBackend:
         if composed:
             s = chk.get("summary", {})
             notes = [{"status": r["status"], "say": r["say"]} for r in chk.get("results", []) if r.get("status") != "pass"]
-            notes += [{"status": n.get("level", "note"), "say": n.get("say", "")} for n in chk.get("judge", [])]
+            if not (d / "judge.json").exists():  # the studio's judge is given apart (`judge`); notes written by hand stay with the checks
+                notes += [{"status": n.get("level", "note"), "say": n.get("say", "")} for n in chk.get("judge", [])]
             check = {"pass": s.get("pass", 0), "warn": s.get("warn", 0), "fail": s.get("fail", 0), "major": s.get("major", 0), "notes": notes}
         decision = e.get("decision")
         status = "composed" if composed else "image" if img else "again" if e.get("bans") else "picked"
@@ -696,6 +752,7 @@ class StudioBackend:
                 "prompt": v.get("image_prompt", ""),
                 "image": self._url(pid, f"{rel}/{img}", d / img) if img else None,
                 "composed": self._url(pid, f"{rel}/piece.png", png) if composed else None, "check": check, "decision": decision,
+                "judge": self._judge_state(pid, e, d, composed, self._load(pid)["jobs"] if jobs is None else jobs),
                 "status": status, "bans": list(e.get("bans", []))}
 
     def _failed(self, p) -> list:
@@ -715,7 +772,7 @@ class StudioBackend:
                 "brand_stage": workflow.brand_stage(bs), "brand_ready": workflow.brand_ready(bs), "brand_job": bs["running"],
                 "brand_waiting": workflow.brand_asks(bs), "can_learn": bool(b.get("site")),
                 "brief_confirmed": p["brief"]["confirmed"], "mandates_confirmed": p["mandates"]["confirmed"],
-                "variants": len(self._variant_files(pid)), "pieces": [self._piece_view(pid, e) for e in p["pieces"]],
+                "variants": len(self._variant_files(pid)), "pieces": [self._piece_view(pid, e, p["jobs"]) for e in p["pieces"]],
                 "running": [{"id": j["id"], "kind": j["kind"], "piece": j.get("piece"), "start": j["start"],
                              **{k: v for k, v in self._job_public(j, now).items() if k in ("progress", "message")}}
                             for j in p["jobs"] if j["status"] == "running"],
@@ -754,7 +811,7 @@ class StudioBackend:
                 if j["status"] == "running":
                     pub = self._job_public(j, now)
                     jobs.append({"id": j["id"], "project": None, "brand": bid, "kind": j["kind"], "piece": None, "progress": pub["progress"],
-                                 "message": pub["message"], "since": j["start"], "eta": pub["eta"]})
+                                 "message": pub["message"], "since": j["start"], "eta": pub["eta"], "judgement": None})
             for pid in self._pids_of(bid):
                 p = self._load(pid)
                 s = self._wf_state(p, now, bs)
@@ -765,8 +822,14 @@ class StudioBackend:
                     if j["status"] == "running":
                         pub = self._job_public(j, now)
                         jobs.append({"id": j["id"], "project": pid, "brand": bid, "kind": j["kind"], "piece": j.get("piece"), "progress": pub["progress"],
-                                     "message": pub["message"], "since": j["start"], "eta": pub["eta"]})
+                                     "message": pub["message"], "since": j["start"], "eta": pub["eta"], "judgement": None})
             brands.append((bs, summaries))
+        for jid in self._jids():
+            for j in self._loadj(jid)["jobs"]:
+                if j["status"] == "running":
+                    pub = self._job_public(j, now)
+                    jobs.append({"id": j["id"], "project": None, "brand": None, "kind": j["kind"], "piece": None, "progress": pub["progress"],
+                                 "message": pub["message"], "since": j["start"], "eta": pub["eta"], "judgement": jid})
         return workflow.tasks_payload(entries, jobs, now, brands)
 
     def project(self, pid):
@@ -1547,7 +1610,7 @@ class StudioBackend:
             if self._running(p, "image", i):
                 raise Conflict("the image is already being drawn")
             d = self._piece_dir(pid) / e["dir"]
-            for n in ("image.png", "image.jpg", "image.json", "piece.html", "piece.png", "check.json", "decision.md"):
+            for n in ("image.png", "image.jpg", "image.json", "piece.html", "piece.png", "check.json", "decision.md", "judge.json", "judge.md"):
                 (d / n).unlink(missing_ok=True)
             self._mutate(pid, lambda q: self._entry(q, i).update(decision=None))
             return self._spawn(pid, "image", i, lambda jid: self._image_body(pid, jid, i))
@@ -1581,12 +1644,14 @@ class StudioBackend:
             d, log = self._piece_dir(pid) / e["dir"], self._cmd_log(pid)
             if not any((d / n).exists() for n in ("image.png", "image.jpg")):
                 raise Conflict("no image yet")
-            (d / "piece.png").unlink(missing_ok=True)
+            for n in ("piece.png", "judge.json", "judge.md"):  # a new piece is judged anew
+                (d / n).unlink(missing_ok=True)
             self._studio(log, "compose", d)
             if not (d / "piece.png").exists():
                 raise ToolError("the piece could not be rendered to an image: no headless Chrome found (set CHROME=/path/to/chrome)")
             self._studio(log, "check", d)
             self._mutate(pid, lambda q: self._mark(q, "image", "piece", "decide"))
+            self._spawn(pid, "judge", i, lambda jid: self._judge_body(pid, jid, i))  # it blocks nothing; a judge still reading the old piece keeps no verdict
             return self._piece_view(pid, e)
 
     def compose_all(self, pid):
@@ -1646,6 +1711,184 @@ class StudioBackend:
                 shutil.copy2(f, d / "variants" / f.name)
         write_json(d / "pick.json", {"variant": vid, "at": time.strftime("%Y-%m-%d"), **(words or {})})
 
+    # ---------- 8. the judge ----------
+    def _brand_words(self, bid) -> dict:
+        """What the judge is told of a brand (its voice and its tone): the fields of its identity that are known, or {} when it has none."""
+        if not bid:
+            return {}
+        try:
+            b = self._loadb(bid)
+        except NotFound:
+            return {}
+        ident = self._identity(b, self._doc(bid))
+        return {"name": b["name"], **{k: ident[k]["value"] for k in ("what", "who", "voice", "signature", "never") if ident[k]["state"] != "absent"}}
+
+    @staticmethod
+    def _judge_inputs(brief: dict, brand: dict, texts=None) -> str:
+        """inputs.md, what the judge reads beside the picture: the brief (what it lacks said as such), the words of the piece, the brand."""
+        say = lambda v: v if (v or "").strip() else "(non donné)"
+        lines = ["# Ce que le juge reçoit", "", "## Le brief", f"- objectif : {say(brief.get('objective'))}", f"- cible : {say(brief.get('audience'))}",
+                 f"- message : {say(brief.get('message'))}", f"- appel à l'action : {say(brief.get('cta'))}",
+                 f"- ce qui ne bouge pas (respecter ou non les assets) : {say(brief.get('fixed'))}", "", "## La pièce", "- son image : piece.png (ouvre-la)"]
+        if texts:
+            lines += [f"- titre : {say(texts.get('headline'))}", f"- sous-ligne : {say(texts.get('subline'))}"]
+        else:
+            lines.append("- ses textes : ceux qu'on lit sur l'image")
+        lines += ["", "## La marque"]
+        if brand:
+            labels = {"name": "nom", "what": "ce qu'elle est", "who": "pour qui", "voice": "sa voix", "signature": "sa signature", "never": "ce qu'elle ne dit jamais"}
+            lines += [f"- {labels[k]} : {v}" for k, v in brand.items()]
+        else:
+            lines.append("- aucune : pas de rubrique brand (\"brand\": null)")
+        return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _judge_prompt(has_brand: bool, missing: list, lang="fr") -> str:
+        return (
+            "You are the judge of one still ad (a poster or a social post). You read it as the person it is aimed at would, and you write down what "
+            "you see. You give no score, you block nothing, and you do not judge the morals of the brand or of its product.\n\n"
+            "Read ./inputs.md (the brief, the words of the piece, the brand if there is one) and open ./piece.png with the Read tool: you see the "
+            "image. Look at the image and its words together.\n\n"
+            "Write ONE file, ./verdict.json, a UTF-8 JSON object with exactly these keys:\n"
+            '  "target": {"reached": "yes" | "partly" | "no", "why": "..."}: is the person aimed at reached, and why, from their point of view;\n'
+            '  "works": what works;\n'
+            '  "snags": what catches: a double meaning, a hierarchy that does not read, a cliché, an image that does not answer the headline;\n'
+            '  "unsourced": every fact one could check (a figure, a label, a guarantee, an award, a dated promise, a ranking) that is in the piece and in '
+            "none of the entries: do not say it is false, say you were given nothing to believe it. The price, the product's name and the town are not "
+            "aimed at;\n"
+            + ('  "brand": the voice and the tone of the piece against the brand\'s (only that: colours, type, contrast, banned words, hierarchy and '
+               "signature are checked elsewhere);\n" if has_brand else '  "brand": null (no brand is given);\n')
+            + "Each of works, snags, unsourced" + (", brand" if has_brand else "") + ' is a list of {"where": "...", "say": "..."} (an empty list when '
+            'there is nothing). "where" names what it aims at in words, as one would point at it ("le titre en haut", "le bandeau du bas", '
+            '"l\'image"), never coordinates nor a drawn zone. Keep each list short: what matters, at most five.\n'
+            "What the brief says does not move (its line \"ce qui ne bouge pas\") is imposed: never count it as a snag, and do not ask for "
+            "what it rules out (an empty square where the logo goes, for instance, is the brief's choice, not a fault of the piece).\n"
+            + (f"The brief lacks {', '.join(missing)}: do not ask anything. "
+               + ('Set target to {"reached": "unjudgeable", "why": "non jugeable sur la cible : il manque la cible"} and ' if "la cible" in missing else "Say it where it matters and ")
+               + "judge the rest.\n" if missing else "")
+            + f"Write the text in the language of the brief ({lang}), plainly, addressing the person as tu, without em dashes nor emoji.\n"
+            "Write only that one file, and read and write nothing outside the current folder. When it is written, answer with its name and nothing else.")
+
+    def _run_judge(self, log, wdir: Path, image: Path, brief: dict, brand: dict, texts=None, lang="fr") -> dict:
+        """One judge, in a folder of its own: the picture and inputs.md in, verdict.json out, checked. A ToolError says why it failed."""
+        shutil.rmtree(wdir, ignore_errors=True)
+        wdir.mkdir(parents=True)
+        shutil.copy2(image, wdir / "piece.png")
+        (wdir / "inputs.md").write_text(self._judge_inputs(brief, brand, texts), encoding="utf-8")
+        missing = workflow.judge_missing(brief)
+        try:
+            res = self._sh(log, self._claude(self._judge_prompt(bool(brand), missing, lang), "--tools=Read,Write", "--permission-mode=acceptEdits",
+                                             "--permission-prompts=none"), cwd=wdir, timeout=400, claude=True)
+            f = wdir / "verdict.json"
+            if not f.exists():
+                raise ToolError("le juge n'a pas écrit de verdict" + (f" : {tail(res)}" if res.code else ""))
+            try:
+                return workflow.parse_verdict(f.read_text(encoding="utf-8", errors="replace"), bool(brand), brief)
+            except ValueError as err:
+                raise ToolError(f"verdict du juge illisible : {err}") from None
+        finally:
+            shutil.rmtree(wdir, ignore_errors=True)
+
+    def _judge_body(self, pid, jid, i):
+        p = self._load(pid)
+        e = self._entry(p, i)
+        d, log = self._piece_dir(pid) / e["dir"], self._joblog(pid, jid)
+        png = d / "piece.png"
+        if not png.exists():
+            raise ToolError("la pièce n'est plus composée")
+        stamp = png.stat().st_mtime_ns
+        view = self._piece_view(pid, e, p["jobs"])
+        self._phase(pid, jid, "le juge relit la pièce")
+        v = self._run_judge(log, self._pdir(pid) / "work" / f"judge-{i}", png, workflow.judge_brief(p["brief"]["fields"]), self._brand_words(p["brand"]),
+                            {"headline": view["headline"], "subline": view["subline"]}, p["brief"]["fields"].get("language") or "fr")
+        with self._op(pid):
+            if not png.exists() or png.stat().st_mtime_ns != stamp:
+                return "la pièce a changé pendant que le juge la relisait : son verdict est laissé de côté"
+            write_json(d / "judge.json", v)
+            (d / "judge.md").write_text(workflow.judge_md(v), encoding="utf-8")
+            self._studio(log, "check", d)  # the judge's notes go into check.json, beside the mechanical checks
+
+    def judge_piece(self, pid, i):
+        """Run the judge of a composed piece again (after a failure)."""
+        with self._op(pid):
+            p = self._load(pid)
+            e = self._entry(p, i)
+            if not self._piece_view(pid, e, p["jobs"])["composed"]:
+                raise Conflict("this piece is not composed yet")
+            if self._running(p, "judge", i):
+                raise Conflict("the judge is already reading this piece")
+            return self._spawn(pid, "judge", i, lambda jid: self._judge_body(pid, jid, i))
+
+    # ---------- a piece judged on its own ----------
+    def _jg_view(self, j) -> dict:
+        d = self._jdir(j["id"])
+        img = d / f"piece.{j['ext']}"
+        run = self._running(j, "judge")
+        last = j["jobs"][-1] if j["jobs"] else None
+        status = "running" if run else "done" if j.get("verdict") else "failed" if last and last["status"] == "failed" else "running"
+        brand_name = j.get("brand_name", "")
+        return {"id": j["id"], "name": j["name"], "brand": j.get("brand"), "brand_name": brand_name, "brief": dict(j["brief"]),
+                "image": f"/files/_jugements/{urllib.parse.quote(j['id'])}/{img.name}?v={int(img.stat().st_mtime)}" if img.exists() else None,
+                "at": j["created"], "status": status, "verdict": j.get("verdict") if status == "done" else None,
+                "error": last.get("error") if status == "failed" else None, "missing": workflow.judge_missing(j["brief"]), "job": run["id"] if run else None}
+
+    def list_judgements(self):
+        return [{k: v[k] for k in ("id", "name", "brand", "brand_name", "status", "at")} for v in (self._jg_view(self._loadj(jid)) for jid in self._jids())]
+
+    def judgement(self, jid):
+        return self._jg_view(self._loadj(jid))
+
+    def create_judgement(self, data, ctype="", name="", meta=None):
+        """A piece dropped to be judged on its own: its folder in `jugements/`, the picture, the brief it answers, its brand if any; the judge starts."""
+        ext = workflow.judge_image_ext(data, ctype)
+        m = workflow.judge_meta(meta)
+        brand_name = ""
+        if m["brand"]:
+            try:
+                brand_name = self._loadb(m["brand"])["name"]
+            except NotFound:
+                raise ValueError(f"brand: no brand {m['brand']}") from None
+        with self._state:
+            jid = "j-" + time.strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6]
+            d = self._jdir(jid)
+            (d / "logs").mkdir(parents=True)
+            (d / f"piece.{ext}").write_bytes(data)
+            label = m["name"] or one_line(Path(name or "").stem) or "Pièce à juger"
+            write_json(d / "jugement.json", {"id": jid, "name": label[:120], "brand": m["brand"], "brand_name": brand_name, "brief": m["brief"],
+                                             "ext": ext, "created": time.time(), "verdict": None, "jobs": []})
+        self._spawn(("judgement", jid), "judge", None, lambda job: self._judgement_body(jid, job))
+        return self.judgement(jid)
+
+    def _judgement_body(self, jid, job):
+        owner, j = ("judgement", jid), self._loadj(jid)
+        d = self._jdir(jid)
+        self._phase(owner, job, "le juge relit la pièce")
+        v = self._run_judge(self._joblog(owner, job), d / "work", d / f"piece.{j['ext']}", j["brief"], self._brand_words(j.get("brand")))
+        (d / "judge.md").write_text(workflow.judge_md(v), encoding="utf-8")
+        img = d / f"piece.{j['ext']}"
+        mime = "image/png" if j["ext"] == "png" else "image/jpeg"
+        uri = f"data:{mime};base64," + base64.b64encode(img.read_bytes()).decode()
+        (d / "page.html").write_text(workflow.judge_page(v, uri, j["name"], j.get("brand_name", ""), time.strftime("%Y-%m-%d", time.localtime(j["created"]))),
+                                     encoding="utf-8")
+        self._mutatej(jid, lambda q: q.update(verdict=v))
+
+    def run_judgement(self, jid):
+        """Run the judge of a judgement again (after a failure, or to read it once more)."""
+        with self._op("judgement:" + jid):
+            j = self._loadj(jid)
+            if self._running(j, "judge"):
+                raise Conflict("the judge is already reading this piece")
+            self._mutatej(jid, lambda q: q.update(verdict=None))
+            return self._spawn(("judgement", jid), "judge", None, lambda job: self._judgement_body(jid, job))
+
+    def judgement_page(self, jid):
+        """The flat page of a judgement (the piece at the top, the list under it), as the file written beside it."""
+        v = self.judgement(jid)
+        f = self._jdir(jid) / "page.html"
+        if v["status"] != "done" or not f.is_file():
+            raise Conflict("the judge has not given its verdict yet")
+        return Download(f"{jid}.html", "text/html; charset=utf-8", f.read_bytes())
+
     # ---------- taking the pieces out of the studio ----------
     def download_piece(self, pid, i):
         """The composed piece as a png file, at the size of its format (the file `studio compose` made)."""
@@ -1673,9 +1916,16 @@ class StudioBackend:
 
         `/files/<project>/piece/...`   the piece folder of the project;
         `/files/<project>/brand/...`   the brand dossier of the project's brand (kept: the pictures the brand routes of a project point to);
-        `/files/_marques/<brand>/brand/...`   the brand dossier of a brand."""
+        `/files/_marques/<brand>/brand/...`   the brand dossier of a brand;
+        `/files/_jugements/<j>/piece.png`   a piece judged on its own (its picture, or its page.html)."""
         if not rel or "\x00" in rel:
             raise NotFound("no such file")
+        if pid == "_jugements":  # a piece judged on its own: its picture and its page, nothing else of its folder
+            jid, _, name = rel.partition("/")
+            f = self._jdir(jid) / name
+            if name not in ("piece.png", "piece.jpg", "page.html") or not (self._jdir(jid) / "jugement.json").is_file() or not f.is_file() or f.is_symlink():
+                raise NotFound("no such file")
+            return f
         if pid == "_marques":
             bid, _, rest = rel.partition("/")
             if not (self._mdir(bid) / "marque.json").is_file():

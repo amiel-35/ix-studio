@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -69,6 +69,15 @@ DEDUCED_FROM_SITE = {"what": "Une brasserie de kombucha de petite cuvée, au por
                      "signature": "Servez-vous."}
 
 
+# the simulated judge's one verdict, plausible and fixed (the brand heading only when a brand is given; what the brief lacks is said by workflow)
+VERDICT = {"target": {"reached": "partly", "why": "Un citadin pressé comprend vite qu'il s'agit d'une boisson, mais rien ne lui dit pourquoi il la prendrait plutôt qu'un soda."},
+           "works": [{"where": "l'image", "say": "La lumière du matin et le bois brut installent le marché sans avoir à l'écrire."}],
+           "snags": [{"where": "le titre en haut", "say": "« plus rien » peut se lire comme un goût qui s'en va trop vite : le double sens joue contre la boisson."},
+                     {"where": "le bandeau du bas", "say": "L'appel à l'action est plus petit que la sous-ligne : l'œil s'arrête avant de le lire."}],
+           "unsourced": [{"where": "la sous-ligne", "say": "« petite cuvée » : rien dans le brief ni dans la marque ne dit la taille des cuvées."}],
+           "brand": [{"where": "le titre en haut", "say": "Direct et pince-sans-rire, c'est bien sa voix ; la chaleur qu'elle revendique manque un peu."}]}
+
+
 def default_brief():
     return {"objective": "faire connaître le kombucha à des citadins qui n'en ont jamais bu",
             "audience": "des citadins qui pensent que le kombucha est une mode bien-être",
@@ -90,7 +99,7 @@ class StubBackend:
         self.missing = set(missing if missing is not None else (os.environ.get("STUDIO_STUB_MISSING") or "").replace(" ", "").split(",")) - {""}
         self.speed = speed  # 0.01 in tests: the jobs end at once
         self.static = static_url
-        self.brands, self.projects, self.jobs = {}, {}, {}
+        self.brands, self.projects, self.jobs, self.judgements = {}, {}, {}, {}
         self.ids = itertools.count(1)
         self._seed()
 
@@ -181,12 +190,12 @@ class StubBackend:
         for k in keys:
             p["since"][k] = time.time()
 
-    def _job(self, kind, brand=None, project=None, piece=None):
-        j = {"id": self._new_id("job"), "kind": kind, "brand": brand, "project": project, "piece": piece, "start": time.time(),
+    def _job(self, kind, brand=None, project=None, piece=None, judgement=None):
+        j = {"id": self._new_id("job"), "kind": kind, "brand": brand, "project": project, "piece": piece, "judgement": judgement, "start": time.time(),
              "duration": DURATION[kind] * self.speed, "status": "running", "progress": 0.0, "message": "", "result": None, "error": None}
         self.jobs[j["id"]] = j
         if project:
-            self._mark(self._p(project), {"diverge": "diverge", "image": "image"}[kind])
+            self._mark(self._p(project), workflow.KIND_STEP[kind])
         return j
 
     def _tick(self):
@@ -197,7 +206,7 @@ class StubBackend:
                 continue
             j["progress"] = min(1.0, (now - j["start"]) / j["duration"])
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
-                            "image": "le modèle d'image dessine"}[j["kind"]]
+                            "image": "le modèle d'image dessine", "judge": "le juge relit la pièce"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -212,11 +221,23 @@ class StubBackend:
                     self._discovered(b)
                 self._touch(b)
                 continue
+            if j["judgement"]:
+                jg = self.judgements.get(j["judgement"])
+                if jg and "fail" in jg["name"].lower():  # a piece whose name says "fail" makes the judge fail, to see what that looks like
+                    j["status"], j["error"] = "failed", "le juge n'a pas répondu (simulé)"
+                    j["message"], jg["error"] = j["error"], j["error"]
+                elif jg:
+                    jg["verdict"], jg["error"] = self._verdict(jg["brand"], jg["brief"]), None
+                continue
             p = self.projects.get(j["project"])
             if not p:
                 continue
-            self._mark(p, {"diverge": "diverge", "image": "image"}[j["kind"]], *(["piece"] if j["kind"] == "image" else []))
-            if j["kind"] == "diverge":
+            self._mark(p, workflow.KIND_STEP[j["kind"]], *(["piece"] if j["kind"] == "image" else []))
+            if j["kind"] == "judge":
+                pc = next((x for x in p["pieces"] if x["id"] == j["piece"]), None)
+                if pc and pc["composed"] and (pc.get("judge") or {}).get("job") == j["id"]:
+                    pc["judge"] = {**workflow.judge_view("done", self._verdict(p["brand"], p["brief"]["fields"])), "job": j["id"]}
+            elif j["kind"] == "diverge":
                 p["variants"] = copy.deepcopy(VARIANTS)
             elif j["kind"] == "image":
                 pc = self._piece(p, j["piece"])
@@ -330,8 +351,9 @@ class StubBackend:
             self._tick()
             entries = [(self.state(p), self.view(p)) for p in self.projects.values()]
             brands = [(self._bstate(b), self._brand_projects(b)) for b in self.brands.values()]
-            jobs = [{"id": j["id"], "project": j["project"], "brand": j["brand"] or self.projects[j["project"]]["brand"], "kind": j["kind"], "piece": j["piece"],
-                     "progress": j["progress"], "message": j["message"], "since": j["start"], "eta": round(j["duration"] * (1 - j["progress"]), 1)}
+            jobs = [{"id": j["id"], "project": j["project"], "brand": j["brand"] or (self.projects[j["project"]]["brand"] if j["project"] else None), "kind": j["kind"], "piece": j["piece"],
+                     "progress": j["progress"], "message": j["message"], "since": j["start"], "eta": round(j["duration"] * (1 - j["progress"]), 1),
+                     "judgement": j["judgement"]}
                     for j in self.jobs.values() if j["status"] == "running"]
             return workflow.tasks_payload(entries, jobs, time.time(), brands)
 
@@ -645,7 +667,7 @@ class StubBackend:
                     v = have[vid]
                     p["pieces"].append({"id": f"{vid}-{fmt}", "label": f"{vid} en {fmt}", "variant": vid, "format": fmt, "size": FORMATS[fmt],
                                         "headline": v["headline"], "subline": v["subline"], "prompt": v["image_prompt"], "image": None,
-                                        "composed": None, "check": None, "decision": None, "status": "picked"})
+                                        "composed": None, "check": None, "decision": None, "judge": None, "status": "picked"})
             self._mark(p, "diverge", "image")
             return copy.deepcopy(p["pieces"])
 
@@ -725,7 +747,7 @@ class StubBackend:
         with self.lock:
             p = self._p(pid)
             pc = self._piece(p, i)
-            pc["image"], pc["composed"], pc["check"], pc["decision"] = None, None, None, None
+            pc["image"], pc["composed"], pc["check"], pc["decision"], pc["judge"] = None, None, None, None, None
             return job_view(self._job("image", project=pid, piece=i))
 
     def compose(self, pid, i):
@@ -741,6 +763,7 @@ class StubBackend:
                                      {"status": "warn", "say": "le contraste du titre dépend de l'image : regarder la pièce"}]}
             pc["status"] = "composed"
             self._mark(p, "image", "piece", "decide")
+            self._judge(pid, pc)  # the judge reads the piece once it is composed and checked: it blocks nothing
             return copy.deepcopy(pc)
 
     def _png(self, pc):
@@ -778,7 +801,98 @@ class StubBackend:
             pc["decision"] = {"verdict": verdict, "words": words, "at": time.time()}
             self._mark(p, "decide")
             if verdict == "again":
-                pc["image"], pc["composed"], pc["check"], pc["status"] = None, None, None, "again"
+                pc["image"], pc["composed"], pc["check"], pc["judge"], pc["status"] = None, None, None, None, "again"
                 pc["decision"] = None
                 pc["bans"] = pc.get("bans", []) + [words]
             return copy.deepcopy(pc)
+
+    # ---------- the judge ----------
+    def _verdict(self, bid, brief):
+        """The fixed verdict, as the real judge's goes through workflow: the brand heading only with a brand, what the brief lacks said."""
+        return workflow.parse_verdict(copy.deepcopy(VERDICT), bool(bid), workflow.judge_brief(brief))
+
+    def _judge(self, pid, pc):
+        j = self._job("judge", project=pid, piece=pc["id"])
+        pc["judge"] = {**workflow.judge_view("running", None), "job": j["id"]}
+        return j
+
+    def judge_piece(self, pid, i):
+        """Run the judge of a composed piece again."""
+        with self.lock:
+            self._tick()
+            pc = self._piece(self._p(pid), i)
+            if not pc["composed"]:
+                raise Conflict("this piece is not composed yet")
+            if self._running("judge", project=pid, piece=i):
+                raise Conflict("the judge is already reading this piece")
+            return job_view(self._judge(pid, pc))
+
+    def _jg(self, jid):
+        jg = self.judgements.get(jid)
+        if not jg:
+            raise NotFound(f"no judgement {jid}")
+        return jg
+
+    def _jg_status(self, jg):
+        if any(j["judgement"] == jg["id"] and j["status"] == "running" for j in self.jobs.values()):
+            return "running"
+        return "done" if jg["verdict"] else "failed" if jg["error"] else "running"
+
+    def _jg_view(self, jg):
+        st = self._jg_status(jg)
+        job = next((j["id"] for j in self.jobs.values() if j["judgement"] == jg["id"] and j["status"] == "running"), None)
+        return {"id": jg["id"], "name": jg["name"], "brand": jg["brand"], "brand_name": jg["brand_name"], "brief": dict(jg["brief"]), "image": jg["image"],
+                "at": jg["at"], "status": st, "verdict": copy.deepcopy(jg["verdict"]) if st == "done" else None, "error": jg["error"] if st == "failed" else None,
+                "missing": workflow.judge_missing(jg["brief"]), "job": job}
+
+    def list_judgements(self):
+        """The judgements made on their own, the newest first."""
+        with self.lock:
+            self._tick()
+            return [{k: v[k] for k in ("id", "name", "brand", "brand_name", "status", "at")} for v in
+                    (self._jg_view(jg) for jg in sorted(self.judgements.values(), key=lambda x: -x["at"]))]
+
+    def create_judgement(self, data, ctype="", name="", meta=None):
+        """A piece dropped to be judged on its own, with the brief it answers and, if any, its brand: the judge starts at once."""
+        ext = workflow.judge_image_ext(data, ctype)
+        m = workflow.judge_meta(meta)
+        with self.lock:
+            self._tick()
+            b = None
+            if m["brand"]:
+                b = self.brands.get(m["brand"])
+                if not b:
+                    raise ValueError(f"brand: no brand {m['brand']}")
+            jid = self._new_id("jugement")
+            mime = {"png": "image/png", "jpg": "image/jpeg"}[ext]
+            label = m["name"] or one_line(Path(name or "").stem) or "Pièce à juger"
+            jg = {"id": jid, "name": label[:120], "brand": b["id"] if b else None, "brand_name": b["name"] if b else "", "brief": m["brief"],
+                  "image": f"data:{mime};base64," + base64.b64encode(data).decode(), "at": time.time(), "verdict": None, "error": None}
+            self.judgements[jid] = jg
+            self._job("judge", judgement=jid)
+            return self._jg_view(jg)
+
+    def judgement(self, jid):
+        with self.lock:
+            self._tick()
+            return self._jg_view(self._jg(jid))
+
+    def run_judgement(self, jid):
+        """Run the judge of a judgement again (after a failure, or to read it once more)."""
+        with self.lock:
+            self._tick()
+            jg = self._jg(jid)
+            if self._jg_status(jg) == "running":
+                raise Conflict("the judge is already reading this piece")
+            jg["verdict"], jg["error"] = None, None
+            return job_view(self._job("judge", judgement=jid))
+
+    def judgement_page(self, jid):
+        """The flat page of a judgement (the piece at the top, the list under it), as a file."""
+        with self.lock:
+            self._tick()
+            v = self._jg_view(self._jg(jid))
+            if v["status"] != "done":
+                raise Conflict("the judge has not given its verdict yet")
+            page = workflow.judge_page(v["verdict"], v["image"], v["name"], v["brand_name"], time.strftime("%Y-%m-%d", time.localtime(v["at"])))
+            return Download(f"{jid}.html", "text/html; charset=utf-8", page.encode("utf-8"))
