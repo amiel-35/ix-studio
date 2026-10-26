@@ -553,6 +553,30 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/personas", {"personas": "a"}, code=400)
         self.call("GET", "/api/brands/nope/personas", code=404)
 
+    def test_names_of_a_brand_are_proposed_kept_or_dropped_and_the_chosen_one_becomes_its_name(self):
+        bid = self.call("POST", "/api/brands", {"name": "sans nom"})["id"]
+        empty = self.call("GET", f"/api/brands/{bid}/names")
+        self.assertEqual((empty["name"], empty["names"], empty["proposed"], empty["can_propose"], empty["job"]), ("sans nom", [], [], False, None))
+        self.call("POST", f"/api/brands/{bid}/names/propose", code=409)  # no brief of the brand yet
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un kombucha de port"}})
+        job = self.call("POST", f"/api/brands/{bid}/names/propose")
+        self.assertEqual(job["kind"], "names")
+        self.call("POST", f"/api/brands/{bid}/names/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/brands/{bid}/names")
+        self.assertEqual(got["names"], [])  # a proposal never becomes the brand's by itself
+        self.assertTrue(1 <= len(got["proposed"]) <= 8)
+        self.assertTrue(all(x["name"] and x["why"] for x in got["proposed"]))
+        kept = [got["proposed"][0], {"name": "Mon nom à moi", "why": ""}, {"name": "", "why": "vide"}, {"name": "mon nom à moi"}]
+        r = self.call("PUT", f"/api/brands/{bid}/names", {"names": kept})  # the others dropped, one written, the empty and the repeated left out
+        self.assertEqual((r["names"], r["proposed"], r["name"]), (kept[:2], [], "sans nom"))
+        self.call("PUT", f"/api/brands/{bid}/names", {"names": kept[:2], "chosen": "Ailleurs"}, code=400)
+        r = self.call("PUT", f"/api/brands/{bid}/names", {"names": kept[:2], "chosen": "Mon nom à moi"})
+        self.assertEqual(r["name"], "Mon nom à moi")
+        self.assertEqual(self.call("GET", f"/api/brands/{bid}")["name"], "Mon nom à moi")
+        self.call("PUT", f"/api/brands/{bid}/names", {"names": [{"name": str(n)} for n in range(9)]}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/names", {"names": ["a"]}, code=400)
+        self.call("GET", "/api/brands/nope/names", code=404)
     # competitors
     def test_the_competitors_of_a_brand_are_proposed_then_corrected_and_only_the_kept_ones_stay(self):
         bid = self.call("POST", "/api/brands", {"name": "Pour les concurrents"})["id"]

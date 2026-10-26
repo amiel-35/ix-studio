@@ -100,6 +100,10 @@
     personas: (b) => call("GET", B(b) + "/personas"), // { personas: [text], proposed: [text], can_propose, job, error }
     proposePersonas: (b) => call("POST", B(b) + "/personas/propose"),
     savePersonas: (b, personas) => call("PUT", B(b) + "/personas", { personas }), // only these are the brand's; the proposal is settled
+    /* the names of a brand: the studio proposes up to eight (a job), the person keeps some, writes some, and chooses one as the brand's name */
+    names: (b) => call("GET", B(b) + "/names"), // { name, names: [{name, why}], proposed: [{name, why}], can_propose, job, error }
+    proposeNames: (b) => call("POST", B(b) + "/names/propose"),
+    saveNames: (b, names, chosen) => call("PUT", B(b) + "/names", { names, chosen }), // chosen: one of names, becomes the brand's name
     /* competitors: the studio proposes up to six (a job), the person keeps the ones they corrected or wrote */
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),

@@ -49,7 +49,7 @@ STUDIO = SCRIPTS / "studio"
 BRANDKIT = SCRIPTS / "brandkit"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1152,6 +1152,72 @@ class StudioBackend:
         except ValueError as err:
             raise ToolError(f"réponse de l'agent illisible : {err}") from None
         self._mutateb(bid, lambda q: q.update(personas_proposed=texts))
+
+    # ---------- the names of the brand ----------
+    def _names_view(self, b):
+        run = self._running(b, "names")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "names"), None)
+        return {"name": b["name"], "names": list(b.get("names", [])), "proposed": list(b.get("names_proposed", [])), "can_propose": b.get("brief_done", False),
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_names(self, bid):
+        return self._names_view(self._loadb(bid))
+
+    def propose_names(self, bid):
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            if not b.get("brief_done"):
+                raise Conflict("the brief of the brand is not done: the names come from it")
+            if self._running(b, "names"):
+                raise Conflict("the names are already being proposed")
+            return self._spawn(("brand", bid), "names", None, lambda jid: self._names_body(bid, jid))
+
+    def put_names(self, bid, names, chosen=None):
+        """The names the person keeps (or wrote), written in the brand; `chosen`, one of them, becomes the brand's name. The proposal is settled."""
+        kept = workflow.names_of(names)
+        name = workflow.chosen_of(chosen, kept)
+        with self._op("brand:" + bid):
+            self._mutateb(bid, lambda q: q.update(names=kept, names_proposed=[]))
+        if name:
+            self.update_brand(bid, name=name)  # its id does not change; the dossier carries the new name too
+        return self.get_names(bid)
+
+    def _names_prompt(self, b) -> str:
+        ident = self._identity(b, self._doc(b["id"]))
+        labels = {"what": "what it is", "who": "for whom", "voice": "its voice", "signature": "its signature", "never": "the words it never says"}
+        brief = "\n".join(f"- {labels[k]}: {v['value']}" for k, v in ident.items() if k in labels and v["state"] != "absent")
+        words = one_line(b.get("answers"))
+        return (
+            "You propose names for a brand. You only use what is given below: no search, no other source.\n\n"
+            f"=== the brand ===\nits provisional name (a working title, not to keep): {b['name']}\ndescription: {one_line(b.get('description')) or '(none)'}\n"
+            f"=== the brief of the brand ===\n{brief or '(empty)'}\n"
+            + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
+            + "\nReturn ONLY one JSON object, no prose, no code fence:\n"
+            '{"names": [{"name": "...", "why": "..."}]}\n'
+            "- names: up to eight, each different from the others in what it suggests (a place, a gesture, a promise, a sound...).\n"
+            "- name: one to three words, easy to say and to spell in French.\n"
+            "- why: one sentence in French: why this name, and what it evokes.\n"
+            "- Do not claim a name is free to use: nobody checked.\n"
+            "- Plain French, no em dash, no emoji.")
+
+    def _names_body(self, bid, jid):
+        b, owner = self._loadb(bid), ("brand", bid)
+        log = self._joblog(owner, jid)
+        work = self._mdir(bid) / "work" / "names"
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir(parents=True)
+        self._phase(owner, jid, "un agent cherche des noms")
+        try:
+            res = self._sh(log, self._claude(self._names_prompt(b), "--tools", ""), cwd=work, timeout=300, claude=True)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        if res.code:
+            raise ToolError("l'agent n'a pas répondu : " + tail(res))
+        try:
+            names = workflow.parse_names(res.out)
+        except ValueError as err:
+            raise ToolError(f"réponse de l'agent illisible : {err}") from None
+        self._mutateb(bid, lambda q: q.update(names_proposed=names))
 
     # ---------- competitors of the brand ----------
     def _competitors_view(self, b):
