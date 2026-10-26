@@ -118,7 +118,7 @@ JSON, or stops with its reason and a non-zero code. Write the inputs from what y
 - `python3 "$AG" engines [in.json]` (`image_engine`, `text_engine`, `openrouter_model`, `openrouter_key`, all optional): keeps the engines the person chooses and gives `{image_engine, text_engine, openrouter_model, key_saved}`; the key is kept on this machine, never given back, never written in the project. `text_engine` `openrouter` makes the agents that only answer (personas, names, competitors, texts, mandates) use OpenRouter; `STUDIO_TEXT_ENGINE` and `STUDIO_IMAGE_ENGINE` say the same in the environment.
 
 The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
-The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.
+The brand's agents (personas, names, competitors, logos) are in the `brand-dossier` skill.
 
 ## Which tool for which job
 

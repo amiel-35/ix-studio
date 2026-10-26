@@ -58,6 +58,11 @@ ROUTES = [
     ("GET", rf"/api/brands/{B}/names", lambda b, m, d: b.get_names(m["b"])),
     ("PUT", rf"/api/brands/{B}/names", lambda b, m, d: b.put_names(m["b"], d.get("names"), d.get("chosen"))),
     ("POST", rf"/api/brands/{B}/names/propose", lambda b, m, d: b.propose_names(m["b"])),
+    # logos
+    ("GET", rf"/api/brands/{B}/logo/tracks", lambda b, m, d: b.get_logos(m["b"])),
+    ("PUT", rf"/api/brands/{B}/logo/tracks", lambda b, m, d: b.put_logos(m["b"], d.get("keep"))),
+    ("POST", rf"/api/brands/{B}/logo/propose", lambda b, m, d: b.propose_logos(m["b"])),
+    ("POST", rf"/api/brands/{B}/logo/choose", lambda b, m, d: b.choose_logo(m["b"], d.get("id"))),
     # competitors
     ("GET", rf"/api/brands/{B}/competitors", lambda b, m, d: b.get_competitors(m["b"])),
     ("PUT", rf"/api/brands/{B}/competitors", lambda b, m, d: b.put_competitors(m["b"], d.get("competitors"))),

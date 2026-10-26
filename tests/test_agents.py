@@ -29,6 +29,7 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"logos": [': {{"logos": [{{"idea": "Le nom en capitales.", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'><text x='10' y='60' fill='#123456'>Cabane</text></svg>"}}]}},
     '"script": "...",': {{"script": "Une question, puis le geste, puis la marque.", "shots": [
         {{"seconds": 3, "visual": "texte", "text": "C'est quoi ?", "colour": "#1E2A24", "read": "C'est quoi ?"}},
         {{"seconds": 3, "visual": "texte", "text": "Du thé qui fermente.", "colour": "#c8553d", "read": "Du thé qui fermente."}},
@@ -99,6 +100,7 @@ class Agents(unittest.TestCase):
         "personas": (BRAND, "personas", ["personas"]),
         "names": (BRAND, "names", ["names"]),
         "competitors": (BRAND, "competitors", ["competitors"]),
+        "logos": ({**BRAND, "colours": ["#123456", "#FFFFFF"], "fonts": ["Georgia"]}, "logos", ["logos"]),
         "texts": ({"brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "cta": "viens"}, "brand": {"name": "Cabane", "voice": "franche"}, "language": "fr"}, "texts", ["texts"]),
         "mandates": ({"dir": "piece", "language": "fr"}, "common", ["common", "mandates"]),
         "variant": ({"dir": "piece", "id": "v1", "mandate": "Un", "common": "Rien d'inventé.", "language": "fr"}, "headline", ["headline", "layout"]),
@@ -169,6 +171,30 @@ class Agents(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (1, ""))
                 self.assertIn("Claude Code is not signed in", r.stderr)
 
+    def test_the_logos_are_drawings_checked_before_they_are_given(self):
+        r = self.run_cmd("logos", self.CASES["logos"][0])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)["logos"]
+        self.assertEqual((len(got), got[0]["idea"]), (1, "Le nom en capitales."))
+        self.assertIn("#123456", self.calls()[0]["argv"][1])  # the colours and the fonts of the brand are in the prompt
+        self.assertIn("Georgia", self.calls()[0]["argv"][1])
+        sys.path.insert(0, str(AGENTS))
+        from answers import parse_logos
+        good = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><circle r='4' fill='#000'/></svg>"
+        self.assertEqual(parse_logos({"logos": [{"idea": "Un rond.", "svg": good}] * 4})[0]["svg"], good)
+        bad_svgs = ["pas du svg", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><g></svg>", "<svg xmlns='http://www.w3.org/2000/svg'><g/></svg>",  # not well formed, no viewBox
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><script>alert(1)</script></svg>", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' onload='x()'/>",
+                    "<svg viewBox='0 0 1 1'><circle r='1'/></svg>", "<svg:svg xmlns:svg='http://example.org/not-svg' viewBox='0 0 1 1'/>",  # no SVG namespace: not an SVG for a browser
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><image href='https://x.fr/a.png'/></svg>", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect fill='url(http://x.fr/a)'/></svg>",
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><foreignObject/></svg>", "<!DOCTYPE svg [<!ENTITY a 'b'>]><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'>&a;</svg>",
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><style>@import 'x';</style></svg>", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'>" + "<g/>" * 6000 + "</svg>"]
+        for svg in bad_svgs:
+            with self.subTest(svg=svg[:50]), self.assertRaises(ValueError):
+                parse_logos({"logos": [{"idea": "Un rond.", "svg": svg}]})
+        for bad in ({"logos": []}, {"logos": [{"idea": "Un rond.", "svg": good}] * 5}, {"logos": [{"idea": "", "svg": good}]}, {"logos": [{"svg": good}]}):
+            with self.subTest(bad=str(bad)[:40]), self.assertRaises(ValueError):
+                parse_logos(bad)
+
     def test_a_missing_input_or_file_is_an_error(self):
         self.assertEqual(self.run_cmd("judge", {"brief": {}}).returncode, 1)
         r = self.run_cmd("reader", {"image": "absent.png", "persona": "x"})
@@ -200,7 +226,7 @@ class Agents(unittest.TestCase):
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 6 + ["claude-fable-5-1"] * 2 + ["sonnet"])
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 7 + ["claude-fable-5-1"] * 2 + ["sonnet"])
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")

@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1184,6 +1184,50 @@ class StudioBackend:
     def _competitors_body(self, bid, jid):
         texts = self._brand_agent(bid, jid, "competitors", "un agent cherche les concurrents")
         self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
+
+    # ---------- the logo tracks of the brand ----------
+    def _logos_view(self, b):
+        run = self._running(b, "logos")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "logos"), None)
+        return {"tracks": list(b.get("logo_tracks", [])), "proposed": list(b.get("logo_tracks_proposed", [])), "can_propose": True,
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_logos(self, bid):
+        return self._logos_view(self._loadb(bid))
+
+    def propose_logos(self, bid):
+        with self._op("brand:" + bid):
+            if self._running(self._loadb(bid), "logos"):
+                raise Conflict("the logos are already being proposed")
+            return self._spawn(("brand", bid), "logos", None, lambda jid: self._logos_body(bid, jid))
+
+    def put_logos(self, bid, keep):
+        """The tracks the person keeps, among the kept and the proposed ones: only these stay. The proposal is settled."""
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            kept = workflow.logos_kept(keep, b.get("logo_tracks", []), b.get("logo_tracks_proposed", []))
+            self._mutateb(bid, lambda q: q.update(logo_tracks=kept, logo_tracks_proposed=[]))
+            return self.get_logos(bid)
+
+    def choose_logo(self, bid, tid):
+        """A kept track becomes the logo of the brand, as a logo dropped by the person."""
+        data = workflow.logo_chosen(tid, self._loadb(bid).get("logo_tracks", []))
+        self.add_logo(bid, data, "image/svg+xml", "piste de logo")
+        return self.get_logos(bid)
+
+    def _logos_body(self, bid, jid):
+        b = self._loadb(bid)
+        inputs = {**self._brand_inputs(b), "colours": [c["hex"] for c in self._colours_of(self._doc(bid))], "fonts": self._fonts_of(self._doc(bid))}
+        owner, work = ("brand", bid), self._mdir(bid) / "work" / "logos"
+        self._phase(owner, jid, "un agent dessine des pistes de logo")
+        try:
+            items = self._ask(self._joblog(owner, jid), "logos", inputs, work, 330)["logos"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutateb(bid, lambda q: q.update(logo_tracks_proposed=workflow.logo_tracks(items)))
+
+    def _fonts_of(self, doc) -> list:
+        return [str((it.get("family") or {}).get("value")) for it in (doc.get("typography") or {}).get("items", []) if (it.get("family") or {}).get("value")]
 
     # ---------- the projects ----------
     def _new_pid(self, name) -> str:

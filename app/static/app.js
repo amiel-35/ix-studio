@@ -48,6 +48,7 @@
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
+    if (n("logos")) parts.push("dessine des pistes de logo");
     if (n("texts")) parts.push("écrit les textes");
     if (n("storyboard")) parts.push("écrit le découpage du film");
     if (n("film")) parts.push("fait le film");
@@ -1013,7 +1014,8 @@
             : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))),
       h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }),
-      h(Competitors, { ctx, bid }));
+      h(Competitors, { ctx, bid }),
+      h(Logos, { ctx, bid }));
   }
 
   /* ---------- the names of a brand: the studio proposes up to eight, the person keeps or drops each, or writes one, and chooses one of
@@ -1141,6 +1143,47 @@
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
   }
 
+  /* ---------- logos: the studio draws up to four tracks in SVG, the person keeps or drops each, and chooses one of the kept as the brand's logo ---------- */
+  const LOGOS_MAX = 4;
+  const svgSrc = (svg) => "data:image/svg+xml;utf8," + encodeURIComponent(svg); // shown as a picture: nothing in it runs
+  function Logos({ ctx, bid }) {
+    const data = useLive(ctx, () => api.logos(bid), bid);
+    const [ed, setEd] = useState(null); // the tracks being decided, [{id, idea, svg, kept}]; null: nothing touched
+    useEffect(() => setEd(null), [bid]);
+    if (!data) return null;
+    const list = ed || data.tracks.map((t) => ({ ...t, kept: true })).concat(data.proposed.map((t) => ({ ...t, kept: false })));
+    const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
+    const change = (id, o) => setEd(list.map((x) => (x.id === id ? { ...x, ...o } : x)));
+    const dirty = ed !== null || data.proposed.length > 0;
+    const propose = () => ctx.act(async () => { await api.proposeLogos(bid); ctx.log("@" + bid, "toi", "Pistes de logo demandées au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      await api.keepLogos(bid, list.filter((x) => x.kept).map((x) => x.id));
+      ctx.log("@" + bid, "toi", "Pistes de logo enregistrées", plural(kept, "piste gardée", "pistes gardées"));
+      setEd(null); ctx.touch(); ctx.notify(kept ? plural(kept, "piste est gardée", "pistes sont gardées") + " dans la marque." : "La marque n'a plus de piste de logo.");
+    });
+    const choose = (x) => ctx.act(async () => {
+      await api.chooseLogo(bid, x.id);
+      ctx.log("@" + bid, "toi", "Logo choisi", x.idea);
+      ctx.touch(); ctx.notify("Cette piste est le logo de la marque.");
+    });
+    return h("div", { id: "logos" }, h(Where, null, "Ses logos"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio dessine des pistes de logo avec le nom et les couleurs de la marque.")
+        : list.length === 0 && h("p", { className: "vide" }, "Aucune piste. Le studio peut en dessiner jusqu'à quatre."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des dessins du studio, personne n'a vérifié que le logo est libre. Garde ou écarte chacun."),
+      list.map((x, i) => h("div", { key: x.id, className: "editor", "data-logo": x.kept ? "kept" : "proposed" },
+        h("span", { className: "small cap" }, (x.kept ? "Piste gardée " : "Proposition ") + (i + 1)),
+        h("div", { className: "logobox" }, h("img", { src: svgSrc(x.svg), alt: "Piste de logo " + (i + 1) + " : " + x.idea })),
+        h("p", { className: "small" }, x.idea),
+        h("div", { className: "row" },
+          !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= LOGOS_MAX, onClick: () => change(x.id, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
+          x.kept && !dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => choose(x), "aria-label": "Prendre la piste " + (i + 1) + " comme logo de la marque" }, "Prendre comme logo"),
+          h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y) => y.id !== x.id)), "aria-label": (x.kept ? "Écarter la piste " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      h("div", { className: "gestures" },
+        !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de dessiner des pistes de logo" }, list.length ? "En proposer d'autres" : "Proposer des logos"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les pistes de logo gardées dans la marque" }, "Enregistrer")),
+      dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
+      kept >= LOGOS_MAX && h("p", { className: "small muted" }, "Quatre pistes au plus."));
   /* ---------- texts of a project: the studio proposes up to six hooks and posts, the person corrects each, keeps or drops it, or writes one by hand.
      Only the kept ones are saved in the project, and copied in one gesture ---------- */
   const TEXTS_MAX = 6;
@@ -1663,7 +1706,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "texts" ? "Les textes sont proposés" : j.kind === "storyboard" ? "Le découpage du film est proposé" : j.kind === "film" ? "Le film est prêt" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "logos" ? "Les pistes de logo sont dessinées" : j.kind === "texts" ? "Les textes sont proposés" : j.kind === "storyboard" ? "Le découpage du film est proposé" : j.kind === "film" ? "Le film est prêt" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;

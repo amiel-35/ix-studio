@@ -104,6 +104,8 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .asset { display: grid; gap: var(--space-2); justify-items: start; }
 .logobox { display: flex; align-items: center; gap: var(--space-3); background: var(--surface-card); border: 1px solid var(--border-default); padding: var(--space-3); }
 .logobox img { max-height: 48px; max-width: 160px; width: auto; }
+/* logos */
+#logos .logobox img { max-height: 96px; max-width: 240px; }
 .swatches.mini { gap: var(--space-3); }
 .swatches.mini .swatch { width: auto; grid-auto-flow: column; align-items: center; gap: var(--space-2); }
 .swatches.mini .swatch i { width: 20px; height: 20px; }

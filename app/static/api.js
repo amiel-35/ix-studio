@@ -112,6 +112,11 @@
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* logos: the studio proposes up to four tracks drawn in SVG (a job), the person keeps or drops each, and chooses one of the kept as the brand's logo */
+    logos: (b) => call("GET", B(b) + "/logo/tracks"), // { tracks: [{id, idea, svg}], proposed: [{id, idea, svg}], can_propose, job, error }
+    proposeLogos: (b) => call("POST", B(b) + "/logo/propose"),
+    keepLogos: (b, keep) => call("PUT", B(b) + "/logo/tracks", { keep }), // keep: ids among tracks and proposed; only these stay
+    chooseLogo: (b, id) => call("POST", B(b) + "/logo/choose", { id }), // id: one of tracks, becomes the brand's logo
     /* texts: the studio proposes up to six hooks and posts for a project (a job), the person keeps the ones they corrected or wrote */
     texts: (p) => call("GET", P(p) + "/texts"), // { texts: [text], proposed: [text], can_propose, job, error }
     proposeTexts: (p) => call("POST", P(p) + "/texts/propose"),
