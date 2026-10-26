@@ -553,6 +553,29 @@ class Api(unittest.TestCase):
         self.call("PUT", f"/api/brands/{bid}/personas", {"personas": "a"}, code=400)
         self.call("GET", "/api/brands/nope/personas", code=404)
 
+    def test_the_storyboard_of_a_project_is_proposed_saved_and_only_then_rendered(self):
+        pid = next(x["id"] for x in self.call("GET", "/api/projects") if x["name"] == "Campagne de rentrée")  # its brief is confirmed
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((got["shots"], got["saved"], got["can_propose"], got["film"]), ([], False, True, None))
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)
+        job = self.call("POST", f"/api/projects/{pid}/storyboard/propose")
+        self.assertEqual(job["kind"], "storyboard")
+        self.call("POST", f"/api/projects/{pid}/storyboard/propose", code=409)  # it runs
+        self.wait(job)
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertTrue(5 <= len(got["shots"]) <= 8 and 15 <= sum(x["seconds"] for x in got["shots"]) <= 30)
+        self.assertEqual((got["saved"], got["film"]), (False, None))
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)  # proposed, not saved
+        shots = [{**got["shots"][0], "text": "Corrigé"}, *got["shots"][1:]]
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": [{**shots[0], "seconds": 0}, *shots[1:]]}, code=400)
+        self.assertEqual(self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": shots})["saved"], True)
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/render"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((got["shots"][0]["text"], got["film_job"]), ("Corrigé", None))
+        self.assertEqual(self.fetch("/" + got["film"]["url"])[1][4:8], b"ftyp")
+        self.assertEqual(self.fetch(f"/api/projects/{pid}/storyboard/film")[0]["Content-Type"], "video/mp4")
+        self.call("GET", "/api/projects/nope/storyboard", code=404)
+
     def test_names_of_a_brand_are_proposed_kept_or_dropped_and_the_chosen_one_becomes_its_name(self):
         bid = self.call("POST", "/api/brands", {"name": "sans nom"})["id"]
         empty = self.call("GET", f"/api/brands/{bid}/names")

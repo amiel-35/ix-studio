@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "storyboard": 4.0, "film": 5.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -112,6 +112,15 @@ PERSONAS = {"personas": [
         {"from": "dossier", "say": "La marque dit d'elle : direct, chaleureux, pince-sans-rire ; sa signature : « Servez-vous. »."},
         {"from": "supposé", "say": "Tu ne connais pas la marque ; tu aimes ce qui se fabrique à côté."},
         {"from": "supposé", "say": "Tes mots : « ça se vend bien ? », « vous livrez ? »."}]}]}
+
+# storyboard: the simulated storyboard agent's one answer, plausible and fixed (checked by workflow.parse_storyboard, as the real agent's)
+STORYBOARD = {"script": "Le film commence par une question, répond par le geste de brasser, puis dit le goût et finit sur la marque.",
+              "shots": [{"seconds": 3, "visual": "texte", "text": "Un kombucha, c'est quoi ?", "colour": "#1e2a24", "read": "Un kombucha, c'est quoi ?"},
+                        {"seconds": 4, "visual": "texte", "text": "Du thé qui fermente, doucement.", "colour": "#c8553d", "read": "C'est du thé qui fermente, doucement."},
+                        {"seconds": 4, "visual": "texte", "text": "Brassé en petits lots au port.", "colour": "#f4efe6", "read": "On le brasse en petits lots, au port."},
+                        {"seconds": 4, "visual": "texte", "text": "Un goût franc, pas un jus.", "colour": "#1e2a24", "read": "Un goût franc, pas un jus."},
+                        {"seconds": 3, "visual": "texte", "text": "Servez-vous.", "colour": "#c8553d", "read": "Servez-vous."},
+                        {"seconds": 3, "visual": "logo", "text": "", "colour": "#1e2a24", "read": "Marrowbay Ferments."}]}
 
 # competitors: the simulated competitors agent's one answer, plausible, fixed and fictional
 COMPETITORS = {"competitors": [
@@ -255,7 +264,8 @@ class StubBackend:
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
-                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents"}[j["kind"]]
+                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents",
+                            "storyboard": "un agent écrit le script et les plans", "film": "chaque plan est animé puis assemblé"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -286,6 +296,13 @@ class StubBackend:
                 b = self.brands.get(j["brand"])
                 if b:
                     b["competitors_proposed"] = workflow.parse_competitors(copy.deepcopy(COMPETITORS))
+                continue
+            if j["kind"] in ("storyboard", "film"):  # storyboard
+                p = self.projects.get(j["project"])
+                if p and j["kind"] == "storyboard":
+                    p["storyboard"] = {**workflow.parse_storyboard(copy.deepcopy(STORYBOARD)), "saved": False, "film": False}
+                elif p:
+                    p["storyboard"]["film"] = True
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -936,6 +953,58 @@ class StubBackend:
     def _png(self, pc):
         """The composed piece: the simulated studio has one picture for all of them (static/stub/piece.png)."""
         return (Path(__file__).resolve().parent / "static" / self.static / "piece.png").read_bytes()
+
+    # ---------- routes: storyboard (the script and the shots of the project's film, then the film) ----------
+    def _storyboard_view(self, p):
+        sb = p.get("storyboard") or {}
+        run, frun = self._running("storyboard", project=p["id"]), self._running("film", project=p["id"])
+        return workflow.storyboard_view(sb, p["brief"]["confirmed"], run["id"] if run else None, None,
+                                        {"url": f"{self.static}/film.mp4", "seconds": 2.0} if sb.get("film") else None, frun["id"] if frun else None, None)
+
+    def get_storyboard(self, pid):
+        with self.lock:
+            self._tick()
+            return self._storyboard_view(self._p(pid))
+
+    def propose_storyboard(self, pid):
+        """The storyboard agent: the script and the shots (a job). The simulated one answers STORYBOARD."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running("storyboard", project=pid):
+                raise Conflict("the storyboard is already being proposed")
+            return job_view(self._job("storyboard", project=pid))
+
+    def put_storyboard(self, pid, script, shots):
+        """The storyboard the person corrected and keeps; the film of an older one is dropped."""
+        with self.lock:
+            p = self._p(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            try:
+                p["storyboard"] = {**workflow.parse_storyboard({"script": script, "shots": shots}), "saved": True, "film": False}
+            except ValueError as err:
+                raise ValueError(f"storyboard: {err}") from None
+            return self._storyboard_view(p)
+
+    def render_film(self, pid):
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not (p.get("storyboard") or {}).get("saved"):
+                raise Conflict("the storyboard is not saved: read it, correct it and save it first")
+            if self._running("film", project=pid):
+                raise Conflict("the film is already being made")
+            return job_view(self._job("film", project=pid))
+
+    def download_film(self, pid):
+        with self.lock:
+            self._tick()
+            if not (self._p(pid).get("storyboard") or {}).get("film"):
+                raise Conflict("the film is not made yet")
+            return Download(f"{pid}.mp4", "video/mp4", (Path(__file__).resolve().parent / "static" / self.static / "film.mp4").read_bytes())
 
     def download_piece(self, pid, i):
         """The composed piece as a png file (at its size in the real studio; the simulated one has one picture)."""

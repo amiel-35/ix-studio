@@ -29,6 +29,13 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '"script": "...",': {{"script": "Une question, puis le geste, puis la marque.", "shots": [
+        {{"seconds": 3, "visual": "texte", "text": "C'est quoi ?", "colour": "#1E2A24", "read": "C'est quoi ?"}},
+        {{"seconds": 3, "visual": "texte", "text": "Du thé qui fermente.", "colour": "#c8553d", "read": "Du thé qui fermente."}},
+        {{"seconds": 4, "visual": "texte", "text": "Brassé au port.", "colour": "#f4efe6", "read": "Brassé au port."}},
+        {{"seconds": 4, "visual": "texte", "text": "Un goût franc.", "colour": "#1e2a24", "read": "Un goût franc."}},
+        {{"seconds": 3, "visual": "texte", "text": "Servez-vous.", "colour": "#c8553d", "read": "Servez-vous."}},
+        {{"seconds": 3, "visual": "logo", "text": "", "colour": "#1e2a24", "read": "Cabane."}}]}},
     '{{"common": ': {{"common": "Écrire en français.", "mandates": ["Un", "Deux", "Trois", "Rupture : Quatre"]}},
 }}
 for key, body in ANSWERS.items():
@@ -95,6 +102,8 @@ class Agents(unittest.TestCase):
         "variant": ({"dir": "piece", "id": "v1", "mandate": "Un", "common": "Rien d'inventé.", "language": "fr"}, "headline", ["headline", "layout"]),
         "judge": (PIECE, "target", ["target", "works", "snags", "unsourced", "brand", "missing"]),
         "reader": ({"image": "piece.png", "persona": "Tu as la cinquantaine.", "texts": {"headline": "H", "subline": ""}}, "aimed", ["aimed", "why"]),
+        "storyboard": ({"name": "Cabane", "brand": {"what": "un kombucha"}, "colours": ["#1e2a24", "#c8553d", "#f4efe6"],
+                        "brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "cta": "viens"}}, "script", ["script", "shots"]),
     }
 
     def test_every_command_gives_its_answer_as_json(self):
@@ -105,6 +114,34 @@ class Agents(unittest.TestCase):
                 got = json.loads(r.stdout)
                 for k in keys:
                     self.assertIn(k, got)
+
+    def test_the_storyboard_is_checked_and_its_prompt_gives_only_the_brief_and_the_brand(self):
+        inputs = self.CASES["storyboard"][0]
+        got = json.loads(self.run_cmd("storyboard", inputs).stdout)
+        self.assertEqual((len(got["shots"]), sum(x["seconds"] for x in got["shots"])), (6, 20))
+        self.assertEqual(got["shots"][0]["colour"], "#1e2a24")  # lower case
+        self.assertEqual(got["shots"][-1], {"seconds": 3, "visual": "logo", "text": "", "colour": "#1e2a24", "read": "Cabane."})
+        call = self.calls()[-1]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool, no search
+        self.assertEqual(call["ls"], [])
+        self.assertFalse(call["key"])
+        self.assertEqual(self.model_of(call), "sonnet")
+        # a colour that is not the brand's, a film too short, too few shots: refused with the reason
+        for colours, why in ((["#000000"], "couleur de la marque"),):
+            r = self.run_cmd("storyboard", {**inputs, "colours": colours})
+            self.assertEqual(r.returncode, 1)
+            self.assertIn(why, r.stderr)
+        from importlib import util
+        spec = util.spec_from_file_location("ixs_answers", AGENTS / "answers.py")
+        answers = util.module_from_spec(spec)
+        spec.loader.exec_module(answers)
+        ok = json.loads(self.run_cmd("storyboard", inputs).stdout)
+        for bad, word in (({**ok, "shots": ok["shots"][:4]}, "de 5 à 8"), ({**ok, "shots": [{**x, "seconds": 2} for x in ok["shots"]]}, "il en faut de 15 à 30"),
+                          ({**ok, "script": ""}, "script"), ({**ok, "shots": [{**ok["shots"][0], "visual": "video"}, *ok["shots"][1:]]}, "visual"),
+                          ({**ok, "shots": [{**ok["shots"][0], "text": ""}, *ok["shots"][1:]]}, "texte à l'écran"),
+                          ({**ok, "shots": [{**ok["shots"][0], "read": ""}, *ok["shots"][1:]]}, "ce qu'on lit")):
+            with self.assertRaisesRegex(ValueError, word):
+                answers.parse_storyboard(bad)
 
     def test_the_answer_can_also_go_in_a_file(self):
         out = self.tmp / "answer.json"
@@ -146,7 +183,7 @@ class Agents(unittest.TestCase):
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 5 + ["claude-fable-5-1"] * 2)
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 5 + ["claude-fable-5-1"] * 2 + ["sonnet"])
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")

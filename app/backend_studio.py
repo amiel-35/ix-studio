@@ -50,7 +50,7 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -1897,6 +1897,90 @@ class StudioBackend:
         if not files:
             raise Conflict("no piece is kept yet")
         return Download(f"{pid}.zip", "application/zip", workflow.zip_of(files))
+
+    # ---------- storyboard: the script and the shots of the project's film, then the film ----------
+    def _film_view(self, pid):
+        f = self._piece_dir(pid) / "film.mp4"
+        return {"url": self._url(pid, "piece/film.mp4", f), "seconds": (self._load(pid).get("storyboard") or {}).get("film_seconds")} if f.is_file() else None
+
+    def get_storyboard(self, pid):
+        p = self._load(pid)
+        last = lambda kind: next((j for j in reversed(p["jobs"]) if j["kind"] == kind), None)
+        run, frun, fl = self._running(p, "storyboard"), self._running(p, "film"), last("film")
+        sl = last("storyboard")
+        return workflow.storyboard_view(p.get("storyboard"), p["brief"]["confirmed"], run["id"] if run else None,
+                                        sl["error"] if sl and sl["status"] == "failed" and not run else None, self._film_view(pid), frun["id"] if frun else None,
+                                        fl["error"] if fl and fl["status"] == "failed" and not frun else None)
+
+    def _storyboard_inputs(self, pid) -> dict:
+        """What the storyboard agent is told: the brand (its fields and the colours of the piece's brand.md) and the confirmed brief of the project."""
+        p = self._load(pid)
+        b = self._loadb(p["brand"])
+        kv = self._brand_kv(pid)
+        colours = [c for c in dict.fromkeys(x.lower() for x in [hex_of(kv.get(k)) for k in ("background", "text", "accent")] + re.findall(r"#[0-9a-fA-F]{6}\b", kv.get("extra colours", ""))) if c]
+        ident = self._identity(b, self._doc(b["id"]))
+        fields = p["brief"]["fields"]
+        return {"name": b["name"], "brand": {k: v["value"] for k, v in ident.items() if k != "colours" and v["state"] != "absent"}, "colours": colours,
+                "brief": {k: fields.get(k, "") for k in ("objective", "audience", "message", "cta")}, "language": fields.get("language") or "fr"}
+
+    def propose_storyboard(self, pid):
+        """The storyboard agent (`agents storyboard`): the script and five to eight shots, a job. What it proposes is kept as not yet saved."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running(p, "storyboard"):
+                raise Conflict("the storyboard is already being proposed")
+            return self._spawn(pid, "storyboard", None, lambda jid: self._storyboard_body(pid, jid))
+
+    def _storyboard_body(self, pid, jid):
+        self._phase(pid, jid, "un agent écrit le script et les plans")
+        work = self._pdir(pid) / "work" / "storyboard"
+        try:
+            sb = self._ask(self._joblog(pid, jid), "storyboard", self._storyboard_inputs(pid), work, 330)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(storyboard={"script": sb["script"], "shots": sb["shots"], "saved": False}))
+        (self._piece_dir(pid) / "film.mp4").unlink(missing_ok=True)
+
+    def put_storyboard(self, pid, script, shots):
+        """The storyboard the person corrected and keeps: checked as the agent's answer is. The film made from an older one is dropped."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            try:
+                sb = workflow.parse_storyboard({"script": script, "shots": shots}, self._storyboard_inputs(pid)["colours"])
+            except ValueError as err:
+                raise ValueError(f"storyboard: {err}") from None
+            self._mutate(pid, lambda q: q.update(storyboard={**sb, "saved": True}))
+            (self._piece_dir(pid) / "film.mp4").unlink(missing_ok=True)
+            return self.get_storyboard(pid)
+
+    def render_film(self, pid):
+        """The film of the saved storyboard (`film`, motion made by code, ffmpeg), a job."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not (p.get("storyboard") or {}).get("saved"):
+                raise Conflict("the storyboard is not saved: read it, correct it and save it first")
+            if self._running(p, "film"):
+                raise Conflict("the film is already being made")
+            return self._spawn(pid, "film", None, lambda jid: self._film_body(pid, jid))
+
+    def _film_body(self, pid, jid):
+        self._phase(pid, jid, "chaque plan est animé, capturé image par image, puis assemblé")
+        piece, sb = self._piece_dir(pid), self._load(pid)["storyboard"]
+        src = piece / "storyboard.json"
+        write_json(src, {"shots": sb["shots"]})
+        out = piece / "film.mp4"
+        res = json.loads(self._must(self._joblog(pid, jid), self._py(SCRIPTS / "film", piece, src, "--out", out), timeout=1500).out)
+        self._mutate(pid, lambda q: q["storyboard"].update(film_seconds=res["seconds"]))
+
+    def download_film(self, pid):
+        f = self._piece_dir(pid) / "film.mp4"
+        if not f.is_file():
+            raise Conflict("the film is not made yet")
+        return Download(f"{pid}.mp4", "video/mp4", f.read_bytes())
 
     # ---------- the files of a project, and of a brand ----------
     def file(self, pid, rel) -> Path:

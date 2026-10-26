@@ -48,6 +48,8 @@
     if (n("personas")) parts.push("imagine les personas");
     if (n("names")) parts.push("cherche des noms");
     if (n("competitors")) parts.push("cherche les concurrents");
+    if (n("storyboard")) parts.push("écrit le découpage du film");
+    if (n("film")) parts.push("fait le film");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
     if (n("reader")) parts.push("fait lire " + plural(n("reader"), "lecteur", "lecteurs"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
@@ -1135,6 +1137,59 @@
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
   }
 
+  /* ---------- storyboard: "Son film". The studio proposes the script and the shots (a job); the person reads them, corrects the seconds and the words,
+     saves, and only then renders the film (a job): motion made by code, an mp4 to watch and to download ---------- */
+  function Storyboard({ ctx, pid }) {
+    const data = useLive(ctx, () => api.storyboard(pid), pid + "|sb");
+    const [ed, setEd] = useState(null); // the storyboard being corrected, { script, shots }; null: nothing touched
+    useEffect(() => setEd(null), [pid]);
+    if (!data || !data.can_propose) return null;
+    const shots = ed ? ed.shots : data.shots, script = ed ? ed.script : data.script;
+    const total = shots.reduce((a, x) => a + (Number(x.seconds) || 0), 0);
+    const colours = [...new Set(data.shots.map((x) => x.colour))];
+    const dirty = ed !== null, saved = data.saved && !dirty;
+    const change = (i, o) => setEd({ script, shots: shots.map((x, k) => (k === i ? { ...x, ...o } : x)) });
+    const propose = () => ctx.act(async () => { await api.proposeStoryboard(pid); ctx.log(pid, "toi", "Découpage du film demandé au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const save = () => ctx.act(async () => {
+      await api.saveStoryboard(pid, script, shots.map((x) => ({ ...x, seconds: Number(x.seconds) })));
+      ctx.log(pid, "toi", "Découpage du film enregistré", plural(shots.length, "plan", "plans"));
+      setEd(null); ctx.touch(); ctx.notify("Le découpage est enregistré. Tu peux lancer le rendu du film.");
+    });
+    const render = () => ctx.act(async () => { await api.renderFilm(pid); ctx.log(pid, "toi", "Rendu du film demandé", ""); await ctx.refresh(); ctx.touch(); });
+    const download = () => ctx.act(async () => saveFile(await api.downloadFilm(pid)));
+    return h("div", { id: "film" }, h(Where, null, "Son film"),
+      data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit le script et le découpage à partir du brief.")
+        : shots.length === 0 && h("p", { className: "vide" }, "Pas encore de film. Le studio peut écrire un script et un découpage en plans, que tu corriges avant le rendu."),
+      data.error && !data.job && h(Callout, { tone: "risk", label: "Le découpage n'a pas marché" }, data.error),
+      shots.length > 0 && h("div", { className: "sec" },
+        !data.saved && !dirty && h("p", { className: "small muted" }, "Ce découpage est une proposition : relis-le, corrige-le, puis enregistre-le. Le rendu ne se lance qu'après."),
+        h("label", { htmlFor: "sb-script", className: "small cap" }, "Le script"),
+        h("textarea", { id: "sb-script", rows: 3, value: script, readOnly: !!data.job, onChange: (e) => setEd({ script: e.target.value, shots }) }),
+        shots.map((x, i) => h("div", { key: i, className: "editor", "data-shot": i + 1 },
+          h("span", { className: "small cap" }, "Plan " + (i + 1) + " sur " + shots.length + (x.visual === "logo" ? " : le logo de la marque" : "")),
+          h("div", { className: "row" },
+            h("label", { htmlFor: "sb-s-" + i, className: "small" }, "Secondes"),
+            h("input", { id: "sb-s-" + i, type: "number", min: 1, max: 8, step: 0.5, value: x.seconds, onChange: (e) => change(i, { seconds: e.target.value }) }),
+            h("label", { htmlFor: "sb-c-" + i, className: "small" }, "Couleur"),
+            h("select", { id: "sb-c-" + i, value: x.colour, onChange: (e) => change(i, { colour: e.target.value }), style: { borderLeft: "1.5rem solid " + x.colour } },
+              colours.map((c) => h("option", { key: c, value: c }, c)))),
+          x.visual === "texte" && h(React.Fragment, null,
+            h("label", { htmlFor: "sb-t-" + i, className: "small" }, "Texte à l'écran"),
+            h("input", { id: "sb-t-" + i, type: "text", maxLength: 90, value: x.text, onChange: (e) => change(i, { text: e.target.value }) })),
+          h("label", { htmlFor: "sb-r-" + i, className: "small" }, "Ce qu'on lit"),
+          h("input", { id: "sb-r-" + i, type: "text", maxLength: 300, value: x.read, onChange: (e) => change(i, { read: e.target.value }) }))),
+        h("p", { className: "small muted", role: "status" }, "Le film fait " + total + " s" + (total >= 15 && total <= 30 ? "." : " : il en faut entre 15 et 30."))),
+      h("div", { className: "gestures" },
+        !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio d'écrire le découpage du film" }, shots.length ? "En proposer un autre" : "Écrire le découpage"),
+        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || total < 15 || total > 30, onClick: save, "aria-label": "Enregistrer le découpage corrigé" }, "Enregistrer"),
+        saved && !data.film_job && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: render, "aria-label": "Lancer le rendu du film" }, data.film ? "Refaire le rendu" : "Lancer le rendu")),
+      data.film_job && h("p", { className: "small muted", role: "status" }, "Le studio fait le film : chaque plan est animé, capturé image par image, puis assemblé. Compte quelques minutes."),
+      data.film_error && !data.film_job && h(Callout, { tone: "risk", label: "Le rendu n'a pas marché" }, data.film_error),
+      data.film && !data.film_job && h("div", { className: "sec" },
+        h("video", { src: data.film.url, controls: true, width: 270, "aria-label": "Le film du projet" }),
+        h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: download, "aria-label": "Télécharger le film en mp4" }, "Télécharger le film"))));
+  }
+
   /* ---------- 3. a project: its seven steps, what waits ---------- */
   function ProjectCol({ ctx, pid }) {
     const p = useLive(ctx, () => api.project(pid), pid);
@@ -1169,6 +1224,7 @@
             : h("div", { className: "etape" }, inner));
       })),
       p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
+      st("brief") === "done" && h(Storyboard, { ctx, pid, key: pid + "|film" }),
       h(Where, null, "Ce qui attend"),
       tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false }))
         : st("brand") !== "done" ? h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
@@ -1531,7 +1587,7 @@
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : j.kind === "learn" && t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
-          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : "Image prête : " + j.piece, "");
+          else log(where, "studio", j.kind === "learn" ? "Lecture du site terminée" : j.kind === "mandates" ? "Les consignes sont proposées" : j.kind === "diverge" ? "Les quatre variantes sont écrites" : j.kind === "judge" ? "Le juge a relu : " + j.piece : j.kind === "personas" ? "Les personas sont proposés" : j.kind === "names" ? "Les noms sont proposés" : j.kind === "competitors" ? "Les concurrents sont proposés" : j.kind === "storyboard" ? "Le découpage du film est proposé" : j.kind === "film" ? "Le film est prêt" : "Image prête : " + j.piece, "");
         });
         prevJobs.current = r.jobs;
         tasksRef.current = r.tasks;
