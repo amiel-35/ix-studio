@@ -6,7 +6,9 @@ scripts/studio.
 
 import importlib.util
 import json
+import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 STUDIO = Path(__file__).resolve().parent.parent / "studio"
@@ -218,6 +220,140 @@ def parse_competitors(raw) -> list:
     return out
 
 
+# ---------- logos: up to four tracks of logo, each drawn in SVG by the agent ----------
+LOGOS_MAX = 4
+LOGO_SVG_MAX = 20000  # characters of one drawing
+LOGO_BANNED_TAGS = {"script", "foreignobject", "image", "iframe", "object", "embed", "a", "use", "style", "animate", "set"}
+LOGO_SVG_ROOT = "{http://www.w3.org/2000/svg}svg"  # the root must be in the SVG namespace, or a browser shows nothing
+LOGO_BANNED_VALUES = ("http", "javascript:", "data:", "@import", "//")
+
+
+def check_svg(text) -> str:
+    """A drawing the agent made, kept only if it is well formed, drawn on a viewBox, with no script, no image, no link and nothing outside it.
+    Returns it as it is, or raises a ValueError that says what does not hold."""
+    text = str(text or "").strip()
+    if not text or len(text) > LOGO_SVG_MAX:
+        raise ValueError(f"le dessin est vide ou dépasse {LOGO_SVG_MAX} caractères")
+    if "<!" in text.replace("<!--", ""):
+        raise ValueError("le dessin déclare un type ou une entité")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as err:
+        raise ValueError(f"le dessin n'est pas du SVG bien formé ({err})") from None
+    if root.tag != LOGO_SVG_ROOT or not root.get("viewBox"):
+        raise ValueError("le dessin est un élément svg de l'espace de noms SVG (xmlns), avec un viewBox")
+    for el in root.iter():
+        if not isinstance(el.tag, str) or el.tag.rsplit("}", 1)[-1].lower() in LOGO_BANNED_TAGS:
+            raise ValueError("le dessin contient un script, une image, un lien ou un style")
+        for k, v in el.attrib.items():
+            if k.rsplit("}", 1)[-1].lower().startswith(("on", "href")) or any(w in v.lower() for w in LOGO_BANNED_VALUES):
+                raise ValueError("le dessin contient un script, une image ou un lien extérieur")
+    return text
+
+
+def parse_logos(raw) -> list:
+    """What the logos agent answers, checked: `{"logos": [{"idea", "svg"}]}`, one to four, each with its idea in a sentence and its drawing
+    (see check_svg). A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("logos") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= LOGOS_MAX:
+        raise ValueError(f"il faut de une à {LOGOS_MAX} pistes de logo")
+    out = []
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        idea = one_line(it.get("idea"))[:300]
+        if not idea:
+            raise ValueError("chaque piste dit son idée en une phrase")
+        out.append({"idea": idea, "svg": check_svg(it.get("svg"))})
+    return out
+
+
+# ---------- texts: the posts and the hooks of a project ----------
+TEXTS_MAX = 6
+TEXT_KINDS = {"accroche": 120, "post": 700}  # the kind of a text, and its length at most
+
+
+def parse_texts(raw, source="") -> list:
+    """What the texts agent answers, checked and written as texts: `{"texts": [{"kind": "accroche" | "post", "text"}]}`, one to six, none twice,
+    a hook on one line, a post on a few, no em dash. A number that is not in `source` (the brief and the brand, as text) is a figure invented:
+    a ValueError. A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    items = raw.get("texts") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not 1 <= len(items) <= TEXTS_MAX:
+        raise ValueError(f"il faut de un à {TEXTS_MAX} textes")
+    out, known = [], re.findall(r"\d+", source)
+    for it in items:
+        it = it if isinstance(it, dict) else {}
+        kind, text = str(it.get("kind", "")).strip().lower(), it.get("text")
+        if kind not in TEXT_KINDS or not isinstance(text, str):
+            raise ValueError("chaque texte dit s'il est une accroche ou un post, et le texte")
+        text = one_line(text) if kind == "accroche" else "\n".join(x for x in (one_line(l) for l in text.splitlines()) if x)
+        if not text or len(text) > TEXT_KINDS[kind]:
+            raise ValueError(f"une accroche tient en une ligne de {TEXT_KINDS['accroche']} signes, un post en {TEXT_KINDS['post']} au plus")
+        if "\u2014" in text:
+            raise ValueError("pas de tiret cadratin dans les textes")
+        if any(n not in known for n in re.findall(r"\d+", text)):
+            raise ValueError("un chiffre n'est ni dans le brief ni dans la marque : il est inventé")
+        if text.casefold() in (x.casefold() for x in out):
+            raise ValueError("un texte est proposé deux fois")
+        out.append(text)
+    return out
+
+
+# ---------- research: what the web says of a brand ----------
+RESEARCH_MAX = 10
+RESEARCH_BELONGING = {"officielle": "officielle", "officielle relayée": "officielle relayée", "officielle relayee": "officielle relayée",
+                      "probable": "probable", "incertaine": "incertaine"}
+
+
+def research_item(x) -> dict:
+    """One result, checked: `{"url", "brings", "belonging"}`. A ValueError says what does not hold: no result without an address."""
+    x = x if isinstance(x, dict) else {}
+    url, brings = one_line(x.get("url"))[:500], one_line(x.get("brings"))[:300]
+    belonging = RESEARCH_BELONGING.get(one_line(x.get("belonging")).lower())
+    if not url.startswith(("http://", "https://")) or " " in url:
+        raise ValueError("chaque résultat a une adresse (http ou https)")
+    if not brings or not belonging:
+        raise ValueError("chaque résultat dit ce qu'il apporte et son appartenance (officielle, officielle relayée, probable, incertaine)")
+    return {"url": url, "brings": brings, "belonging": belonging}
+
+
+def research_list(items) -> list:
+    if not isinstance(items, list) or not 1 <= len(items) <= RESEARCH_MAX:
+        raise ValueError(f"il faut de un à {RESEARCH_MAX} résultats")
+    out = [research_item(x) for x in items]
+    if len({x["url"] for x in out}) < len(out):
+        raise ValueError("une adresse est rendue deux fois")
+    return out
+
+
+def parse_research(raw) -> list:
+    """What the research agent answers, checked: `{"research": [{"url", "brings", "belonging"}]}`, one to ten, each with its address, a sentence on
+    what it brings, and its belonging (officielle, officielle relayée, probable, incertaine). A ValueError says what does not hold."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    return research_list(raw.get("research") if isinstance(raw, dict) else None)
+
 
 # ---------- interview: the questions asked of the person, the brief the agent writes from the answers ----------
 INTERVIEW_QUESTIONS = [  # five at most; the answer to the nth one feeds the nth field of INTERVIEW_KEYS
@@ -304,3 +440,83 @@ def check_variant(path: Path, vid: str):
     if v.get("fit", "contain") not in ("contain", "cover"):
         return False, f"{vid}: fit must be contain or cover"
     return True, ""
+
+
+# ---------- storyboard: the script and the shots of a film ----------
+SHOTS_MIN, SHOTS_MAX, FILM_MIN, FILM_MAX, SHOT_MAX = 5, 8, 15, 30, 8  # shots; seconds of the film; seconds of a shot
+SHOT_VISUALS = ("texte", "logo")
+
+
+def parse_storyboard(raw, colours=None) -> dict:
+    """What the storyboard agent answers, checked: `{"script", "shots": [{seconds, visual, text, colour, read}]}`, five to eight shots, a film of fifteen
+    to thirty seconds, each shot on a colour of the brand (`colours`, when they are given). `visual` is `texte` (the text on the screen) or `logo`
+    (the brand's logo, no text). A ValueError says what does not hold. The person's corrections go through the same check."""
+    if isinstance(raw, str):
+        a, b = raw.find("{"), raw.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("pas de JSON dans la réponse")
+        try:
+            raw = json.loads(raw[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"JSON illisible ({err})") from None
+    script = one_line(raw.get("script"))[:1500] if isinstance(raw, dict) else ""
+    items = raw.get("shots") if isinstance(raw, dict) else None
+    if not script:
+        raise ValueError("il manque le script du film")
+    if not isinstance(items, list) or not SHOTS_MIN <= len(items) <= SHOTS_MAX:
+        raise ValueError(f"il faut de {SHOTS_MIN} à {SHOTS_MAX} plans")
+    allowed = {str(c).lower() for c in colours or []}
+    shots = []
+    for n, it in enumerate(items, 1):
+        it = it if isinstance(it, dict) else {}
+        sec, visual, colour = it.get("seconds"), it.get("visual"), str(it.get("colour") or "").strip().lower()
+        text, read = one_line(it.get("text"))[:90], one_line(it.get("read"))[:300]
+        if isinstance(sec, bool) or not isinstance(sec, (int, float)) or not 1 <= sec <= SHOT_MAX:
+            raise ValueError(f"plan {n} : sa durée est un nombre de secondes, de 1 à {SHOT_MAX}")
+        if visual not in SHOT_VISUALS:
+            raise ValueError(f"plan {n} : visual vaut {' ou '.join(SHOT_VISUALS)}")
+        if not re.fullmatch(r"#[0-9a-f]{6}", colour) or (allowed and colour not in allowed):
+            raise ValueError(f"plan {n} : sa couleur est une couleur de la marque (#rrggbb)")
+        if visual == "texte" and not text:
+            raise ValueError(f"plan {n} : le texte à l'écran manque")
+        if not read:
+            raise ValueError(f"plan {n} : ce qu'on lit manque")
+        shots.append({"seconds": sec, "visual": visual, "text": text if visual == "texte" else "", "colour": colour, "read": read})
+    total = sum(x["seconds"] for x in shots)
+    if not FILM_MIN <= total <= FILM_MAX:
+        raise ValueError(f"le film fait {total:g} s : il en faut de {FILM_MIN} à {FILM_MAX}")
+    return {"script": script, "shots": shots}
+
+
+# ---------- rounds: the same piece judged three times, the remarks put side by side ----------
+ROUNDS = 3  # the number of rounds: not an option
+
+
+def parse_rounds(raw, n=ROUNDS) -> dict:
+    """The synthesis of the rounds of a judge, checked and put in its one shape, or a ValueError that says what is wrong. `raw` is what the agent
+    answered: {"remarks": [{heading, where, say, rounds: [numbers from 1]}]}. The agent says in which rounds each remark came out; the shelf is not
+    its to choose: all the rounds is `holds`, one round is `once`, the others are `ambiguous` (the rounds disagree)."""
+    if isinstance(raw, (str, bytes)):
+        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+        a, b = text.find("{"), text.rfind("}")
+        if a < 0 or b < a:
+            raise ValueError("no JSON object in the synthesis")
+        try:
+            raw = json.loads(text[a:b + 1])
+        except ValueError as err:
+            raise ValueError(f"the synthesis is not readable JSON ({err})") from None
+    if not isinstance(raw, dict) or not isinstance(raw.get("remarks"), list):
+        raise ValueError("the synthesis is {remarks: [{heading, where, say, rounds}]}")
+    out = {"holds": [], "ambiguous": [], "once": []}
+    for x in raw["remarks"]:
+        if not isinstance(x, dict) or x.get("heading") not in JUDGE_LISTS:
+            raise ValueError(f"remark: heading is one of {', '.join(JUDGE_LISTS)}")
+        where, say, rounds = one_line(x.get("where"))[:120], one_line(x.get("say"))[:400], x.get("rounds")
+        if not where or not say:
+            raise ValueError("remark: says where (in words) and what")
+        if not isinstance(rounds, list) or not rounds or not all(isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= n for r in rounds):
+            raise ValueError(f"remark: rounds is a list of numbers from 1 to {n}")
+        rounds = sorted(set(rounds))
+        out["holds" if len(rounds) == n else "once" if len(rounds) == 1 else "ambiguous"].append(
+            {"heading": x["heading"], "where": where, "say": say, "rounds": rounds})
+    return out

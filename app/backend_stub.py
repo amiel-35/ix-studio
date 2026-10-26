@@ -16,6 +16,7 @@ then `ready`. A site whose host contains "fail" makes the reading fail (a `job-f
 
 import base64
 import copy
+import html
 import itertools
 import os
 import threading
@@ -27,7 +28,8 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "interview": 3.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "names": 4.0, "competitors": 4.0, "interview": 3.0, "research": 4.0, "logos": 4.0, "texts": 4.0, "storyboard": 4.0, "film": 5.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION["rounds"] = 6.0  # rounds
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -78,6 +80,14 @@ VERDICT = {"target": {"reached": "partly", "why": "Un citadin pressé comprend v
            "brand": [{"where": "le titre en haut", "say": "Direct et pince-sans-rire, c'est bien sa voix ; la chaleur qu'elle revendique manque un peu."}]}
 
 
+# the simulated rounds' one synthesis, plausible and fixed (checked by workflow as the real agent's is)
+ROUNDS = {"remarks": [
+    {"heading": "works", "where": "l'image", "say": "La lumière du matin et le bois brut installent le marché sans avoir à l'écrire.", "rounds": [1, 2, 3]},
+    {"heading": "snags", "where": "le titre en haut", "say": "« plus rien » peut se lire comme un goût qui s'en va trop vite.", "rounds": [1, 2, 3]},
+    {"heading": "snags", "where": "le bandeau du bas", "say": "L'appel à l'action est plus petit que la sous-ligne : l'œil s'arrête avant de le lire.", "rounds": [1, 3]},
+    {"heading": "unsourced", "where": "la sous-ligne", "say": "« petite cuvée » : rien ne dit la taille des cuvées.", "rounds": [2]}]}
+
+
 # the simulated reader's one reading, plausible and fixed, whatever its persona (a persona whose text contains "fail" makes its reader fail)
 READING = {"aimed": "partly", "why": "Je vois une boisson et un marché, ça me parle un peu, mais rien ne me dit que c'est pour quelqu'un comme moi.",
            "understand": "Je comprends que c'est une boisson au thé, fermentée, qu'on trouve au marché.",
@@ -113,6 +123,15 @@ PERSONAS = {"personas": [
         {"from": "supposé", "say": "Tu ne connais pas la marque ; tu aimes ce qui se fabrique à côté."},
         {"from": "supposé", "say": "Tes mots : « ça se vend bien ? », « vous livrez ? »."}]}]}
 
+# storyboard: the simulated storyboard agent's one answer, plausible and fixed (checked by workflow.parse_storyboard, as the real agent's)
+STORYBOARD = {"script": "Le film commence par une question, répond par le geste de brasser, puis dit le goût et finit sur la marque.",
+              "shots": [{"seconds": 3, "visual": "texte", "text": "Un kombucha, c'est quoi ?", "colour": "#1e2a24", "read": "Un kombucha, c'est quoi ?"},
+                        {"seconds": 4, "visual": "texte", "text": "Du thé qui fermente, doucement.", "colour": "#c8553d", "read": "C'est du thé qui fermente, doucement."},
+                        {"seconds": 4, "visual": "texte", "text": "Brassé en petits lots au port.", "colour": "#f4efe6", "read": "On le brasse en petits lots, au port."},
+                        {"seconds": 4, "visual": "texte", "text": "Un goût franc, pas un jus.", "colour": "#1e2a24", "read": "Un goût franc, pas un jus."},
+                        {"seconds": 3, "visual": "texte", "text": "Servez-vous.", "colour": "#c8553d", "read": "Servez-vous."},
+                        {"seconds": 3, "visual": "logo", "text": "", "colour": "#1e2a24", "read": "Marrowbay Ferments."}]}
+
 # competitors: the simulated competitors agent's one answer, plausible, fixed and fictional
 COMPETITORS = {"competitors": [
     {"name": "Brasserie du Quai", "from": "supposé", "sells": "des bières artisanales brassées au port, aux bars et aux cavistes du quartier.",
@@ -129,6 +148,38 @@ INTERVIEW = {"objective": "Faire connaître le kombucha à des gens qui n'en ont
              "audience": "Les citadins qui trouvent le kombucha trop sérieux : le persona de la marque qui n'y connaît rien.",
              "message": "Le kombucha, c'est du thé qui a fait la fête, et c'est bon.",
              "cta": "Venir goûter au marché", "fixed": "Le tutoiement et la signature de la marque."}
+
+
+# research: the simulated research agent's one answer, plausible, fixed and fictional
+RESEARCH = {"research": [
+    {"url": "https://www.exemple-marque.test/", "brings": "Le site de la marque : ses couleurs, son ton, son logo.", "belonging": "officielle"},
+    {"url": "https://www.exemple-marque.test/campagnes/printemps", "brings": "Une campagne d'affichage, au ton direct et pince-sans-rire.", "belonging": "officielle"},
+    {"url": "https://presse.exemple.test/une-marque-qui-se-sert", "brings": "Un article qui nomme la marque et son agence et décrit la campagne.", "belonging": "officielle relayée"},
+    {"url": "https://blog.exemple.test/kombucha-de-port", "brings": "Un billet qui parle de son goût et de ses étiquettes.", "belonging": "probable"},
+    {"url": "https://annuaire.exemple.test/fiche/1234", "brings": "Une fiche d'annuaire qui porte un nom proche, peut-être une autre marque.", "belonging": "incertaine"}]}
+
+
+# texts: the simulated texts agent's one answer, plausible and fixed
+TEXTS = {"texts": [
+    {"kind": "accroche", "text": "Du thé qui a un peu fait la fête."},
+    {"kind": "accroche", "text": "Le kombucha, version sans prise de tête."},
+    {"kind": "post", "text": "Tu croyais que le kombucha était une mode bien-être ?\nC'est du thé qui a un peu fait la fête, et c'est bon.\nRetrouvez-nous au marché."},
+    {"kind": "post", "text": "Pas de promesse, pas de sermon.\nUn thé fermenté, acidulé, à boire frais.\nGoûtez-le, vous nous direz."}]}
+
+
+# logos: the simulated logos agent's answer, plausible and fixed: three drawings of the brand's name, in the colours of the brand
+def logos_answer(name, colours):
+    n, (ink, ground) = html.escape(name), (colours + ["#1E2A3A", "#E8EEF7"])[:2]
+    box = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'>"
+    return {"logos": [
+        {"idea": "Le nom seul, en capitales espacées : sobre, il laisse la marque parler.",
+         "svg": box + f"<text x='120' y='68' text-anchor='middle' font-family='Georgia, serif' font-size='24' letter-spacing='4' fill='{ink}'>{n.upper()}</text></svg>"},
+        {"idea": "Un rond plein avec l'initiale, et le nom dessous : un sceau facile à reconnaître en petit.",
+         "svg": box + f"<circle cx='120' cy='46' r='30' fill='{ink}'/><text x='120' y='58' text-anchor='middle' font-family='Georgia, serif' font-size='34' fill='{ground}'>{n[:1]}</text>"
+                      f"<text x='120' y='108' text-anchor='middle' font-family='Arial, sans-serif' font-size='16' fill='{ink}'>{n}</text></svg>"},
+        {"idea": "Un trait sous le nom, comme une ligne d'horizon : calme et posé.",
+         "svg": box + f"<text x='120' y='62' text-anchor='middle' font-family='Arial, sans-serif' font-size='26' fill='{ink}'>{n}</text>"
+                      f"<line x1='40' y1='80' x2='200' y2='80' stroke='{ink}' stroke-width='3'/></svg>"}]}
 
 
 def default_brief():
@@ -153,6 +204,7 @@ class StubBackend:
         self.speed = speed  # 0.01 in tests: the jobs end at once
         self.static = static_url
         self.brands, self.projects, self.jobs, self.judgements = {}, {}, {}, {}
+        self.engines = {"image_engine": "auto", "text_engine": "claude", "openrouter_model": "anthropic/claude-sonnet-4.5", "key_saved": False}  # engines: the simulated settings; a key is never kept
         self.ids = itertools.count(1)
         self._seed()
 
@@ -231,6 +283,7 @@ class StubBackend:
             pid = f"{base}-{n}"
         p = {"id": pid, "name": name or "Nouveau projet", "brand": b["id"], "type": "campagne", "since": {},
              "brief": {"confirmed": False, "fields": copy.deepcopy(src["brief"]["fields"]) if src else default_brief()},
+             "texts": {"kept": [], "proposed": []},
              "mandates": {"confirmed": False, "common": "Écrire en français, au vouvoiement ; aucun chiffre ni promesse inventés ; relire chaque ligne pour y traquer un double sens ; l'image ne contient aucun texte.",
                           "items": [{"id": v["id"], "mandate": v["mandate"]} for v in VARIANTS]},
              "variants": [], "pieces": []}
@@ -261,7 +314,11 @@ class StubBackend:
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
                             "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
-                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents", "interview": "un agent écrit le brief"}[j["kind"]]
+                            "names": "un agent cherche des noms", "competitors": "un agent cherche les concurrents", "interview": "un agent écrit le brief",
+                            "research": "un agent cherche sur le web",
+                            "logos": "un agent dessine des pistes de logo", "texts": "un agent écrit les textes", "storyboard": "un agent écrit le script et les plans",
+                            "film": "chaque plan est animé puis assemblé",
+                            "rounds": "le juge relit la pièce, trois fois"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -300,6 +357,26 @@ class StubBackend:
                     j["message"] = j["error"]
                 elif p:
                     p["interview_proposed"] = workflow.parse_interview(copy.deepcopy(INTERVIEW), j["answers"])
+            if j["kind"] == "research":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["research_proposed"] = workflow.parse_research(copy.deepcopy(RESEARCH))
+            if j["kind"] == "rounds":
+                self._rounds_done(j)
+            if j["kind"] == "logos":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["logo_tracks_proposed"] = workflow.logo_tracks(workflow.parse_logos(logos_answer(b["name"], [c["hex"] for c in b["colours"]])))
+            if j["kind"] in ("storyboard", "film"):  # storyboard
+                p = self.projects.get(j["project"])
+                if p and j["kind"] == "storyboard":
+                    p["storyboard"] = {**workflow.parse_storyboard(copy.deepcopy(STORYBOARD)), "saved": False, "film": False}
+                elif p:
+                    p["storyboard"]["film"] = True
+            if j["kind"] == "texts":
+                p = self.projects.get(j["project"])
+                if p:
+                    p["texts"]["proposed"] = workflow.parse_texts(copy.deepcopy(TEXTS))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -420,6 +497,22 @@ class StubBackend:
     # ---------- routes: health, tasks, jobs ----------
     def health(self):
         return {"ok": True, "backend": self.name}
+
+    # ---------- routes: engines ----------
+    def get_engines(self):
+        with self.lock:
+            return workflow.engines_view(self.engines)
+
+    def put_engines(self, kind, body):
+        """The engine of the images, or of the texts with its key (only whether one is saved is kept, never the key) and its model."""
+        patch = workflow.engines_patch(kind, body)
+        with self.lock:
+            for k, v in patch.items():
+                if k == "openrouter_key":
+                    self.engines["key_saved"] = bool(v.strip())
+                elif k != "openrouter_model" or v.strip():
+                    self.engines[k] = v.strip() if k == "openrouter_model" else v
+            return workflow.engines_view(self.engines)
 
     def machine(self):
         """What the machine lacks to run the studio for real: nothing, unless STUDIO_STUB_MISSING says so."""
@@ -665,6 +758,41 @@ class StubBackend:
                 self._touch(b)
             return self._names_view(b)
 
+    # ---------- routes: the logo tracks of the brand ----------
+    def _logos_view(self, b):
+        run = self._running("logos", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "logos" and j["brand"] == b["id"]), None)
+        return {"tracks": list(b.get("logo_tracks", [])), "proposed": list(b.get("logo_tracks_proposed", [])), "can_propose": True,
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_logos(self, bid):
+        with self.lock:
+            self._tick()
+            return self._logos_view(self._b(bid))
+
+    def propose_logos(self, bid):
+        """The logos agent: up to four tracks drawn in SVG, from the name and the colours of the brand (a job). The simulated one answers logos_answer."""
+        with self.lock:
+            self._tick()
+            self._b(bid)
+            if self._running("logos", brand=bid):
+                raise Conflict("the logos are already being proposed")
+            return job_view(self._job("logos", brand=bid))
+
+    def put_logos(self, bid, keep):
+        """The tracks the person keeps, among the kept and the proposed ones: only these stay. The proposal is settled."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["logo_tracks"], b["logo_tracks_proposed"] = workflow.logos_kept(keep, b.get("logo_tracks", []), b.get("logo_tracks_proposed", [])), []
+            return self._logos_view(b)
+
+    def choose_logo(self, bid, tid):
+        """A kept track becomes the logo of the brand, as a logo dropped by the person."""
+        data = workflow.logo_chosen(tid, self._b(bid).get("logo_tracks", []))
+        self.add_logo(bid, data, "image/svg+xml", "piste de logo")
+        return self.get_logos(bid)
+
     # ---------- routes: competitors of the brand ----------
     def _competitors_view(self, b):
         run = self._running("competitors", brand=b["id"])
@@ -696,6 +824,68 @@ class StubBackend:
             b = self._b(bid)
             b["competitors"], b["competitors_proposed"] = texts, []
             return self._competitors_view(b)
+
+    # ---------- routes: research ----------
+    def _research_view(self, b):
+        run = self._running("research", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "research" and j["brand"] == b["id"]), None)
+        return {"research": list(b.get("research", [])), "proposed": list(b.get("research_proposed", [])),
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_research(self, bid):
+        with self.lock:
+            self._tick()
+            return self._research_view(self._b(bid))
+
+    def propose_research(self, bid):
+        """The research agent: up to ten results on the web (a job). The simulated one answers RESEARCH."""
+        with self.lock:
+            self._tick()
+            self._b(bid)
+            if self._running("research", brand=bid):
+                raise Conflict("the research is already running")
+            return job_view(self._job("research", brand=bid))
+
+    def put_research(self, bid, research):
+        """The results the person keeps: only these are the brand's (their addresses, nothing downloaded). The proposal is settled."""
+        kept = workflow.research_of(research)
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["research"], b["research_proposed"] = kept, []
+            return self._research_view(b)
+
+    # ---------- routes: texts of a project ----------
+    def _texts_view(self, p):
+        run = self._running("texts", project=p["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "texts" and j["project"] == p["id"]), None)
+        return {"texts": list(p["texts"]["kept"]), "proposed": list(p["texts"]["proposed"]), "can_propose": p["brief"]["confirmed"],
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_texts(self, pid):
+        with self.lock:
+            self._tick()
+            return self._texts_view(self._p(pid))
+
+    def propose_texts(self, pid):
+        """The texts agent: up to six hooks and posts, from the brief of the project (a job). The simulated one answers TEXTS."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed yet: the texts come from it")
+            if self._running("texts", project=pid):
+                raise Conflict("the texts are already being proposed")
+            return job_view(self._job("texts", project=pid))
+
+    def put_texts(self, pid, texts):
+        """The texts the person keeps (corrected, or written by hand): only these are the project's. The proposal is settled."""
+        kept = workflow.texts_of(texts)
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            p["texts"].update(kept=kept, proposed=[])
+            return self._texts_view(p)
 
     # ---------- routes: projects ----------
     def list_projects(self):
@@ -976,6 +1166,63 @@ class StubBackend:
         """The composed piece: the simulated studio has one picture for all of them (static/stub/piece.png)."""
         return (Path(__file__).resolve().parent / "static" / self.static / "piece.png").read_bytes()
 
+    # ---------- routes: storyboard (the script and the shots of the project's film, then the film) ----------
+    def _storyboard_view(self, p):
+        sb = p.get("storyboard") or {}
+        run, frun = self._running("storyboard", project=p["id"]), self._running("film", project=p["id"])
+        return workflow.storyboard_view(sb, p["brief"]["confirmed"], run["id"] if run else None, None,
+                                        {"url": f"{self.static}/film.mp4", "seconds": 2.0} if sb.get("film") else None, frun["id"] if frun else None, None)
+
+    def get_storyboard(self, pid):
+        with self.lock:
+            self._tick()
+            return self._storyboard_view(self._p(pid))
+
+    def propose_storyboard(self, pid):
+        """The storyboard agent: the script and the shots (a job). The simulated one answers STORYBOARD."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running("storyboard", project=pid):
+                raise Conflict("the storyboard is already being proposed")
+            if self._running("film", project=pid):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
+            return job_view(self._job("storyboard", project=pid))
+
+    def put_storyboard(self, pid, script, shots):
+        """The storyboard the person corrected and keeps; the film of an older one is dropped."""
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running("film", project=pid):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
+            try:
+                p["storyboard"] = {**workflow.parse_storyboard({"script": script, "shots": shots}), "saved": True, "film": False}
+            except ValueError as err:
+                raise ValueError(f"storyboard: {err}") from None
+            return self._storyboard_view(p)
+
+    def render_film(self, pid):
+        with self.lock:
+            self._tick()
+            p = self._p(pid)
+            if not (p.get("storyboard") or {}).get("saved"):
+                raise Conflict("the storyboard is not saved: read it, correct it and save it first")
+            if self._running("film", project=pid):
+                raise Conflict("the film is already being made")
+            return job_view(self._job("film", project=pid))
+
+    def download_film(self, pid):
+        with self.lock:
+            self._tick()
+            if not (self._p(pid).get("storyboard") or {}).get("film"):
+                raise Conflict("the film is not made yet")
+            return Download(f"{pid}.mp4", "video/mp4", (Path(__file__).resolve().parent / "static" / self.static / "film.mp4").read_bytes())
+
     def download_piece(self, pid, i):
         """The composed piece as a png file (at its size in the real studio; the simulated one has one picture)."""
         with self.lock:
@@ -1093,6 +1340,39 @@ class StubBackend:
                 raise Conflict("the judge is already reading this piece")
             jg["verdict"], jg["error"] = None, None
             return job_view(self._job("judge", judgement=jid))
+
+    # ---------- rounds: a piece judged three times, the remarks in three shelves ----------
+    def _rounds_done(self, j):
+        jg = self.judgements.get(j["judgement"])
+        if not jg:
+            return
+        if "fail" in jg["name"].lower():
+            j["status"], j["error"] = "failed", "le juge n'a pas répondu (simulé)"
+            j["message"] = j["error"]
+        else:
+            jg["rounds"] = workflow.parse_rounds(copy.deepcopy(ROUNDS))
+
+    def judgement_rounds(self, jid):
+        with self.lock:
+            self._tick()
+            jg = self._jg(jid)
+            mine = [j for j in self.jobs.values() if j["judgement"] == jid and j["kind"] == "rounds"]
+            run = next((j for j in mine if j["status"] == "running"), None)
+            if run:
+                return workflow.rounds_view("running", job=run["id"])
+            if jg.get("rounds"):
+                return workflow.rounds_view("done", copy.deepcopy(jg["rounds"]))
+            return workflow.rounds_view("failed", error=mine[-1]["error"]) if mine and mine[-1]["status"] == "failed" else workflow.rounds_view("none")
+
+    def run_judgement_rounds(self, jid):
+        """Judge the piece three times; again once done."""
+        with self.lock:
+            self._tick()
+            jg = self._jg(jid)
+            if any(j["judgement"] == jid and j["kind"] == "rounds" and j["status"] == "running" for j in self.jobs.values()):
+                raise Conflict("the rounds are already running on this piece")
+            jg["rounds"] = None
+            return job_view(self._job("rounds", judgement=jid))
 
     # ---------- the readers: one per persona of the brief, beside the judge ----------
     def _reader(self, n, persona, project=None, piece=None, judgement=None):
