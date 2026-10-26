@@ -28,11 +28,11 @@ KEYS = {"aimed", "why", "understand", "retain", "bother", "unread", "lacks"}
 
 class Reading(unittest.TestCase):
     def test_personas_are_one_to_four_texts(self):
-        self.assertEqual(workflow.personas_of(None), [])
-        self.assertEqual(workflow.personas_of([" a ", "", "b\nc"]), ["a", "b c"])
+        self.assertEqual(workflow.brief_personas_of(None), [])
+        self.assertEqual(workflow.brief_personas_of([" a ", "", "b\nc"]), ["a", "b c"])
         for bad in (["a"] * 5, "un texte", [1]):
             with self.assertRaises(ValueError):
-                workflow.personas_of(bad)
+                workflow.brief_personas_of(bad)
         self.assertEqual(workflow.judge_brief({**BRIEF, "personas": [ARTISAN]})["personas"], [ARTISAN])
         self.assertEqual(workflow.judge_brief(BRIEF)["personas"], [])
 

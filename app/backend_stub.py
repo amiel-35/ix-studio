@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -85,6 +85,26 @@ READING = {"aimed": "partly", "why": "Je vois une boisson et un marché, ça me 
            "bother": "« plus rien » : je ne sais pas si c'est le goût qui s'en va ou autre chose.",
            "unread": "Le bandeau du bas : je ne l'ai pas lu, il est trop petit.",
            "lacks": "Ce que ça a comme goût, en vrai, et où est ce marché."}
+# the simulated personas agent's one answer, plausible and fixed (written as texts by workflow, as the real agent's)
+PERSONAS = {"personas": [
+    {"need": "savoir si ça a bon goût avant d'en acheter une bouteille", "lines": [
+        {"from": "supposé", "say": "Tu as la cinquantaine, tu fais le marché le samedi matin, panier au bras."},
+        {"from": "supposé", "say": "Tu croises l'affiche du stand en passant, en trois secondes, entre deux étals."},
+        {"from": "dossier", "say": "Tu entends parler d'un kombucha de petite cuvée, brassé au port."},
+        {"from": "supposé", "say": "Tu penses que c'est une boisson de mode, un peu acide, pas pour toi."},
+        {"from": "supposé", "say": "Tes mots : « c'est quoi ce truc ? », « ça se boit comment ? »."}]},
+    {"need": "trouver une boisson sans alcool qui ne soit pas un soda", "lines": [
+        {"from": "supposé", "say": "Tu as trente ans, tu sors le soir mais tu ne bois pas toujours d'alcool."},
+        {"from": "supposé", "say": "Tu vois le post dans ton fil, au pouce, sans le son."},
+        {"from": "dossier", "say": "La marque parle à des citadins qui pensent que le kombucha est une mode bien-être."},
+        {"from": "supposé", "say": "Tu en as déjà bu un, trop sucré ; tu te méfies des promesses de santé."},
+        {"from": "supposé", "say": "Tes mots : « un truc sans alcool qui a du goût », « pas un jus »."}]},
+    {"need": "proposer quelque chose de local à ses clients", "lines": [
+        {"from": "supposé", "say": "Tu tiens un café du quartier et tu cherches ce que tu mettras au frigo."},
+        {"from": "supposé", "say": "Tu tombes sur l'affiche au marché, ou sur le post qu'un client te montre."},
+        {"from": "dossier", "say": "La marque dit d'elle : direct, chaleureux, pince-sans-rire ; sa signature : « Servez-vous. »."},
+        {"from": "supposé", "say": "Tu ne connais pas la marque ; tu aimes ce qui se fabrique à côté."},
+        {"from": "supposé", "say": "Tes mots : « ça se vend bien ? », « vous livrez ? »."}]}]}
 
 
 def default_brief():
@@ -216,7 +236,7 @@ class StubBackend:
             j["progress"] = min(1.0, (now - j["start"]) / j["duration"])
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
-                            "reader": "un lecteur lit la pièce"}[j["kind"]]
+                            "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -233,6 +253,11 @@ class StubBackend:
                 continue
             if j["kind"] == "reader":
                 self._read(j)
+                continue
+            if j["kind"] == "personas":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["proposed"] = workflow.parse_personas(copy.deepcopy(PERSONAS))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -530,6 +555,38 @@ class StubBackend:
             self._touch(b)
             return self._brand_view(b)
 
+    # ---------- routes: the personas of the brand ----------
+    def _personas_view(self, b):
+        run = self._running("personas", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "personas" and j["brand"] == b["id"]), None)
+        return {"personas": list(b.get("personas", [])), "proposed": list(b.get("proposed", [])), "can_propose": b["brief_done"],
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_personas(self, bid):
+        with self.lock:
+            self._tick()
+            return self._personas_view(self._b(bid))
+
+    def propose_personas(self, bid):
+        """The personas agent: up to four, from what the studio knows of the brand (a job). The simulated one answers PERSONAS."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            if not b["brief_done"]:
+                raise Conflict("the brief of the brand is not done: the personas come from it")
+            if self._running("personas", brand=bid):
+                raise Conflict("the personas are already being proposed")
+            return job_view(self._job("personas", brand=bid))
+
+    def put_personas(self, bid, personas):
+        """The personas the person keeps (corrected, or written by hand): only these are the brand's. The proposal is settled."""
+        texts = workflow.personas_of(personas)
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["personas"], b["proposed"] = texts, []
+            return self._personas_view(b)
+
     # ---------- routes: projects ----------
     def list_projects(self):
         with self.lock:
@@ -630,7 +687,7 @@ class StubBackend:
             for k in ("objective", "audience", "message"):
                 if not (fields.get(k) or "").strip():
                     raise ValueError(f"brief: {k} is required")
-            p["brief"]["fields"].update({k: workflow.personas_of(v) if k == "personas" else str(v) for k, v in fields.items()})
+            p["brief"]["fields"].update({k: workflow.brief_personas_of(v) if k == "personas" else str(v) for k, v in fields.items()})
             p["brief"]["confirmed"] = True
             self._mark(p, "brief", "mandates")
             return {"fields": p["brief"]["fields"], "formats": self._formats(p), "left_out": self._left_out(p)}
@@ -777,7 +834,7 @@ class StubBackend:
             pc["status"] = "composed"
             self._mark(p, "image", "piece", "decide")
             self._judge(pid, pc)  # the judge reads the piece once it is composed and checked: it blocks nothing
-            pc["readers"] = [self._reader(n, x, project=pid, piece=i)[1] for n, x in enumerate(workflow.personas_of(p["brief"]["fields"].get("personas")))]
+            pc["readers"] = [self._reader(n, x, project=pid, piece=i)[1] for n, x in enumerate(workflow.brief_personas_of(p["brief"]["fields"].get("personas")))]
             return copy.deepcopy(pc)
 
     def _png(self, pc):
