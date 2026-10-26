@@ -99,6 +99,20 @@ dropped in as `<dir>/image.png`) skips the divergence: `python3 "$ST" compose <d
 After `decide again`, the pick and the piece are cleared: write new variants (they read `bans.md`) and run
 `diverge` again; `status` says so.
 
+## The agents, as commands
+
+The studio's agents are commands, the same ones the interface runs (`AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"`, from a clone
+`<repo>/scripts/agents`). Each takes an `inputs.json` (its keys are listed by `python3 "$AG" --help`; paths in it are read from its folder) and gives
+JSON, or stops with its reason and a non-zero code. Write the inputs from what you know, show what comes back, let the person correct it.
+
+- `python3 "$AG" mandates in.json` (`dir`: the piece folder): the common rule and four mandates, when the person wants them proposed rather than written by you.
+- `python3 "$AG" variant in.json` (`dir`, `id`, `mandate`, `common`): one blind variant, written in `<dir>/variants/<id>.json`; one call per mandate, in parallel.
+- `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.
+- `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
+
+The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
+The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.
+
 ## Which tool for which job
 
 Claude writes the brief, the mandates, the headlines and the judge's notes. It does not make images: for the image,

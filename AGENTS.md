@@ -16,6 +16,13 @@ alone on this repository, in the cloud or on a machine.
 6. If your increment cannot be read in a quarter of an hour, it is too big: deliver the first half that works, and say
    what is left.
 
+## The agents of the studio
+
+Every agent of the studio (an agent that writes, judges or reads through `claude -p`) lives in a command of `scripts/agents`, which carries its prompt
+and the check of its answer. The back of the interface only runs that command, through its injectable runner: no prompt text, no call to `claude` in
+`app/` (`python3 scripts/check_layers.py` fails otherwise). The skill describes the command, one line each. A goal that delivers a function with an
+agent delivers three doors: the command, the interface, the chat; and tests the command alone, with a fake `claude` (STUDIO_CLAUDE_BIN).
+
 ## For whoever writes a goal
 
 - One goal, one increment, said in one user sentence: "I give X, I get Y".

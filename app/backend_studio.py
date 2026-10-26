@@ -1,5 +1,5 @@
 """backend_studio: the real studio behind the API. Same methods and same shapes as backend_stub, but every step runs the
-tools of this repository (scripts/brandkit, scripts/studio, scripts/collect) and, for the writing, `claude -p`.
+tools of this repository (scripts/brandkit, scripts/studio, scripts/collect) and, for the writing, the agents of scripts/agents.
 
 The studio holds brands, a brand holds projects. All of it is in STUDIO_HOME (default ~/ix-studio-projets):
 
@@ -26,13 +26,13 @@ tests give it a fake one that calls neither `claude`, nor `codex`, nor the netwo
 import base64
 import contextlib
 import hashlib
-import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -47,6 +47,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 STUDIO = SCRIPTS / "studio"
 BRANDKIT = SCRIPTS / "brandkit"
+AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
 DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
@@ -91,54 +92,13 @@ def tail(res: Result, n=240) -> str:
     for text in (res.err, res.out):
         lines = [x.strip() for x in text.splitlines() if x.strip()]
         if lines:
-            return re.sub(r"^studio: ", "", lines[-1])[:n]
+            return re.sub(r"^(studio|agents): ", "", lines[-1])[:n]
     return f"exit {res.code}"
 
 
 def hex_of(text: str):
     m = re.search(r"#[0-9a-fA-F]{6}\b", text or "")
     return m.group(0).lower() if m else None
-
-
-_FILES = None
-
-
-def studio_files():
-    """scripts/studio/files.py, loaded where it is, to read the variants as the studio does (one source of truth for their format)."""
-    global _FILES
-    if _FILES is None:
-        spec = importlib.util.spec_from_file_location("ixs_studio_files", STUDIO / "files.py")
-        mod = importlib.util.module_from_spec(spec)
-        sys.path.insert(0, str(STUDIO))
-        try:
-            spec.loader.exec_module(mod)
-        finally:
-            sys.path.remove(str(STUDIO))
-        _FILES = mod
-    return _FILES
-
-
-def check_variant(path: Path, vid: str):
-    """(ok, why not) for one variant file, with the rules of studio's load_variants."""
-    f = studio_files()
-    try:
-        v = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as err:
-        return False, f"{vid}: not readable JSON ({err})"
-    if not isinstance(v, dict):
-        return False, f"{vid}: not a JSON object"
-    for k in f.VARIANT_KEYS:
-        if v.get(k) in ("", None):
-            return False, f"{vid}: missing key {k!r}"
-    if not isinstance(v["default"], dict) or not all(v["default"].get(k) for k in ("headline", "image")):
-        return False, f"{vid}: 'default' needs 'headline' and 'image'"
-    if f.norm_layout(v["layout"]) not in f.LAYOUTS:
-        return False, f"{vid}: layout must be one of {', '.join(f.LAYOUTS)}"
-    if v["ground"] not in f.GROUNDS:
-        return False, f"{vid}: ground must be one of {', '.join(f.GROUNDS)}"
-    if v.get("fit", "contain") not in ("contain", "cover"):
-        return False, f"{vid}: fit must be contain or cover"
-    return True, ""
 
 
 def probe_machine(env=None, which=shutil.which, isfile=os.path.isfile, glob_=None, image_engine="auto") -> dict:
@@ -192,11 +152,10 @@ def dig(doc, path):
 class StudioBackend:
     name = "studio"
 
-    def __init__(self, home=None, runner=run_command, claude_model="sonnet", image_engine=None, probe=None):
+    def __init__(self, home=None, runner=run_command, image_engine=None, probe=None):
         self.home = Path(home or os.environ.get("STUDIO_HOME") or Path.home() / "ix-studio-projets").expanduser()
         self.home.mkdir(parents=True, exist_ok=True)
         self.runner = runner
-        self.claude_model = claude_model
         self.image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE", "auto")
         self.probe = probe or (lambda: probe_machine(image_engine=self.image_engine))  # what the machine has, asked when the interface asks
         self._state = threading.RLock()  # short: reading and writing project.json and marque.json
@@ -452,15 +411,9 @@ class StudioBackend:
             self._mutateb(bid, self._retouch)
 
     # ---------- commands ----------
-    def _env(self, claude=False):
-        env = dict(os.environ)
-        if claude and not env.get("STUDIO_CLAUDE_USE_API_KEY"):
-            env.pop("ANTHROPIC_API_KEY", None)  # `claude -p` bills the plan, not an API key left in the environment
-        return env
-
-    def _sh(self, log, argv, cwd=None, timeout=None, claude=False) -> Result:
+    def _sh(self, log, argv, cwd=None, timeout=None) -> Result:
         """Run a command through the runner and write what it did in the log."""
-        res = self.runner([str(a) for a in argv], cwd=str(cwd) if cwd else None, env=self._env(claude), timeout=timeout)
+        res = self.runner([str(a) for a in argv], cwd=str(cwd) if cwd else None, env=dict(os.environ), timeout=timeout)
         if log:
             with self._log_lock:
                 Path(log).parent.mkdir(parents=True, exist_ok=True)
@@ -488,10 +441,17 @@ class StudioBackend:
     def _brandkit(self, log, *args, **kw):
         return self._must(log, self._py(BRANDKIT, *args), **kw)
 
-    def _claude(self, prompt, *flags):
-        exe = os.environ.get("STUDIO_CLAUDE_BIN") or "claude"
-        # the prompt comes first: --tools takes a list and would swallow what follows it
-        return [exe, "-p", prompt, "--model", self.claude_model, "--no-session-persistence", "--restricted", *flags]
+    def _ask(self, log, cmd, inputs, where: Path, timeout) -> dict:
+        """Run one agent of scripts/agents with its inputs written in `where`: its JSON answer, or a ToolError that says why not. The prompts and the
+        checks of the answers are those of the command; nothing of them is here."""
+        where.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(prefix=f"inputs-{cmd}-", suffix=".json", dir=where)  # one file per call: the variants run side by side
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(inputs, f, ensure_ascii=False)
+        try:
+            return json.loads(self._must(log, self._py(AGENTS, cmd, name), timeout=timeout).out)
+        finally:
+            Path(name).unlink(missing_ok=True)
 
     def _cmd_log(self, pid) -> Path:
         return self._pdir(pid) / "logs" / "commands.log"
@@ -1110,47 +1070,25 @@ class StudioBackend:
             self._mutateb(bid, lambda q: q.update(personas=texts, personas_proposed=[]))
             return self.get_personas(bid)
 
-    def _personas_prompt(self, b) -> str:
+    def _brand_inputs(self, b) -> dict:
+        """What the brand agents are told of a brand: its name, site and description, the fields of its brief with their state, the person's words, its dossier."""
         ident = self._identity(b, self._doc(b["id"]))
-        labels = {"what": "what it is", "who": "for whom", "voice": "its voice", "signature": "its signature", "never": "the words it never says", "colours": "its colours"}
-        brief = "\n".join(f"- {labels[k]}: {v['value']} ({'confirmed by the person' if v['state'] == 'confirmed' else 'deduced, not confirmed'})"
-                          for k, v in ident.items() if v["state"] != "absent")
-        words = one_line(b.get("answers"))
-        dossier = self._read_text(self._bdir(b["id"]) / "brand.json")[:30000]
-        return (
-            "You imagine the people a brand's still ads (a poster, a social post) will meet. You only use what is given below: no search, no other "
-            "source. You write hypotheses for the person to correct, not facts.\n\n"
-            f"=== the brand ===\nname: {b['name']}\nsite: {b.get('site') or '(none)'}\ndescription: {one_line(b.get('description')) or '(none)'}\n"
-            f"=== the brief of the brand ===\n{brief or '(empty)'}\n"
-            + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
-            + f"=== the dossier of the brand (brand.json) ===\n{dossier or '(empty)'}\n"
-            "\nReturn ONLY one JSON object, no prose, no code fence:\n"
-            '{"personas": [{"need": "...", "lines": [{"from": "dossier" | "supposé", "say": "..."}]}]}\n'
-            "- personas: up to four, each with a different main need (need: what this person wants, in a few words).\n"
-            "- lines: four to six short, concrete sentences, in French, addressing the persona as tu (\"tu as la cinquantaine, tu...\"): who they are; "
-            "where and how they meet an ad of the brand (in the metro in three seconds, in a feed under the thumb...); what they already think of the "
-            "brand and of its subject; their own words, quoted.\n"
-            "- from: \"dossier\" when the line comes from what is given above, \"supposé\" when you suppose it. Most lines are supposed: say so.\n"
-            "- No invented statistic, share, figure or number of people. An age is a guess, marked supposé.\n"
-            "- Plain French, no em dash, no emoji.")
+        return {"name": b["name"], "site": b.get("site") or "", "description": b.get("description") or "", "words": b.get("answers") or "",
+                "brief": [{"key": k, "value": v["value"], "state": v["state"]} for k, v in ident.items() if v["state"] != "absent"],
+                "dossier": str(self._bdir(b["id"]) / "brand.json")}
 
-    def _personas_body(self, bid, jid):
+    def _brand_agent(self, bid, jid, cmd, phase):
+        """Run one brand agent (`agents personas|names|competitors`): what it proposes, or a ToolError that says why not."""
         b, owner = self._loadb(bid), ("brand", bid)
-        log = self._joblog(owner, jid)
-        work = self._mdir(bid) / "work" / "personas"
-        shutil.rmtree(work, ignore_errors=True)
-        work.mkdir(parents=True)
-        self._phase(owner, jid, "un agent imagine les personas")
+        self._phase(owner, jid, phase)
+        work = self._mdir(bid) / "work" / cmd
         try:
-            res = self._sh(log, self._claude(self._personas_prompt(b), "--tools", ""), cwd=work, timeout=300, claude=True)
+            return self._ask(self._joblog(owner, jid), cmd, self._brand_inputs(b), work, 330)[cmd]
         finally:
             shutil.rmtree(work, ignore_errors=True)
-        if res.code:
-            raise ToolError("l'agent n'a pas répondu : " + tail(res))
-        try:
-            texts = workflow.parse_personas(res.out)
-        except ValueError as err:
-            raise ToolError(f"réponse de l'agent illisible : {err}") from None
+
+    def _personas_body(self, bid, jid):
+        texts = self._brand_agent(bid, jid, "personas", "un agent imagine les personas")
         self._mutateb(bid, lambda q: q.update(personas_proposed=texts))
 
     # ---------- the names of the brand ----------
@@ -1182,41 +1120,8 @@ class StudioBackend:
             self.update_brand(bid, name=name)  # its id does not change; the dossier carries the new name too
         return self.get_names(bid)
 
-    def _names_prompt(self, b) -> str:
-        ident = self._identity(b, self._doc(b["id"]))
-        labels = {"what": "what it is", "who": "for whom", "voice": "its voice", "signature": "its signature", "never": "the words it never says"}
-        brief = "\n".join(f"- {labels[k]}: {v['value']}" for k, v in ident.items() if k in labels and v["state"] != "absent")
-        words = one_line(b.get("answers"))
-        return (
-            "You propose names for a brand. You only use what is given below: no search, no other source.\n\n"
-            f"=== the brand ===\nits provisional name (a working title, not to keep): {b['name']}\ndescription: {one_line(b.get('description')) or '(none)'}\n"
-            f"=== the brief of the brand ===\n{brief or '(empty)'}\n"
-            + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
-            + "\nReturn ONLY one JSON object, no prose, no code fence:\n"
-            '{"names": [{"name": "...", "why": "..."}]}\n'
-            "- names: up to eight, each different from the others in what it suggests (a place, a gesture, a promise, a sound...).\n"
-            "- name: one to three words, easy to say and to spell in French.\n"
-            "- why: one sentence in French: why this name, and what it evokes.\n"
-            "- Do not claim a name is free to use: nobody checked.\n"
-            "- Plain French, no em dash, no emoji.")
-
     def _names_body(self, bid, jid):
-        b, owner = self._loadb(bid), ("brand", bid)
-        log = self._joblog(owner, jid)
-        work = self._mdir(bid) / "work" / "names"
-        shutil.rmtree(work, ignore_errors=True)
-        work.mkdir(parents=True)
-        self._phase(owner, jid, "un agent cherche des noms")
-        try:
-            res = self._sh(log, self._claude(self._names_prompt(b), "--tools", ""), cwd=work, timeout=300, claude=True)
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
-        if res.code:
-            raise ToolError("l'agent n'a pas répondu : " + tail(res))
-        try:
-            names = workflow.parse_names(res.out)
-        except ValueError as err:
-            raise ToolError(f"réponse de l'agent illisible : {err}") from None
+        names = self._brand_agent(bid, jid, "names", "un agent cherche des noms")
         self._mutateb(bid, lambda q: q.update(names_proposed=names))
 
     # ---------- competitors of the brand ----------
@@ -1245,46 +1150,8 @@ class StudioBackend:
             self._mutateb(bid, lambda q: q.update(competitors=texts, competitors_proposed=[]))
             return self.get_competitors(bid)
 
-    def _competitors_prompt(self, b) -> str:
-        ident = self._identity(b, self._doc(b["id"]))
-        labels = {"what": "what it is", "who": "for whom", "voice": "its voice", "signature": "its signature", "never": "the words it never says", "colours": "its colours"}
-        brief = "\n".join(f"- {labels[k]}: {v['value']} ({'confirmed by the person' if v['state'] == 'confirmed' else 'deduced, not confirmed'})"
-                          for k, v in ident.items() if v["state"] != "absent")
-        words = one_line(b.get("answers"))
-        dossier = self._read_text(self._bdir(b["id"]) / "brand.json")[:30000]
-        return (
-            "You name the competitors of a brand: the others its customers could buy from instead. You use what is given below and what you know "
-            "of the market: no search, no other source. You write hypotheses for the person to check, not facts.\n\n"
-            f"=== the brand ===\nname: {b['name']}\nsite: {b.get('site') or '(none)'}\ndescription: {one_line(b.get('description')) or '(none)'}\n"
-            f"=== the brief of the brand ===\n{brief or '(empty)'}\n"
-            + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
-            + f"=== the dossier of the brand (brand.json) ===\n{dossier or '(empty)'}\n"
-            "\nReturn ONLY one JSON object, no prose, no code fence:\n"
-            '{"competitors": [{"name": "...", "from": "dossier" | "supposé", "sells": "...", "differs": "..."}]}\n'
-            "- competitors: up to six, each a different name.\n"
-            "- sells: one line, in French: what it sells and to whom.\n"
-            "- differs: one line, in French: what sets it apart from the brand (its angle, its tone).\n"
-            "- from: \"dossier\" when the competitor is named in what is given above, \"supposé\" when you suppose it.\n"
-            "- No invented figure: no market share, no turnover, no ranking, no number of customers.\n"
-            "- Plain French, no em dash, no emoji.")
-
     def _competitors_body(self, bid, jid):
-        b, owner = self._loadb(bid), ("brand", bid)
-        log = self._joblog(owner, jid)
-        work = self._mdir(bid) / "work" / "competitors"
-        shutil.rmtree(work, ignore_errors=True)
-        work.mkdir(parents=True)
-        self._phase(owner, jid, "un agent cherche les concurrents")
-        try:
-            res = self._sh(log, self._claude(self._competitors_prompt(b), "--tools", ""), cwd=work, timeout=300, claude=True)
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
-        if res.code:
-            raise ToolError("l'agent n'a pas répondu : " + tail(res))
-        try:
-            texts = workflow.parse_competitors(res.out)
-        except ValueError as err:
-            raise ToolError(f"réponse de l'agent illisible : {err}") from None
+        texts = self._brand_agent(bid, jid, "competitors", "un agent cherche les concurrents")
         self._mutateb(bid, lambda q: q.update(competitors_proposed=texts))
 
     # ---------- the projects ----------
@@ -1501,47 +1368,16 @@ class StudioBackend:
                 return {k: m[k] for k in ("confirmed", "common", "items")}
             return self._mutate(pid, done)
 
-    def _read_text(self, f: Path) -> str:
-        return f.read_text(encoding="utf-8") if f.exists() else ""
-
-    def _mandates_prompt(self, p) -> str:
-        piece = self._piece_dir(p["id"])
-        lang = p["brief"]["fields"].get("language") or "fr"
-        words = one_line(self._loadb(p["brand"]).get("answers"))
-        return (
-            "You prepare the instructions of four creative agents who will each write one variant of a still ad (a poster or a social post) "
-            "for a brand. You only write the instructions, nothing else.\n\n"
-            f"=== brand.md ===\n{self._read_text(piece / 'brand.md')}\n=== brief.md ===\n{self._read_text(piece / 'brief.md')}\n"
-            f"=== references.md (the visuals the person kept; none if empty) ===\n{self._read_text(piece / 'references.md')}\n"
-            + (f"=== what the person says of the brand, in their words ===\n{words}\n" if words else "")
-            + (f"=== bans.md (already refused) ===\n{self._read_text(piece / 'bans.md')}\n" if (piece / "bans.md").exists() else "")
-            + "\nReturn ONLY one JSON object, no prose, no code fence:\n"
-              '{"common": "...", "mandates": ["...", "...", "...", "..."]}\n'
-              "- common: one paragraph, plain sentences, the rules every agent follows: the language of the brief; nothing invented (no figure, "
-              "place, label, award or promise that is in neither the brand nor the brief); each line reread for any second reading "
-              "(sexual, vulgar, ridiculous, hurtful); the image carries no text.\n"
-              "- mandates: four stances, each a short phrase (under 12 words) naming a way of looking at this brief; they must look somewhere "
-              "else from one another. The fourth is a rupture: it breaks the codes of the category and starts with \"Rupture : \". A mandate gives "
-              "a point of view, never a headline, a picture or a layout already drawn.\n"
-              "- The brand does not diverge, the idea does: never ask for another palette, typeface or logo.\n"
-              f"Write common and mandates in the language of the brief ({lang}).")
-
     def _mandates_body(self, pid, jid):
         p, log = self._load(pid), self._joblog(pid, jid)
-        work = self._piece_dir(pid) / "work" / "mandates"
-        shutil.rmtree(work, ignore_errors=True)
-        work.mkdir(parents=True)
         self._phase(pid, jid, "un agent propose les consignes")
-        res = self._sh(log, self._claude(self._mandates_prompt(p), "--tools", ""), cwd=work, timeout=240, claude=True)
+        inputs = {"dir": str(self._piece_dir(pid)), "language": p["brief"]["fields"].get("language") or "fr", "words": self._loadb(p["brand"]).get("answers") or ""}
         proposal, why = None, ""
-        if res.code:
-            why = tail(res)
-        else:
-            try:
-                proposal = self._parse_proposal(res.out)
-            except ValueError as err:
-                why = str(err)
-        shutil.rmtree(work, ignore_errors=True)
+        try:
+            proposal = self._ask(log, "mandates", inputs, self._piece_dir(pid) / "work" / "mandates", 270)
+        except ToolError as err:
+            why = str(err)
+        shutil.rmtree(self._piece_dir(pid) / "work" / "mandates", ignore_errors=True)
 
         def done(q):
             m = q["mandates"]
@@ -1555,20 +1391,6 @@ class StudioBackend:
         self._mutate(pid, done)
         if proposal is None:
             return f"consignes par défaut (l'agent n'a pas répondu comme prévu : {why})"
-
-    @staticmethod
-    def _parse_proposal(text: str) -> dict:
-        a, b = text.find("{"), text.rfind("}")
-        if a < 0 or b < a:
-            raise ValueError("pas de JSON dans la réponse")
-        try:
-            d = json.loads(text[a:b + 1])
-        except ValueError as err:
-            raise ValueError(f"JSON illisible ({err})")
-        ms = d.get("mandates") if isinstance(d, dict) else None
-        if not isinstance(d.get("common"), str) or not d["common"].strip() or not isinstance(ms, list) or len(ms) != 4 or not all(isinstance(x, str) and x.strip() for x in ms):
-            raise ValueError("il faut une consigne commune et quatre mandats")
-        return {"common": one_line(d["common"]), "mandates": [one_line(x) for x in ms]}
 
     # ---------- 4. the divergence ----------
     def diverge(self, pid):
@@ -1590,80 +1412,18 @@ class StudioBackend:
         for n in ("series.json", "pick.json"):
             (piece / n).unlink(missing_ok=True)
 
-    def _agent_prompt(self, vid, mandate, common, lang) -> str:
-        return (
-            "You are one of several creative agents working blind, each on one mandate, for one still ad (a poster or a social post). "
-            "You do not see the others' work.\n\n"
-            "Read, in the current folder: brand.md, brief.md, references.md if there is one (open the local images it lists in refs/: they give the "
-            "grammar to keep, light included, never a picture to copy) and bans.md if there is one (what the person already refused: do not repeat it).\n\n"
-            f"Your mandate: {mandate}\nRules every agent follows: {common}\n\n"
-            "Method:\n"
-            "1. First write down what you would have made by default for this brief (a headline and the image), then set it aside: your variant must not be it.\n"
-            "2. Write your variant from your mandate.\n"
-            f"Write ONE file, ./{vid}.json, a UTF-8 JSON object with these keys and no other file:\n"
-            '  "mandate": your mandate, as given;\n'
-            '  "default": {"headline": "...", "image": "..."}, the default you set aside;\n'
-            '  "headline": the headline;\n'
-            '  "subline": a short line under it, or "";\n'
-            '  "image_prompt": what the image shows, in plain words; the image carries no text and no letters;\n'
-            '  "layout": one of side, stack, ground, overlay-top, overlay-bottom, full;\n'
-            '  "ground": one of background, text, accent (the colour of the text zone);\n'
-            '  "why": one or two sentences: why this answers the mandate;\n'
-            '  optionally "fit": "contain" (the whole image shows, the default) or "cover" (it may be cropped).\n\n'
-            "Rules:\n"
-            "- The brand does not diverge, the idea does: never change the palette, the type or the logo.\n"
-            "- Nothing is invented: no figure, testimonial, place, label, award or promise that is in neither brand.md nor brief.md.\n"
-            "- Pick a layout that does not cover the subject of the image. side, stack and ground never overlap the image; use overlay-top or "
-            "overlay-bottom only when your image prompt leaves that edge calm. When brief.md sets a layout, use exactly that one.\n"
-            f"- Before you write the file, reread your headline and your subline in the language of the brief ({lang}) as a reader with a dirty mind or a "
-            "mocking one would: any second reading (sexual, vulgar, ridiculous, hurtful), slang included. If you find one, rewrite the line. No word list: use your eye.\n"
-            "- Write only that one file, and read and write nothing outside the current folder. When it is written, answer with its name and nothing else.")
-
-    def _prepare_agent(self, piece: Path, wdir: Path):
-        """A folder of its own for one agent: the brand, the brief, the bans and the references (their images copied), nothing of the others."""
-        shutil.rmtree(wdir, ignore_errors=True)
-        (wdir / "refs").mkdir(parents=True)
-        brand = [l for l in self._read_text(piece / "brand.md").splitlines() if not re.match(r"^[-*]\s+logo\s*:", l.strip())]
-        (wdir / "brand.md").write_text("\n".join(brand) + "\n", encoding="utf-8")
-        for n in ("brief.md", "bans.md"):
-            if (piece / n).exists():
-                shutil.copy2(piece / n, wdir / n)
-        refs, k = [], 0
-        for line in self._read_text(piece / "references.md").splitlines():
-            if not line.startswith("- "):
-                continue
-            ref, sep, note = line[2:].partition(" | ")
-            ref = ref.strip()
-            src = piece / ref
-            if not ref.startswith(("http://", "https://")) and src.is_file():
-                k += 1
-                dst = f"refs/{k:02d}-{re.sub(r'[^A-Za-z0-9._-]+', '-', src.name)}"
-                shutil.copy2(src, wdir / dst)
-                ref = dst
-            refs.append(f"- {ref}{sep}{note}")
-        if refs:
-            (wdir / "references.md").write_text("\n".join(refs) + "\n", encoding="utf-8")
-
     def _agent(self, pid, jid, item, common, lang, done: list, total: int) -> tuple:
-        """One variant agent: (id, ok, why not)."""
+        """One variant agent (`agents variant`, which writes <piece>/variants/<id>.json): (id, ok, why not)."""
         vid, log = item["id"], self._joblog(pid, jid)
         piece = self._piece_dir(pid)
         wdir = piece / "work" / vid
         try:
-            self._prepare_agent(piece, wdir)
-            res = self._sh(log, self._claude(self._agent_prompt(vid, item["mandate"], common, lang), "--tools=Read,Write", "--permission-mode=acceptEdits",
-                                             "--permission-prompts=none"), cwd=wdir, timeout=600, claude=True)
-            f = wdir / f"{vid}.json"
-            if not f.exists():
-                return vid, False, f"{vid}: " + (tail(res) if res.code else "no variant file written")
-            ok, why = check_variant(f, vid)
-            if not ok:
-                return vid, False, why
-            (piece / "variants").mkdir(exist_ok=True)
-            shutil.copy2(f, piece / "variants" / f"{vid}.json")
-            shutil.rmtree(wdir, ignore_errors=True)
+            self._ask(log, "variant", {"dir": str(piece), "id": vid, "mandate": item["mandate"], "common": common, "language": lang, "work": str(wdir)}, wdir.parent, 630)
             return vid, True, ""
+        except ToolError as err:
+            return vid, False, str(err)
         finally:
+            shutil.rmtree(wdir, ignore_errors=True)
             done.append(vid)
             self._phase(pid, jid, f"{len(done)} agent{'s' if len(done) > 1 else ''} sur {total} {'ont' if len(done) > 1 else 'a'} fini")
 
@@ -1933,69 +1693,10 @@ class StudioBackend:
         ident = self._identity(b, self._doc(bid))
         return {"name": b["name"], **{k: ident[k]["value"] for k in ("what", "who", "voice", "signature", "never") if ident[k]["state"] != "absent"}}
 
-    @staticmethod
-    def _judge_inputs(brief: dict, brand: dict, texts=None) -> str:
-        """inputs.md, what the judge reads beside the picture: the brief (what it lacks said as such), the words of the piece, the brand."""
-        say = lambda v: v if (v or "").strip() else "(non donné)"
-        lines = ["# Ce que le juge reçoit", "", "## Le brief", f"- objectif : {say(brief.get('objective'))}", f"- cible : {say(brief.get('audience'))}",
-                 f"- message : {say(brief.get('message'))}", f"- appel à l'action : {say(brief.get('cta'))}",
-                 f"- ce qui ne bouge pas (respecter ou non les assets) : {say(brief.get('fixed'))}", "", "## La pièce", "- son image : piece.png (ouvre-la)"]
-        if texts:
-            lines += [f"- titre : {say(texts.get('headline'))}", f"- sous-ligne : {say(texts.get('subline'))}"]
-        else:
-            lines.append("- ses textes : ceux qu'on lit sur l'image")
-        lines += ["", "## La marque"]
-        if brand:
-            labels = {"name": "nom", "what": "ce qu'elle est", "who": "pour qui", "voice": "sa voix", "signature": "sa signature", "never": "ce qu'elle ne dit jamais"}
-            lines += [f"- {labels[k]} : {v}" for k, v in brand.items()]
-        else:
-            lines.append("- aucune : pas de rubrique brand (\"brand\": null)")
-        return "\n".join(lines) + "\n"
-
-    @staticmethod
-    def _judge_prompt(has_brand: bool, missing: list, lang="fr") -> str:
-        return (
-            "You are the judge of one still ad (a poster or a social post). You read it as the person it is aimed at would, and you write down what "
-            "you see. You give no score, you block nothing, and you do not judge the morals of the brand or of its product.\n\n"
-            "Read ./inputs.md (the brief, the words of the piece, the brand if there is one) and open ./piece.png with the Read tool: you see the "
-            "image. Look at the image and its words together.\n\n"
-            "Write ONE file, ./verdict.json, a UTF-8 JSON object with exactly these keys:\n"
-            '  "target": {"reached": "yes" | "partly" | "no", "why": "..."}: is the person aimed at reached, and why, from their point of view;\n'
-            '  "works": what works;\n'
-            '  "snags": what catches: a double meaning, a hierarchy that does not read, a cliché, an image that does not answer the headline;\n'
-            '  "unsourced": every fact one could check (a figure, a label, a guarantee, an award, a dated promise, a ranking) that is in the piece and in '
-            "none of the entries: do not say it is false, say you were given nothing to believe it. The price, the product's name and the town are not "
-            "aimed at;\n"
-            + ('  "brand": the voice and the tone of the piece against the brand\'s (only that: colours, type, contrast, banned words, hierarchy and '
-               "signature are checked elsewhere);\n" if has_brand else '  "brand": null (no brand is given);\n')
-            + "Each of works, snags, unsourced" + (", brand" if has_brand else "") + ' is a list of {"where": "...", "say": "..."} (an empty list when '
-            'there is nothing). "where" names what it aims at in words, as one would point at it ("le titre en haut", "le bandeau du bas", '
-            '"l\'image"), never coordinates nor a drawn zone. Keep each list short: what matters, at most five.\n'
-            "What the brief says does not move (its line \"ce qui ne bouge pas\") is imposed: never count it as a snag, and do not ask for "
-            "what it rules out (an empty square where the logo goes, for instance, is the brief's choice, not a fault of the piece).\n"
-            + (f"The brief lacks {', '.join(missing)}: do not ask anything. "
-               + ('Set target to {"reached": "unjudgeable", "why": "non jugeable sur la cible : il manque la cible"} and ' if "la cible" in missing else "Say it where it matters and ")
-               + "judge the rest.\n" if missing else "")
-            + f"Write the text in the language of the brief ({lang}), plainly, addressing the person as tu, without em dashes nor emoji.\n"
-            "Write only that one file, and read and write nothing outside the current folder. When it is written, answer with its name and nothing else.")
-
     def _run_judge(self, log, wdir: Path, image: Path, brief: dict, brand: dict, texts=None, lang="fr") -> dict:
-        """One judge, in a folder of its own: the picture and inputs.md in, verdict.json out, checked. A ToolError says why it failed."""
-        shutil.rmtree(wdir, ignore_errors=True)
-        wdir.mkdir(parents=True)
-        shutil.copy2(image, wdir / "piece.png")
-        (wdir / "inputs.md").write_text(self._judge_inputs(brief, brand, texts), encoding="utf-8")
-        missing = workflow.judge_missing(brief)
+        """One judge (`agents judge`): the picture and the brief in, the verdict out, checked. A ToolError says why it failed."""
         try:
-            res = self._sh(log, self._claude(self._judge_prompt(bool(brand), missing, lang), "--tools=Read,Write", "--permission-mode=acceptEdits",
-                                             "--permission-prompts=none"), cwd=wdir, timeout=400, claude=True)
-            f = wdir / "verdict.json"
-            if not f.exists():
-                raise ToolError("le juge n'a pas écrit de verdict" + (f" : {tail(res)}" if res.code else ""))
-            try:
-                return workflow.parse_verdict(f.read_text(encoding="utf-8", errors="replace"), bool(brand), brief)
-            except ValueError as err:
-                raise ToolError(f"verdict du juge illisible : {err}") from None
+            return self._ask(log, "judge", {"image": str(image), "brief": brief, "brand": brand, "texts": texts, "language": lang}, wdir, 430)
         finally:
             shutil.rmtree(wdir, ignore_errors=True)
 
@@ -2117,51 +1818,10 @@ class StudioBackend:
         return [workflow.reader_view(n, persona, self._last_reader(jobs, e["id"], n), read_json(d / f"reader-{n}.json"))
                 for n, persona in enumerate(workflow.brief_personas_of(p["brief"]["fields"].get("personas")))]
 
-    @staticmethod
-    def _reader_inputs(persona: str, texts=None) -> str:
-        """inputs.md, what a reader reads beside the picture: who it is, and the words of the piece. Not the brief, not the brand, not the other readers."""
-        lines = ["# Qui tu es", "", persona, "", "## La pièce", "- son image : piece.png (ouvre-la)"]
-        if texts:
-            lines += [f"- titre : {texts.get('headline') or '(aucun)'}", f"- sous-ligne : {texts.get('subline') or '(aucune)'}"]
-        else:
-            lines.append("- ses textes : ceux qu'on lit sur l'image")
-        return "\n".join(lines) + "\n"
-
-    @staticmethod
-    def _reader_prompt(lang="fr") -> str:
-        return (
-            "You are not a critic. Read ./inputs.md: its first part says who you are. Be that person, and only that person. Then open ./piece.png "
-            "with the Read tool: it is an ad (a poster or a social post) you come across. You are told nothing else about it.\n\n"
-            "Write ONE file, ./reading.json, a UTF-8 JSON object with exactly these keys, every text in the first person (\"je\"), as this person "
-            "would say it:\n"
-            '  "aimed": "yes" | "partly" | "no": does this piece speak to me;\n'
-            '  "why": why, from my life;\n'
-            '  "understand": what I understand it says;\n'
-            '  "retain": what I keep of it once I have looked away;\n'
-            '  "bother": what bothers me, or "" if nothing;\n'
-            '  "unread": what I do not read, do not see or skip, or "";\n'
-            '  "lacks": what I miss to understand or to believe it, or "".\n'
-            "Never say whether you would buy, try or do what it asks: say what you understand, what you do not read and what you miss. "
-            "Do not grade the piece, do not give advice to whoever made it.\n"
-            f"Write in the language of the piece ({lang}), plainly, a few sentences at most per key, without em dashes nor emoji.\n"
-            "Write only that one file, and read and write nothing outside the current folder. When it is written, answer with its name and nothing else.")
-
     def _run_reader(self, log, wdir: Path, image: Path, persona: str, texts=None, lang="fr") -> dict:
-        """One reader, in a folder of its own: the picture and inputs.md in, reading.json out, checked. A ToolError says why it failed."""
-        shutil.rmtree(wdir, ignore_errors=True)
-        wdir.mkdir(parents=True)
-        shutil.copy2(image, wdir / "piece.png")
-        (wdir / "inputs.md").write_text(self._reader_inputs(persona, texts), encoding="utf-8")
+        """One reader (`agents reader`): the picture and its persona in, the reading out, checked. A ToolError says why it failed."""
         try:
-            res = self._sh(log, self._claude(self._reader_prompt(lang), "--tools=Read,Write", "--permission-mode=acceptEdits",
-                                             "--permission-prompts=none"), cwd=wdir, timeout=400, claude=True)
-            f = wdir / "reading.json"
-            if not f.exists():
-                raise ToolError("le lecteur n'a pas écrit sa lecture" + (f" : {tail(res)}" if res.code else ""))
-            try:
-                return workflow.parse_reading(f.read_text(encoding="utf-8", errors="replace"))
-            except ValueError as err:
-                raise ToolError(f"lecture illisible : {err}") from None
+            return self._ask(log, "reader", {"image": str(image), "persona": persona, "texts": texts, "language": lang}, wdir, 430)
         finally:
             shutil.rmtree(wdir, ignore_errors=True)
 
