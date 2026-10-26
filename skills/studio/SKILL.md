@@ -111,8 +111,10 @@ JSON, or stops with its reason and a non-zero code. Write the inputs from what y
 
 - `python3 "$AG" mandates in.json` (`dir`: the piece folder): the common rule and four mandates, when the person wants them proposed rather than written by you.
 - `python3 "$AG" variant in.json` (`dir`, `id`, `mandate`, `common`): one blind variant, written in `<dir>/variants/<id>.json`; one call per mandate, in parallel.
+- `python3 "$AG" texts in.json` (`brief`, `brand`, `language`): up to six hooks and posts for a project, in the voice of the brand, with no figure that is not in the brief or the brand; show them, let the person correct, keep or drop each.
 - `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.
 - `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
+- `python3 "$AG" storyboard in.json` (`name`, `brand`, `colours`, `brief`, `language`): the script and five to eight shots of a 15 to 30 second film; show them, let the person correct them, then `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/film" <piece dir> storyboard.json --out film.mp4` renders the film by code (Chrome and ffmpeg), vertical 9:16.
 
 The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
 The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.

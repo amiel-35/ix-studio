@@ -4,7 +4,7 @@
 
 Serves app/static/ and answers /api/* (see API.md) with a backend: STUDIO_BACKEND=studio (default) drives scripts/studio
 and scripts/brandkit and keeps its projects in STUDIO_HOME; STUDIO_BACKEND=stub is the simulated one (backend_stub).
-GET /api/projects/<p>/pieces/<i>/download and GET /api/projects/<p>/download answer a file (a png, a zip) as an attachment.
+GET /api/projects/<p>/pieces/<i>/download and GET /api/projects/<p>/download answer a file (a png, a zip) as an attachment, and so does GET /api/projects/<p>/storyboard/film (the mp4).
 GET /files/<project>/<path> serves the pictures of a project (its piece/ folder, and the brand/ folder of its brand) and
 GET /files/_marques/<brand>/<path> those of a brand (its brand/ folder). Stdlib only. Listens
 on 127.0.0.1 unless told otherwise; on a central server it sits behind a proxy that terminates TLS, and `authenticate`
@@ -67,12 +67,22 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/brand/keep", lambda b, m, d: b.keep(m["p"], d.get("kept", []), d.get("logo"))),
     ("GET", rf"/api/projects/{P}/brief", lambda b, m, d: b.get_brief(m["p"])),
     ("PUT", rf"/api/projects/{P}/brief", lambda b, m, d: b.put_brief(m["p"], d.get("fields", {}))),
+    # texts
+    ("GET", rf"/api/projects/{P}/texts", lambda b, m, d: b.get_texts(m["p"])),
+    ("PUT", rf"/api/projects/{P}/texts", lambda b, m, d: b.put_texts(m["p"], d.get("texts"))),
+    ("POST", rf"/api/projects/{P}/texts/propose", lambda b, m, d: b.propose_texts(m["p"])),
     ("GET", rf"/api/projects/{P}/mandates", lambda b, m, d: b.get_mandates(m["p"])),
     ("PUT", rf"/api/projects/{P}/mandates", lambda b, m, d: b.put_mandates(m["p"], d.get("items"), d.get("common"))),
     ("POST", rf"/api/projects/{P}/diverge", lambda b, m, d: b.diverge(m["p"])),
     ("GET", rf"/api/projects/{P}/variants", lambda b, m, d: b.variants(m["p"])),
     ("PUT", rf"/api/projects/{P}/variants/(?P<v>[\w-]+)/prompt", lambda b, m, d: b.put_variant_prompt(m["p"], m["v"], d.get("prompt"))),
     ("PUT", rf"/api/projects/{P}/variants/(?P<v>[\w-]+)/text", lambda b, m, d: b.put_variant_text(m["p"], m["v"], d.get("headline"), d.get("subline"))),
+    # storyboard
+    ("GET", rf"/api/projects/{P}/storyboard", lambda b, m, d: b.get_storyboard(m["p"])),
+    ("PUT", rf"/api/projects/{P}/storyboard", lambda b, m, d: b.put_storyboard(m["p"], d.get("script"), d.get("shots"))),
+    ("POST", rf"/api/projects/{P}/storyboard/propose", lambda b, m, d: b.propose_storyboard(m["p"])),
+    ("POST", rf"/api/projects/{P}/storyboard/render", lambda b, m, d: b.render_film(m["p"])),
+    ("GET", rf"/api/projects/{P}/storyboard/film", lambda b, m, d: b.download_film(m["p"])),
     ("POST", rf"/api/projects/{P}/pick", lambda b, m, d: b.pick(m["p"], d.get("variants", []))),
     ("POST", rf"/api/projects/{P}/images", lambda b, m, d: b.draw_images(m["p"], d.get("variant"))),
     ("POST", rf"/api/projects/{P}/compose", lambda b, m, d: b.compose_all(m["p"])),
