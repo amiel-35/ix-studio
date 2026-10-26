@@ -27,7 +27,7 @@ from pathlib import Path
 
 from workflow import FORMATS, STEPS, Conflict, Download, NotFound, field, one_line  # noqa: F401  (the server imports the exceptions from here too)
 
-DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0}  # seconds: long enough to see a progress, short enough to demo
+DURATION = {"learn": 4.0, "diverge": 6.0, "image": 8.0, "judge": 5.0, "reader": 4.0, "personas": 4.0, "competitors": 4.0}  # seconds: long enough to see a progress, short enough to demo
 JOB_KEYS = ("id", "kind", "status", "progress", "message", "result", "piece")
 
 
@@ -105,6 +105,17 @@ PERSONAS = {"personas": [
         {"from": "dossier", "say": "La marque dit d'elle : direct, chaleureux, pince-sans-rire ; sa signature : « Servez-vous. »."},
         {"from": "supposé", "say": "Tu ne connais pas la marque ; tu aimes ce qui se fabrique à côté."},
         {"from": "supposé", "say": "Tes mots : « ça se vend bien ? », « vous livrez ? »."}]}]}
+
+# competitors: the simulated competitors agent's one answer, plausible, fixed and fictional
+COMPETITORS = {"competitors": [
+    {"name": "Brasserie du Quai", "from": "supposé", "sells": "des bières artisanales brassées au port, aux bars et aux cavistes du quartier.",
+     "differs": "Elle parle d'apéro et de fête, avec de l'alcool ; la marque parle d'une boisson sans alcool qui a du goût."},
+    {"name": "Fizz Santé", "from": "supposé", "sells": "un kombucha en canette vendu en grande surface aux citadins soucieux de leur santé.",
+     "differs": "Un ton bien-être et des promesses de santé ; la marque est directe, pince-sans-rire, et parle du goût."},
+    {"name": "Les Sirops de Léonie", "from": "supposé", "sells": "des sirops et limonades de fruits locaux aux familles, au marché et en épicerie fine.",
+     "differs": "Doux et sucré, pour les enfants aussi ; la marque est acidulée et vise les adultes."},
+    {"name": "Thé Vagabond", "from": "dossier", "sells": "des thés en vrac et des infusions froides aux cafés de la ville.",
+     "differs": "Il vend la feuille, à infuser soi-même ; la marque vend une boisson prête, fermentée, à boire tout de suite."}]}
 
 
 def default_brief():
@@ -236,7 +247,8 @@ class StubBackend:
             j["progress"] = min(1.0, (now - j["start"]) / j["duration"])
             j["message"] = {"learn": "lecture du site et des images", "diverge": "quatre agents écrivent, chacun à l'aveugle",
                             "image": "le modèle d'image dessine", "judge": "le juge relit la pièce",
-                            "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas"}[j["kind"]]
+                            "reader": "un lecteur lit la pièce", "personas": "un agent imagine les personas",
+                            "competitors": "un agent cherche les concurrents"}[j["kind"]]
             if j["progress"] < 1:
                 continue
             j["status"], j["message"] = "done", "terminé"
@@ -258,6 +270,11 @@ class StubBackend:
                 b = self.brands.get(j["brand"])
                 if b:
                     b["proposed"] = workflow.parse_personas(copy.deepcopy(PERSONAS))
+                continue
+            if j["kind"] == "competitors":
+                b = self.brands.get(j["brand"])
+                if b:
+                    b["competitors_proposed"] = workflow.parse_competitors(copy.deepcopy(COMPETITORS))
                 continue
             if j["judgement"]:
                 jg = self.judgements.get(j["judgement"])
@@ -586,6 +603,38 @@ class StubBackend:
             b = self._b(bid)
             b["personas"], b["proposed"] = texts, []
             return self._personas_view(b)
+
+    # ---------- routes: competitors of the brand ----------
+    def _competitors_view(self, b):
+        run = self._running("competitors", brand=b["id"])
+        last = next((j for j in reversed(list(self.jobs.values())) if j["kind"] == "competitors" and j["brand"] == b["id"]), None)
+        return {"competitors": list(b.get("competitors", [])), "proposed": list(b.get("competitors_proposed", [])), "can_propose": b["brief_done"],
+                "job": job_view(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_competitors(self, bid):
+        with self.lock:
+            self._tick()
+            return self._competitors_view(self._b(bid))
+
+    def propose_competitors(self, bid):
+        """The competitors agent: up to six, from what the studio knows of the brand (a job). The simulated one answers COMPETITORS."""
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            if not b["brief_done"]:
+                raise Conflict("the brief of the brand is not done: the competitors come from it")
+            if self._running("competitors", brand=bid):
+                raise Conflict("the competitors are already being proposed")
+            return job_view(self._job("competitors", brand=bid))
+
+    def put_competitors(self, bid, competitors):
+        """The competitors the person keeps (corrected, or written by hand): only these are the brand's. The proposal is settled."""
+        texts = workflow.competitors_of(competitors)
+        with self.lock:
+            self._tick()
+            b = self._b(bid)
+            b["competitors"], b["competitors_proposed"] = texts, []
+            return self._competitors_view(b)
 
     # ---------- routes: projects ----------
     def list_projects(self):
