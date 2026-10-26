@@ -190,7 +190,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 /* forms */
 .field { display: grid; gap: var(--space-1); }
 .field > label { font-weight: var(--fw-semibold); color: var(--text-strong); }
-input[type="text"], textarea, select { width: 100%; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); transition: border-color var(--transition-fast), background var(--transition-fast); }
+input[type="text"], input[type="password"], textarea, select { width: 100%; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); transition: border-color var(--transition-fast), background var(--transition-fast); }
 textarea { min-height: 96px; resize: vertical; line-height: var(--lh-body); }
 textarea.prompt { min-height: 140px; }
 input:hover, textarea:hover, select:hover { border-color: var(--blue-medium); }

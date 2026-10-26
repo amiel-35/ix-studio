@@ -36,6 +36,9 @@ J = r"(?P<j>[\w-]+)"
 # (method, path pattern, backend call taking (backend, match groups, json body))
 ROUTES = [
     ("GET", r"/api/machine", lambda b, m, d: b.machine()),
+    ("GET", r"/api/engines", lambda b, m, d: b.get_engines()),
+    ("PUT", r"/api/engines/image", lambda b, m, d: b.put_engines("image", d)),
+    ("PUT", r"/api/engines/text", lambda b, m, d: b.put_engines("text", d)),
     ("GET", r"/api/tasks", lambda b, m, d: b.tasks()),
     ("GET", r"/api/projects", lambda b, m, d: b.list_projects()),
     ("POST", r"/api/projects", lambda b, m, d: b.create_project(d.get("name"), d.get("from"), d.get("brand"), d.get("site"))),

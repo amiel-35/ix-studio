@@ -954,7 +954,10 @@
         h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, "Une image, son brief, un verdict"))),
       (judgements || []).map((j) => h(Row, { key: j.id, col: 0, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
         label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))));
+        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))),
+      h(Where, null, "Réglages"), // engines
+      h(Row, { col: 0, select: true, sel: sel.panel === "settings" ? level : null, onClick: ctx.openSettings, label: "Réglages : choisir les moteurs d'image et de texte" },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Réglages"), h("span", { className: "meta" }, "Les moteurs d'image et de texte"))));
   }
   const JUDGEMENT_WORD = { running: "Le juge relit", done: "Jugée", failed: "Le juge a échoué" };
   const day = (sec) => sec ? new Date(sec * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
@@ -1435,6 +1438,35 @@
     { k: "fixed", before: ". Les assets : ", label: "le cadre (respecter ou non les assets)", empty: "rien de dit, c'est facultatif", area: true }];
   const JNEEDED = { objective: "l'objectif", audience: "la cible", message: "le message", cta: "l'appel à l'action" };
 
+  /* ---------- engines: the settings, the engine of the images and the engine of the texts with its key ---------- */
+  const TEXT_WORD = { claude: "Claude Code", openrouter: "OpenRouter" };
+  const IMAGE_WORD = { auto: "Au choix du studio", openai: "OpenAI", openrouter: "OpenRouter", codex: "Codex", none: "Aucun" };
+  function Settings({ ctx }) {
+    const [cfg, setCfg] = useState(null), [image, setImage] = useState(""), [text, setText] = useState(""), [model, setModel] = useState(""), [key, setKey] = useState("");
+    const show = (c) => { setCfg(c); setImage(c.image_engine); setText(c.text_engine); setModel(c.openrouter_model); setKey(""); };
+    useEffect(() => { api.engines().then(show).catch(ctx.fail); }, []);
+    const saveImage = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveEngine(image)); ctx.notify("Le moteur d'image est enregistré."); }); };
+    const saveText = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined)); ctx.notify("Le moteur de texte est enregistré."); }); };
+    const forget = () => ctx.act(async () => { show(await api.saveTextEngine(text, "")); ctx.notify("La clé est oubliée."); });
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Studio"), h("h2", { className: "titre" }, "Réglages")),
+      !cfg ? h("p", { className: "vide" }, "Un instant.") : h(React.Fragment, null,
+        h("form", { className: "sec form", onSubmit: saveImage },
+          h("div", { className: "field" }, h("label", { htmlFor: "st-image" }, "Moteur d'image"),
+            h("select", { id: "st-image", value: image, onChange: (e) => setImage(e.target.value) }, cfg.image_engines.map((k) => h("option", { key: k, value: k }, IMAGE_WORD[k] || k)))),
+          h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || image === cfg.image_engine, "aria-label": "Enregistrer le moteur d'image" }, "Enregistrer"))),
+        h("form", { className: "sec form", onSubmit: saveText },
+          h("div", { className: "field" }, h("label", { htmlFor: "st-text" }, "Moteur de texte"),
+            h("select", { id: "st-text", value: text, onChange: (e) => setText(e.target.value) }, cfg.text_engines.map((k) => h("option", { key: k, value: k }, TEXT_WORD[k] || k)))),
+          text === "openrouter" && h(React.Fragment, null,
+            h("div", { className: "field" }, h("label", { htmlFor: "st-key" }, "Clé OpenRouter"),
+              h("input", { id: "st-key", type: "password", value: key, onChange: (e) => setKey(e.target.value), autoComplete: "off", placeholder: cfg.key_saved ? "Une clé est enregistrée" : "", "aria-describedby": "st-key-hint" }),
+              h("span", { id: "st-key-hint", className: "small muted", "data-key-saved": cfg.key_saved }, cfg.key_saved ? "Une clé est enregistrée. Elle reste sur ce poste et ne s'affiche jamais. Écris-en une autre pour la remplacer." : "Aucune clé enregistrée. Elle reste sur ce poste et ne s'affiche jamais.")),
+            h("div", { className: "field" }, h("label", { htmlFor: "st-model" }, "Modèle"), h("input", { id: "st-model", type: "text", value: model, onChange: (e) => setModel(e.target.value), autoComplete: "off" }))),
+          h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || (text === "openrouter" && !key.trim() && !cfg.key_saved), "aria-label": "Enregistrer le moteur de texte" }, "Enregistrer"),
+            text === "openrouter" && cfg.key_saved && h(Button, { type: "button", variant: "ghost", size: "md", onClick: forget, disabled: ctx.busy, "aria-label": "Oublier la clé" }, "Oublier la clé"),
+            h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Fermer les réglages" }, "Fermer")))));
+  }
+
   function JudgeForm({ ctx }) {
     const [file, setFile] = useState(null);
     const [url, setUrl] = useState(null);
@@ -1561,6 +1593,7 @@
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
     if (sel.panel === "newJudge") { c.push("newJudge"); return c; }
+    if (sel.panel === "settings") { c.push("settings"); return c; } // engines
     if (sel.judgement) { c.push("judgement"); return c; }
     if (!sel.brand) return c;
     c.push("brand");
@@ -1659,6 +1692,7 @@
     const selectStep = useCallback((key) => move((s) => ({ ...s, detail: { kind: "step", key }, panel: null, task: null })), [move]);
     const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
     const newJudge = useCallback(() => move(() => ({ ...EMPTY, panel: "newJudge" })), [move]);
+    const openSettings = useCallback(() => move(() => ({ ...EMPTY, panel: "settings" })), [move]); // engines
     const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judgement: id }), text), [move]);
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
@@ -1726,7 +1760,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement, openSettings };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -1742,6 +1776,7 @@
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
       cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
       cmds.push({ id: "new-judge", group: "Créer", label: "Juger une pièce", run: newJudge });
+      cmds.push({ id: "settings", group: "Aller", label: "Réglages : les moteurs", run: openSettings }); // engines
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
       if (sel.brand && sel.project) {
@@ -1841,12 +1876,12 @@
 
     /* ----- the columns ----- */
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
-      : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+      : kind === "settings" ? h(Settings, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", settings: "Réglages", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
     const shell = (kind, i) => {
       const last = i === cols.length - 1;

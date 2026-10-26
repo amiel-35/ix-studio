@@ -12,13 +12,16 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
     storyboard   the script and the shots of a film   inputs: name, brand, colours, brief, language                  gives {"script", "shots": [{seconds, visual, text, colour, read}]}
     reader       the reading of a piece by a persona  inputs: image, persona, texts, language                     gives the reading (aimed, why, understand, ...)
+    engines      the engines of the studio          inputs (optional): image_engine, text_engine, openrouter_model, openrouter_key   keeps them, gives
+                                                    {image_engine, text_engine, openrouter_model, key_saved}: the key is never given back
 
 The inputs are a JSON object; a path in it is read from the folder of the inputs file. `brief` (of a brand) is a list of {key, value, state}
 (what, who, voice, signature, never, colours; state confirmed or deduced); `brief` (of a piece) is {objective, audience, message, cta, fixed};
 `brand` is {name, what, who, voice, signature, never} or {}; `texts` is {headline, subline}. Everything but the names of the files is optional.
 
 The model of each command: --model, else the variable STUDIO_MODEL_<COMMAND> (STUDIO_MODEL_JUDGE...), else its default below. The program run
-in place of `claude` is STUDIO_CLAUDE_BIN. `ANTHROPIC_API_KEY` is not passed to it unless STUDIO_CLAUDE_USE_API_KEY is set: the plan pays.
+in place of `claude` is STUDIO_CLAUDE_BIN. The text engine is `claude`, or `openrouter` (STUDIO_TEXT_ENGINE, else the choice of `engines`) for the agents that
+only answer (personas, names, competitors, texts, mandates); those that read an image or write a file (variant, judge, reader) stay on `claude`. `ANTHROPIC_API_KEY` is not passed to it unless STUDIO_CLAUDE_USE_API_KEY is set: the plan pays.
 """
 
 import argparse
@@ -34,6 +37,7 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import engines  # noqa: E402
 from answers import (TEXT_KINDS, check_variant, judge_missing, one_line, parse_competitors, parse_names, parse_personas, parse_proposal,  # noqa: E402
                      parse_reading, parse_storyboard, parse_texts, parse_verdict)
 
@@ -80,6 +84,11 @@ CALLS = []  # the answers of claude in this run: on a failure, the raw one goes 
 
 def ask(prompt, cmd, flags, cwd, timeout, model=None, runner=run_command):
     """One `claude -p` call, in `cwd`. The prompt comes first: --tools takes a list and would swallow what follows it."""
+    if flags is NOTHING and engines.text_engine() == "openrouter":
+        code, text, err = engines.openrouter_answer(prompt, model, timeout)
+        res = Result(code, text, err)
+        CALLS.append(res)
+        return res
     exe = os.environ.get("STUDIO_CLAUDE_BIN") or "claude"
     model = model or os.environ.get("STUDIO_MODEL_" + cmd.upper()) or MODELS[cmd]
     env = dict(os.environ)
@@ -471,8 +480,17 @@ def cmd_storyboard(i, model, runner):
         raise AgentError(f"réponse de l'agent illisible : {err}") from None
 
 
+# ---------- engines ----------
+def cmd_engines(i, model, runner):
+    try:
+        engines.save(i)
+    except ValueError as err:
+        raise AgentError(f"inputs: {err}") from None
+    return engines.view()
+
+
 COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "texts": cmd_texts, "mandates": cmd_mandates, "variant": cmd_variant,
-            "judge": cmd_judge, "reader": cmd_reader, "storyboard": cmd_storyboard}
+            "judge": cmd_judge, "reader": cmd_reader, "storyboard": cmd_storyboard, "engines": cmd_engines}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
 
@@ -493,13 +511,15 @@ def load_inputs(path) -> dict:
 def main(argv=None, runner=run_command, stdout=None, stderr=None) -> int:
     ap = argparse.ArgumentParser(prog="agents", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=sorted(COMMANDS))
-    ap.add_argument("inputs", help="the inputs of the command, a JSON file")
+    ap.add_argument("inputs", nargs="?", help="the inputs of the command, a JSON file (optional for engines)")
     ap.add_argument("--model", help="the model (else STUDIO_MODEL_<COMMAND>, else the default of the command)")
     ap.add_argument("--out", help="also write the answer in this file")
     a = ap.parse_args(argv)
     CALLS.clear()
     try:
-        i = load_inputs(a.inputs)
+        if a.inputs is None and a.command != "engines":
+            raise AgentError("inputs: a JSON file is needed")
+        i = load_inputs(a.inputs) if a.inputs else {}
         try:
             answer = COMMANDS[a.command](i, a.model, runner)
         except KeyError as err:

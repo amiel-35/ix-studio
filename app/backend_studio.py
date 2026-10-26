@@ -156,7 +156,7 @@ class StudioBackend:
         self.home = Path(home or os.environ.get("STUDIO_HOME") or Path.home() / "ix-studio-projets").expanduser()
         self.home.mkdir(parents=True, exist_ok=True)
         self.runner = runner
-        self.image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE", "auto")
+        self._image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE")  # said by whoever started the studio (and then it wins), else the choice of the settings
         self.probe = probe or (lambda: probe_machine(image_engine=self.image_engine))  # what the machine has, asked when the interface asks
         self._state = threading.RLock()  # short: reading and writing project.json and marque.json
         self._locks = {}  # one lock per project (and per brand) for the long operations that rewrite files (keep, pick, compose, decide)
@@ -742,6 +742,37 @@ class StudioBackend:
     def _view(self, p, bs=None, now=None):
         now = now or time.time()
         return workflow.project_view(self._wf_state(p, now, bs), now)
+
+    # ---------- engines ----------
+    def _engines(self, patch=None) -> dict:
+        """`agents engines`, which keeps what is in `patch` and gives the choices (never a key). The patch goes through a file of its own, that only the
+        person can read and that does not outlive the call: a key does not go in an argument."""
+        with tempfile.TemporaryDirectory(prefix="ixs-engines-") as tmp:
+            args = []
+            if patch:
+                f = Path(tmp) / "inputs.json"
+                f.write_text(json.dumps(patch), encoding="utf-8")
+                args = [f]
+            res = self._sh(None, self._py(AGENTS, "engines", *args), timeout=30)
+        if res.code:
+            raise ToolError(tail(res))
+        return json.loads(res.out)
+
+    @property
+    def image_engine(self) -> str:
+        if self._image_engine:
+            return self._image_engine
+        try:
+            return self._engines()["image_engine"]
+        except (ToolError, ValueError, KeyError):
+            return "auto"
+
+    def get_engines(self):
+        return workflow.engines_view(self._engines())
+
+    def put_engines(self, kind, body):
+        """The engine of the images, or the engine of the texts with its key and its model: kept in the configuration of the person."""
+        return workflow.engines_view(self._engines(workflow.engines_patch(kind, body)))
 
     # ---------- routes ----------
     def health(self):
