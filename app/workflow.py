@@ -26,10 +26,17 @@ import io
 import ipaddress
 import json
 import re
+import sys
 import unicodedata
 import urllib.parse
 import zipfile
+from pathlib import Path
 from typing import NamedTuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
+from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
+                     PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
+                     parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -60,10 +67,6 @@ KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "im
 def slug(text: str) -> str:
     t = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:32]
-
-
-def one_line(text) -> str:
-    return " ".join(str(text or "").split())
 
 
 def fmt_key(token: str) -> str:
@@ -529,12 +532,6 @@ def normalise_site(raw: str) -> str:
 #
 # Every annotation says what it aims at in words ("le titre en haut", "le bandeau du bas"), never with a drawn zone.
 
-JUDGE_BRIEF = [("objective", "l'objectif"), ("audience", "la cible"), ("message", "le message"), ("cta", "l'appel à l'action"),
-               ("fixed", "ce qui ne bouge pas")]  # `fixed` (respect the assets or not) is optional
-JUDGE_NEEDED = ("objective", "audience", "message", "cta")
-JUDGE_REACHED = ("yes", "partly", "no", "unjudgeable")
-JUDGE_LISTS = ("works", "snags", "unsourced", "brand")
-JUDGE_ITEMS = 8  # annotations kept per heading
 JUDGE_MAX = 10 * 1024 * 1024  # bytes: a piece dropped to be judged (a png or a jpg)
 JUDGE_TYPES = {"image/png": "png", "image/jpeg": "jpg"}
 
@@ -547,65 +544,6 @@ def judge_brief(raw) -> dict:
     if not isinstance(raw, dict):
         raise ValueError("brief: an object")
     return {**{k: one_line(raw.get(k))[:600] for k, _ in JUDGE_BRIEF}, "personas": brief_personas_of(raw.get("personas"))}
-
-
-def judge_missing(brief: dict) -> list:
-    """What the brief lacks to be judged in full, in words: the target cannot be judged without `audience`, the rest goes on without what is missing."""
-    return [label for k, label in JUDGE_BRIEF if k in JUDGE_NEEDED and not (brief.get(k) or "").strip()]
-
-
-def _notes(raw, what):
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise ValueError(f"{what}: a list of {{where, say}}")
-    out = []
-    for x in raw:
-        if not isinstance(x, dict):
-            raise ValueError(f"{what}: each annotation is {{where, say}}")
-        where, say = one_line(x.get("where"))[:120], one_line(x.get("say"))[:400]
-        if not where or not say:
-            raise ValueError(f"{what}: each annotation says where (in words) and what")
-        out.append({"where": where, "say": say})
-    return out[:JUDGE_ITEMS]
-
-
-def parse_verdict(raw, has_brand: bool, brief: dict) -> dict:
-    """The verdict of a judge, checked and put in its one shape (see above), or a ValueError that says what is wrong. `raw` is the JSON the agent
-    wrote (a string, a fenced block is accepted) or a dict. What the backend knows wins over what the agent says: no brand, no `brand` heading;
-    no target in the brief, the target is `unjudgeable` with the sentence that says so. A score, if the agent gives one, is left out."""
-    if isinstance(raw, (str, bytes)):
-        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
-        a, b = text.find("{"), text.rfind("}")
-        if a < 0 or b < a:
-            raise ValueError("no JSON object in the verdict")
-        try:
-            raw = json.loads(text[a:b + 1])
-        except ValueError as err:
-            raise ValueError(f"the verdict is not readable JSON ({err})") from None
-    if not isinstance(raw, dict):
-        raise ValueError("the verdict is a JSON object")
-    t = raw.get("target")
-    if not isinstance(t, dict) or t.get("reached") not in JUDGE_REACHED or not one_line(t.get("why")):
-        raise ValueError(f"target: {{reached, why}}, reached one of {', '.join(JUDGE_REACHED)}")
-    missing = judge_missing(brief)
-    if "la cible" in missing:
-        target = {"reached": "unjudgeable", "why": "non jugeable sur la cible : il manque la cible"}
-    else:
-        target = {"reached": t["reached"], "why": one_line(t["why"])[:600]}
-    out = {"target": target}
-    for k in ("works", "snags", "unsourced"):
-        if k not in raw:
-            raise ValueError(f"{k}: missing (an empty list says there is nothing)")
-        out[k] = _notes(raw[k], k)
-    if has_brand:
-        if not isinstance(raw.get("brand"), list):
-            raise ValueError("brand: a list of {where, say} (the brand is known)")
-        out["brand"] = _notes(raw["brand"], "brand")
-    else:
-        out["brand"] = None
-    out["missing"] = missing
-    return out
 
 
 REACHED_WORDS = {"yes": "atteinte", "partly": "en partie", "no": "pas atteinte", "unjudgeable": "non jugeable"}
@@ -699,11 +637,6 @@ def judge_view(job_status, verdict, error=None) -> dict:
 #     unread      what I do not read
 #     lacks       what I miss
 
-PERSONAS_MAX = 4
-READING_AIMED = ("yes", "partly", "no")
-READING_KEYS = ("why", "understand", "retain", "bother", "unread", "lacks")
-
-
 def brief_personas_of(raw) -> list:
     """The personas of a brief: a list of one to four free texts (the empty ones left out), or a ValueError."""
     if raw in (None, ""):
@@ -717,10 +650,6 @@ def brief_personas_of(raw) -> list:
 
 
 # ---------- the personas of a brand: proposed by an agent from what the studio knows, corrected and kept by the person ----------
-PERSONA_HEAD = "Hypothèses à corriger, pas des faits."
-PERSONA_FROM = {"dossier": "dossier", "supposé": "supposé", "suppose": "supposé"}
-
-
 def personas_of(raw) -> list:
     """The personas the person keeps (`PUT personas`): a list of texts, at most four; the empty ones are dropped."""
     if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
@@ -728,31 +657,6 @@ def personas_of(raw) -> list:
     out = [x.strip()[:3000] for x in raw if x.strip()]
     if len(out) > PERSONAS_MAX:
         raise ValueError(f"personas: {PERSONAS_MAX} at most")
-    return out
-
-
-def parse_reading(raw) -> dict:
-    """The reading of one reader, checked and put in its one shape (see above), or a ValueError that says what is wrong."""
-    if isinstance(raw, (str, bytes)):
-        text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
-        a, b = text.find("{"), text.rfind("}")
-        if a < 0 or b < a:
-            raise ValueError("no JSON object in the reading")
-        try:
-            raw = json.loads(text[a:b + 1])
-        except ValueError as err:
-            raise ValueError(f"the reading is not readable JSON ({err})") from None
-    if not isinstance(raw, dict):
-        raise ValueError("the reading is a JSON object")
-    if raw.get("aimed") not in READING_AIMED:
-        raise ValueError(f"aimed: one of {', '.join(READING_AIMED)}")
-    out = {"aimed": raw["aimed"]}
-    for k in READING_KEYS:
-        if not isinstance(raw.get(k), str):
-            raise ValueError(f"{k}: a text (an empty one says there is nothing)")
-        out[k] = one_line(raw[k])[:600]
-    if not out["why"]:
-        raise ValueError("why: say why")
     return out
 
 
@@ -768,47 +672,7 @@ def reader_view(n: int, persona: str, job, saved) -> dict:
     return {"n": n, "persona": persona, "status": "todo", "reading": None, "error": None, "job": None}
 
 
-def parse_personas(raw) -> list:
-    """What the personas agent answers, checked and written as texts: `{"personas": [{"need", "lines": [{"say", "from"}]}]}`, one to four,
-    each with its own need, each line `from` the dossier or supposed. A text starts with PERSONA_HEAD, then its need, then one line each,
-    prefixed `(dossier)` or `(supposé)`. A ValueError says what does not hold."""
-    if isinstance(raw, str):
-        a, b = raw.find("{"), raw.rfind("}")
-        if a < 0 or b < a:
-            raise ValueError("pas de JSON dans la réponse")
-        try:
-            raw = json.loads(raw[a:b + 1])
-        except ValueError as err:
-            raise ValueError(f"JSON illisible ({err})") from None
-    items = raw.get("personas") if isinstance(raw, dict) else None
-    if not isinstance(items, list) or not 1 <= len(items) <= PERSONAS_MAX:
-        raise ValueError(f"il faut de un à {PERSONAS_MAX} personas")
-    out, needs = [], set()
-    for it in items:
-        need = one_line(it.get("need")) if isinstance(it, dict) else ""
-        lines = it.get("lines") if isinstance(it, dict) else None
-        if not need or not isinstance(lines, list) or not lines:
-            raise ValueError("chaque persona a un besoin principal et des lignes")
-        if need.casefold() in needs:
-            raise ValueError("deux personas ont le même besoin principal")
-        needs.add(need.casefold())
-        rows = []
-        for ln in lines:
-            say = one_line(ln.get("say")) if isinstance(ln, dict) else ""
-            src = PERSONA_FROM.get(str(ln.get("from", "")).strip().lower()) if isinstance(ln, dict) else None
-            if not say or not src:
-                raise ValueError("chaque ligne dit ce qu'elle dit et si elle vient du dossier ou si elle est supposée")
-            rows.append(f"({src}) {say}")
-        out.append("\n".join([PERSONA_HEAD, f"Besoin principal : {need}", *rows]))
-    return out
-
-
 # ---------- the names of a brand: proposed by an agent from its brief, kept or dropped by the person, one of the kept chosen as its name ----------
-NAMES_MAX = 8
-
-
-def _name_item(x) -> dict:
-    return {"name": one_line(x.get("name"))[:80], "why": one_line(x.get("why"))[:300]} if isinstance(x, dict) else {"name": "", "why": ""}
 
 
 def names_of(raw) -> list:
@@ -825,28 +689,6 @@ def names_of(raw) -> list:
     return out
 
 
-def parse_names(raw) -> list:
-    """What the names agent answers, checked: `{"names": [{"name", "why"}]}`, one to eight, each with its line, no name twice. A ValueError
-    says what does not hold."""
-    if isinstance(raw, str):
-        a, b = raw.find("{"), raw.rfind("}")
-        if a < 0 or b < a:
-            raise ValueError("pas de JSON dans la réponse")
-        try:
-            raw = json.loads(raw[a:b + 1])
-        except ValueError as err:
-            raise ValueError(f"JSON illisible ({err})") from None
-    items = raw.get("names") if isinstance(raw, dict) else None
-    if not isinstance(items, list) or not 1 <= len(items) <= NAMES_MAX:
-        raise ValueError(f"il faut de un à {NAMES_MAX} noms")
-    out = [_name_item(x) for x in items]
-    if not all(x["name"] and x["why"] for x in out):
-        raise ValueError("chaque nom vient avec sa ligne : pourquoi ce nom, et ce qu'il évoque")
-    if len({x["name"].casefold() for x in out}) < len(out):
-        raise ValueError("un nom est proposé deux fois")
-    return out
-
-
 def chosen_of(chosen, names: list):
     """The name chosen among the kept ones (`PUT names` `chosen`), or None when nothing is chosen; a ValueError when it is not kept."""
     if chosen is None:
@@ -858,10 +700,6 @@ def chosen_of(chosen, names: list):
 
 
 # ---------- competitors: the competitors of a brand, proposed by an agent from what the studio knows, corrected and kept by the person ----------
-COMPETITORS_MAX = 6
-COMPETITOR_HEAD = "Hypothèse à vérifier, pas un fait."
-
-
 def competitors_of(raw) -> list:
     """The competitors the person keeps (`PUT competitors`): a list of texts, at most six; the empty ones are dropped."""
     if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
@@ -869,33 +707,4 @@ def competitors_of(raw) -> list:
     out = [x.strip()[:2000] for x in raw if x.strip()]
     if len(out) > COMPETITORS_MAX:
         raise ValueError(f"competitors: {COMPETITORS_MAX} at most")
-    return out
-
-
-def parse_competitors(raw) -> list:
-    """What the competitors agent answers, checked and written as texts: `{"competitors": [{"name", "sells", "differs", "from"}]}`, one to six,
-    each its own name, `from` the dossier or supposed. A text starts with COMPETITOR_HEAD, then `Nom : … (dossier|supposé)`, `Vend : …`,
-    `Se distingue : …`. A ValueError says what does not hold."""
-    if isinstance(raw, str):
-        a, b = raw.find("{"), raw.rfind("}")
-        if a < 0 or b < a:
-            raise ValueError("pas de JSON dans la réponse")
-        try:
-            raw = json.loads(raw[a:b + 1])
-        except ValueError as err:
-            raise ValueError(f"JSON illisible ({err})") from None
-    items = raw.get("competitors") if isinstance(raw, dict) else None
-    if not isinstance(items, list) or not 1 <= len(items) <= COMPETITORS_MAX:
-        raise ValueError(f"il faut de un à {COMPETITORS_MAX} concurrents")
-    out, names = [], set()
-    for it in items:
-        it = it if isinstance(it, dict) else {}
-        name, sells, differs = (one_line(it.get(k))[:300] for k in ("name", "sells", "differs"))
-        src = PERSONA_FROM.get(str(it.get("from", "")).strip().lower())
-        if not name or not sells or not differs or not src:
-            raise ValueError("chaque concurrent a un nom, ce qu'il vend, ce qui le distingue, et dit s'il vient du dossier ou s'il est supposé")
-        if name.casefold() in names:
-            raise ValueError("deux concurrents ont le même nom")
-        names.add(name.casefold())
-        out.append("\n".join([COMPETITOR_HEAD, f"Nom : {name} ({src})", f"Vend : {sells}", f"Se distingue : {differs}"]))
     return out

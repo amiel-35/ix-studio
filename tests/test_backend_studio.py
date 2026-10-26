@@ -7,6 +7,8 @@ the network, is faked by the runner the backend is given: `node collect.mjs` (it
     python3 -m unittest discover -s tests
 """
 
+import importlib.util
+import io
 import json
 import os
 import re
@@ -29,6 +31,10 @@ import backend_studio  # noqa: E402
 import server  # noqa: E402
 import workflow  # noqa: E402
 from backend_studio import Result, StudioBackend, normalise_site, run_command  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location("ixs_agents", ROOT / "scripts" / "agents" / "__main__.py")
+agents = importlib.util.module_from_spec(_spec)  # scripts/agents, run in this process with the `claude` of the Fake
+_spec.loader.exec_module(agents)
 
 
 def png(w=64, h=80, rgb=(200, 80, 40)):
@@ -83,6 +89,9 @@ class Fake:
         with self.lock:
             self.calls.append({"argv": argv, "cwd": cwd, "env": dict(env or {}), "ls": sorted(os.listdir(cwd)) if cwd and os.path.isdir(cwd) else None})
         exe = Path(argv[0]).name
+        if exe.startswith("python") and Path(argv[1]).name == "agents":  # the agents of the studio: the command for real, its `claude` faked here
+            out, err = io.StringIO(), io.StringIO()
+            return Result(agents.main(argv[2:], runner=self, stdout=out, stderr=err), out.getvalue(), err.getvalue())
         if exe == "node":
             return self.node(argv)
         if exe == "claude":

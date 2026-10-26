@@ -66,6 +66,19 @@ the exports yourself.
    with ASK lines left: they stay missing for every module downstream. Validation writes `history/vN/` and the
    exports.
 
+## Personas, names, competitors
+
+Three agents, run by the same commands as in the interface: `AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"` (from a clone `<repo>/scripts/agents`), then
+`python3 "$AG" <command> inputs.json`. The inputs are `name`, `site`, `description`, `words` (what the person says of the brand), `brief` (a list of
+`{key, value, state}` with the keys `what`, `who`, `voice`, `signature`, `never`, `colours` and the state `confirmed` or `deduced`, taken from the
+dossier) and `dossier` (the path of `brand.json`). They give hypotheses to show and correct, never facts to file.
+
+- `personas`: up to four people the brand's ads will meet, each with a main need; use it once the brief of the brand is done.
+- `names`: up to eight names with their why; when the brand has only a working title. Nobody checked that a name is free.
+- `competitors`: up to six, each marked `dossier` or `supposé`; no figure.
+
+They run on `sonnet`; `--model` or `STUDIO_MODEL_PERSONAS` (`_NAMES`, `_COMPETITORS`) changes it.
+
 ## Reading the dossier from another module
 
 `python3 "$BK" get brand <path>` returns a value with its status and source, or only a status when the field is ASK

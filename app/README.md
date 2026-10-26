@@ -50,7 +50,7 @@ is `claude -p` reading the picture in a folder of its own; the simulated one giv
   already installed; `studio compose` takes its screenshot with it: set `CHROME=/path/to/chrome` if it is not found).
 - ffmpeg and ffprobe (`brandkit keep` measures the colours of the visuals you keep; without them the colours are not
   measured and the page says so).
-- Claude Code, signed in (`claude -p`, model sonnet). The key `ANTHROPIC_API_KEY` is not passed to it unless
+- Claude Code, signed in (`claude -p`, run by `scripts/agents`: model `claude-fable-5-1` for the judge and the readers, `sonnet` for the others, changed by `STUDIO_MODEL_<COMMAND>`). The key `ANTHROPIC_API_KEY` is not passed to it unless
   `STUDIO_CLAUDE_USE_API_KEY=1`: the plan pays.
 - Codex, signed in, for the images (or `OPENAI_API_KEY` / `OPENROUTER_API_KEY`; `STUDIO_IMAGE_ENGINE` forces one).
 - The first real run is yours: the tests never call `claude`, `codex` or the network.
@@ -70,7 +70,7 @@ The interface uses a brand design system that is not published with this reposit
   replaces it with its own).
 - `workflow.py`: the steps, who holds the hand on each, what waits for the person: written once, fed with plain data
   by both backends.
-- `backend_studio.py`: the real studio (drives `scripts/studio`, `scripts/brandkit`, `scripts/collect`, `claude -p`),
+- `backend_studio.py`: the real studio (drives `scripts/studio`, `scripts/brandkit`, `scripts/collect`, `scripts/agents`),
   state on disk, commands through an injected runner (the tests give it a fake one).
 - `backend_stub.py`: the simulated studio.
 - `static/api.js`: the client, the only file that calls the server; it carries a token when there is one.
