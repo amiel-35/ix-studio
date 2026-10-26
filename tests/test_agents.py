@@ -118,8 +118,10 @@ class Agents(unittest.TestCase):
             with self.subTest(cmd=cmd):
                 r = self.run_cmd(cmd, inputs, "bad")
                 self.assertEqual((r.returncode, r.stdout), (1, ""))
-                self.assertTrue(r.stderr.startswith("agents: "), r.stderr)
+                self.assertTrue(r.stderr.strip().splitlines()[-1].startswith("agents: "), r.stderr)  # the reason is the last line
                 self.assertRegex(r.stderr, "illisible|pas de JSON|JSON")
+                if cmd not in ("judge", "reader", "variant"):  # those write a file: claude says nothing on its output
+                    self.assertIn("pas de json ici", r.stderr)  # the raw answer is kept for the log
 
     def test_an_agent_that_fails_is_an_error_with_its_reason(self):
         for cmd, (inputs, _, _) in self.CASES.items():

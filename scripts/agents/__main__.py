@@ -73,6 +73,9 @@ def tail(res, n=240) -> str:
     return f"exit {res.code}"
 
 
+CALLS = []  # the answers of claude in this run: on a failure, the raw one goes to stderr, for the log of whoever ran the command
+
+
 def ask(prompt, cmd, flags, cwd, timeout, model=None, runner=run_command):
     """One `claude -p` call, in `cwd`. The prompt comes first: --tools takes a list and would swallow what follows it."""
     exe = os.environ.get("STUDIO_CLAUDE_BIN") or "claude"
@@ -80,7 +83,18 @@ def ask(prompt, cmd, flags, cwd, timeout, model=None, runner=run_command):
     env = dict(os.environ)
     if not env.get("STUDIO_CLAUDE_USE_API_KEY"):
         env.pop("ANTHROPIC_API_KEY", None)
-    return runner([exe, "-p", prompt, "--model", model, "--no-session-persistence", "--restricted", *flags], cwd=str(cwd) if cwd else None, env=env, timeout=timeout)
+    res = runner([exe, "-p", prompt, "--model", model, "--no-session-persistence", "--restricted", *flags], cwd=str(cwd) if cwd else None, env=env, timeout=timeout)
+    CALLS.append(res)
+    return res
+
+
+def raw_answer(n=4000) -> str:
+    """What claude said in its last call, for a failure: its output and its errors, the end of each. The reason stays on the last line."""
+    if not CALLS:
+        return ""
+    res = CALLS[-1]
+    parts = [f"--- {name} de claude ---\n{text.strip()[-n:]}\n" for name, text in (("réponse brute", res.out), ("erreurs", res.err)) if text.strip()]
+    return "".join(parts)
 
 
 def read_text(f) -> str:
@@ -416,6 +430,7 @@ def main(argv=None, runner=run_command, stdout=None, stderr=None) -> int:
     ap.add_argument("--model", help="the model (else STUDIO_MODEL_<COMMAND>, else the default of the command)")
     ap.add_argument("--out", help="also write the answer in this file")
     a = ap.parse_args(argv)
+    CALLS.clear()
     try:
         i = load_inputs(a.inputs)
         try:
@@ -423,7 +438,9 @@ def main(argv=None, runner=run_command, stdout=None, stderr=None) -> int:
         except KeyError as err:
             raise AgentError(f"inputs: {err.args[0]} is missing") from None
     except AgentError as err:
-        print(f"agents: {err}", file=stderr or sys.stderr)
+        out = stderr or sys.stderr
+        out.write(raw_answer())
+        print(f"agents: {err}", file=out)
         return 1
     text = json.dumps(answer, indent=2, ensure_ascii=False) + "\n"
     if a.out:
