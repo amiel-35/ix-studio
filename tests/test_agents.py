@@ -192,6 +192,40 @@ class Agents(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (1, ""))
                 self.assertIn("Claude Code is not signed in", r.stderr)
 
+    # ---- brief_export: the command that writes the brief out calls no claude
+    BRIEF = {"name": "Été au marché", "brand_name": "Cabane", "confirmed": True,
+             "brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "format": "post-4x5, story", "fixed": "", "cta": "Viens", "personas": ["Léa"]}}
+
+    def test_export_brief_writes_the_brief_and_says_what_is_missing_as_missing(self):
+        out = self.tmp / "brief.md"
+        r = self.run_cmd("export-brief", self.BRIEF, "down", "--out", str(out))  # claude is down: it is not called
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), [])
+        got = json.loads(r.stdout)
+        self.assertEqual(got["filename"], "brief-été-au-marché.md")
+        self.assertEqual(out.read_text(encoding="utf-8"), got["markdown"])  # --out is the file itself
+        md = got["markdown"]
+        for line in ("# Brief : Été au marché", "Marque : Cabane", "brief validé", "## Objectif\n\nfaire goûter", "## Cible\n\nles citadins", "## Format\n\npost-4x5, story",
+                     "## Appel à l'action\n\nViens", "- Léa", "## Ce qui est fixé\n\nManquant : ce qui est fixé."):
+            self.assertIn(line, md)
+        self.assertIn("## Ce qui manque\n\n- ce qui est fixé\n", md)
+        self.assertNotIn("\u2014", md)
+        full = self.run_cmd("export-brief", {**self.BRIEF, "confirmed": False, "brief": {**self.BRIEF["brief"], "fixed": "les couleurs"}})
+        self.assertIn("non validé", json.loads(full.stdout)["markdown"])
+        self.assertIn("Rien ne manque.", json.loads(full.stdout)["markdown"])
+
+    def test_export_brief_refuses_what_it_cannot_write(self):
+        for inputs in ({"name": "x"}, {"brief": "texte"}, {"brief": {"objective": " "}}):  # no brief, a brief that is not fields, an empty brief
+            with self.subTest(inputs=inputs):
+                r = self.run_cmd("export-brief", inputs)
+                self.assertEqual((r.returncode, r.stdout), (1, ""))
+                self.assertTrue(r.stderr.strip().splitlines()[-1].startswith("agents: "), r.stderr)
+        f = self.tmp / "inputs.json"
+        f.write_text("{pas du json", encoding="utf-8")  # inputs that do not read
+        r = subprocess.run([sys.executable, str(AGENTS), "export-brief", str(f)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn("not readable JSON", r.stderr)
+
     def test_the_logos_are_drawings_checked_before_they_are_given(self):
         r = self.run_cmd("logos", self.CASES["logos"][0])
         self.assertEqual(r.returncode, 0, r.stderr)

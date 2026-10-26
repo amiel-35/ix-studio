@@ -1460,6 +1460,36 @@ class Brief(Base):
         self.settle_mandates(pid)
 
 
+class BriefExport(Base):
+    def test_the_brief_is_exported_in_markdown_confirmed_or_not(self):
+        pid = self.started()
+        head, data = self.fetch(f"/api/briefs/{pid}/export")  # not validated yet: the prefilled brief, what is empty said missing
+        self.assertRegex(head["Content-Disposition"], r'^attachment; filename="brief-[^"]+\.md"$')
+        self.assertTrue(head["Content-Type"].startswith("text/markdown"))
+        self.assertTrue(any(c["argv"][2:3] == ["export-brief"] for c in self.fake.calls))
+        self.assertFalse(any("-p" in c["argv"] for c in self.fake.calls if "export-brief" in c["argv"]))  # no claude for this one
+        self.assertIn("brief non validé", data.decode())
+        f = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**f, "objective": "o", "audience": "a", "message": "m", "cta": "c"}})
+        _, data = self.fetch(f"/api/briefs/{pid}/export")
+        md = data.decode()
+        self.assertIn("brief validé", md)
+        self.assertIn("## Objectif\n\no\n", md)
+        self.assertIn("## Appel à l'action\n\nc\n", md)
+        self.fetch("/api/briefs/nope/export", code=404)
+        self.settle_mandates(pid)
+
+    def test_a_project_named_outside_latin_1_is_downloaded_under_an_ascii_name(self):
+        for name, stem in (("Cœur de ville", "brief-cur-de-ville"), ("投资 Marché", "brief-marche"), ("投资", "brief")):  # a header only carries latin-1: the name goes through workflow.slug
+            with self.subTest(name=name):
+                pid = self.started(name=name)
+                head, data = self.fetch(f"/api/briefs/{pid}/export")
+                self.assertEqual(head["Content-Disposition"], f'attachment; filename="{stem}.md"')
+                head["Content-Disposition"].encode("ascii")
+                self.assertIn("# Brief :", data.decode())
+                self.settle_mandates(pid)
+
+
 class Mandates(Base):
     def test_an_agent_proposes_the_instructions_and_the_person_corrects_them(self):
         pid = self.started()

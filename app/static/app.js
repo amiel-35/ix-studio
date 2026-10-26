@@ -572,6 +572,7 @@
       if (r.left_out.length) ctx.log(pid, "studio", "Formats mis de côté : " + r.left_out.join(", "), fields.left_out_note || "");
       await ctx.answered(pid, "Brief validé" + (r.left_out.length ? ". Mis de côté : " + r.left_out.join(", ") : "") + ".", { before: snap });
     }, "Le studio prépare les consignes.");
+    const takeBrief = () => ctx.act(async () => { const f = await api.exportBrief(pid); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le brief.");
     return h("div", { className: "task" }, h(Head, { sr: true }, "Relis le brief"),
       h(Interview, { ctx, pid, iv, onAsked: () => setAsked(1) }),
       filled && h("p", { className: "small", role: "status" }, "Le brief est pré-rempli d'après tes réponses : relis-le et corrige-le avant de le valider."
@@ -595,7 +596,10 @@
           h("input", { id: "away-note", type: "text", value: fields.left_out_note || "", onChange: (e) => set("left_out_note", e.target.value) }))),
       h("div", { className: "gestures" },
         h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || missing.length > 0, onClick: submit, "aria-label": away.length ? "Valider le brief et mettre de côté : " + away.join(", ") : "Valider le brief" },
-          data.confirmed ? "Enregistrer le brief" : away.length ? "Valider et mettre de côté" : "Valider le brief")),
+          data.confirmed ? "Enregistrer le brief" : away.length ? "Valider et mettre de côté" : "Valider le brief"),
+        /* brief_export */
+        h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: takeBrief, "aria-label": "Télécharger le brief en Markdown" }, "Télécharger le brief")),
+      h("p", { className: "small muted" }, "Le fichier reprend le brief enregistré : ce que tu viens de corriger sans valider n'y est pas."),
       missing.length > 0 && h("p", { className: "small muted", role: "status" }, "Il manque : " + missing.map((k) => REQUIRED[k]).join(", ") + "."));
   }
 

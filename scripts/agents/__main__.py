@@ -14,6 +14,8 @@ and gives the answer as JSON (on the output, and in --out if asked). An answer t
     judge        the verdict on a piece             inputs: image, brief, brand, texts, language                  gives the verdict (works, snags, unsourced, brand)
     storyboard   the script and the shots of a film   inputs: name, brand, colours, brief, language                  gives {"script", "shots": [{seconds, visual, text, colour, read}]}
     reader       the reading of a piece by a persona  inputs: image, persona, texts, language                     gives the reading (aimed, why, understand, ...)
+    export-brief the brief of a project, to download  inputs: brief, name, brand_name, confirmed                  gives {"filename", "markdown"}; --out writes the Markdown itself
+                 (no call to claude: the brief is written out as it is, what is missing said as missing)
     interview    the brief of a project from answers  inputs: answers (five at most), brand {name, who, personas}, language   gives {"fields", "missing"}
                  (with no `answers`: gives {"questions"}, the five to ask; `missing` lists the objective and the target nobody gave: empty, never guessed)
     engines      the engines of the studio          inputs (optional): image_engine, text_engine, openrouter_model, openrouter_key   keeps them, gives
@@ -598,6 +600,41 @@ def cmd_rounds(i, model, runner):
         raise AgentError(f"synthèse des tours illisible : {err}") from None
 
 
+# ---------- brief_export: the brief of a project, in Markdown ----------
+BRIEF_SECTIONS = [("objective", "Objectif", "l'objectif"), ("audience", "Cible", "la cible"), ("message", "Message", "le message"),
+                  ("format", "Format", "le format"), ("fixed", "Ce qui est fixé", "ce qui est fixé"), ("cta", "Appel à l'action", "l'appel à l'action")]
+
+
+def brief_markdown(i) -> str:
+    """The brief as a text to read. What is empty is written as missing, never filled in."""
+    brief = i["brief"]
+    if not isinstance(brief, dict):
+        raise AgentError("inputs: brief is an object of fields")
+    if not any(one_line(brief.get(k)) for k, _, _ in BRIEF_SECTIONS):
+        raise AgentError("le brief est vide : il n'y a rien à exporter")
+    name, brand = one_line(i.get("name")), one_line(i.get("brand_name"))
+    lines = [f"# Brief : {name or 'sans nom'}", ""]
+    lines += [f"Marque : {brand}", ""] if brand else []
+    lines += ["Statut : " + ("brief validé" if i.get("confirmed") else "brief non validé, à relire"), ""]
+    missing = []
+    for key, title, label in BRIEF_SECTIONS:
+        value = one_line(brief.get(key))
+        lines += [f"## {title}", "", value or f"Manquant : {label}."]
+        lines.append("")
+        if not value:
+            missing.append(label)
+    personas = [one_line(x) for x in brief.get("personas") or [] if one_line(x)]
+    if personas:
+        lines += ["## Personas", ""] + [f"- {x}" for x in personas] + [""]
+    lines += ["## Ce qui manque", ""] + ([f"- {x}" for x in missing] if missing else ["Rien ne manque."]) + [""]
+    return "\n".join(lines)
+
+
+def cmd_export_brief(i, model, runner):
+    slug = re.sub(r"[^\w-]+", "-", one_line(i.get("name")).lower()).strip("-") or "projet"
+    return {"filename": f"brief-{slug}.md", "markdown": brief_markdown(i)}
+
+
 # ---------- engines ----------
 def cmd_engines(i, model, runner):
     try:
@@ -608,7 +645,7 @@ def cmd_engines(i, model, runner):
 
 
 COMMANDS = {"personas": cmd_personas, "names": cmd_names, "competitors": cmd_competitors, "research": cmd_research, "logos": cmd_logos, "texts": cmd_texts, "mandates": cmd_mandates, "variant": cmd_variant,
-            "judge": cmd_judge, "reader": cmd_reader, "interview": cmd_interview, "storyboard": cmd_storyboard, "engines": cmd_engines, "rounds": cmd_rounds}
+            "judge": cmd_judge, "reader": cmd_reader, "interview": cmd_interview, "storyboard": cmd_storyboard, "engines": cmd_engines, "rounds": cmd_rounds, "export-brief": cmd_export_brief}
 PATHS = ("dir", "image", "dossier", "work")  # the inputs that name a file or a folder
 
 
@@ -649,7 +686,7 @@ def main(argv=None, runner=run_command, stdout=None, stderr=None) -> int:
         return 1
     text = json.dumps(answer, indent=2, ensure_ascii=False) + "\n"
     if a.out:
-        Path(a.out).write_text(text, encoding="utf-8")
+        Path(a.out).write_text(answer["markdown"] if a.command == "export-brief" else text, encoding="utf-8")
     (stdout or sys.stdout).write(text)
     return 0
 

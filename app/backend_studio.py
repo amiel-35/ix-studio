@@ -2104,6 +2104,15 @@ class StudioBackend:
             raise Conflict("no piece is kept yet")
         return Download(f"{pid}.zip", "application/zip", workflow.zip_of(files))
 
+    # ---------- brief_export: the brief of a project, as a Markdown file ----------
+    def export_brief(self, pid):
+        """The brief as it is now (confirmed or not), written out by `scripts/agents export-brief`; what is empty is said missing."""
+        p = self._load(pid)
+        brand = self._loadb(p["brand"])
+        out = self._ask(self._cmd_log(pid), "export-brief", {"name": p["name"], "brand_name": brand["name"], "brief": p["brief"]["fields"],
+                                                             "confirmed": p["brief"]["confirmed"]}, self._pdir(pid) / "work", 60)
+        return Download(workflow.export_name(out["filename"]), "text/markdown; charset=utf-8", out["markdown"].encode("utf-8"))
+
     # ---------- storyboard: the script and the shots of the project's film, then the film ----------
     def _film_view(self, pid):
         f = self._piece_dir(pid) / "film.mp4"

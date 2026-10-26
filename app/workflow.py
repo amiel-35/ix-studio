@@ -70,6 +70,12 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:32]
 
 
+def export_name(filename: str) -> str:
+    """The name of a file to download, ASCII (a header only carries latin-1): `brief-Cœur.md` is `brief-cur.md`; a name with nothing left is `brief`."""
+    stem, dot, ext = filename.rpartition(".")
+    return (slug(stem if dot else filename) or "brief") + (dot + ext if dot else "")
+
+
 def fmt_key(token: str) -> str:
     return token.strip().lower().replace(" ", "-")
 

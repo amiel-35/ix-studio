@@ -110,6 +110,8 @@ ROUTES = [
     ("POST", rf"/api/projects/{P}/pieces/{I}/decide", lambda b, m, d: b.decide(m["p"], m["i"], d.get("verdict"), d.get("words", ""))),
     ("POST", rf"/api/projects/{P}/pieces/{I}/judge", lambda b, m, d: b.judge_piece(m["p"], m["i"])),
     ("POST", rf"/api/projects/{P}/pieces/{I}/readers/(?P<n>[0-9])/run", lambda b, m, d: b.run_reader(m["p"], m["i"], int(m["n"]))),
+    # brief_export: a brief is the one of a project, its id is the project's
+    ("GET", rf"/api/briefs/{P}/export", lambda b, m, d: b.export_brief(m["p"])),
     ("GET", r"/api/judgements", lambda b, m, d: b.list_judgements()),
     ("POST", r"/api/judgements", lambda b, m, d: b.create_judgement(d["raw"], d["type"], d["name"], d["meta"])),
     ("GET", rf"/api/judgements/{J}", lambda b, m, d: b.judgement(m["j"])),

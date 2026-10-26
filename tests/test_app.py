@@ -690,6 +690,23 @@ class Api(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.parse_competitors(bad)
 
+    def test_the_brief_of_a_project_is_downloaded_in_markdown(self):
+        bid = self.ready_brand(name="Brief à emporter")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "À emporter"})["id"]
+        head, data = self.fetch(f"/api/briefs/{pid}/export")  # confirmed or not, the same fixed brief
+        self.assertTrue(head["Content-Type"].startswith("text/markdown"))
+        self.assertRegex(head["Content-Disposition"], r'^attachment; filename="[^"]+\.md"$')
+        md = data.decode("utf-8")
+        for title in ("## Objectif", "## Cible", "## Message", "## Format", "## Ce qui est fixé", "## Appel à l'action", "## Ce qui manque"):
+            self.assertIn(title, md)
+        self.fetch("/api/briefs/nope/export", code=404)
+
+    def test_a_project_named_outside_latin_1_is_downloaded_under_an_ascii_name_in_the_simulated_studio_too(self):
+        bid = self.ready_brand(name="Marque hors latin-1")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "Cœur 投资"})["id"]
+        head, _ = self.fetch(f"/api/briefs/{pid}/export")
+        self.assertEqual(head["Content-Disposition"], 'attachment; filename="brief-cur.md"')
+
     def test_the_research_of_a_brand_is_proposed_then_kept_or_dropped_and_only_the_kept_ones_stay(self):
         bid = self.call("POST", "/api/brands", {"name": "Pour la recherche"})["id"]
         empty = self.call("GET", f"/api/brands/{bid}/research")

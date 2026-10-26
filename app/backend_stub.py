@@ -190,6 +190,42 @@ def default_brief():
             "cta": "Retrouvez-nous au marché", "language": "fr"}
 
 
+BRIEF_EXPORT = """# Brief : Été au marché
+
+Marque : Marrowbay Ferments
+
+Statut : brief validé
+
+## Objectif
+
+faire connaître le kombucha à des citadins qui n'en ont jamais bu
+
+## Cible
+
+des citadins qui pensent que le kombucha est une mode bien-être
+
+## Message
+
+le kombucha, c'est du thé qui a un peu fait la fête, et c'est bon
+
+## Format
+
+post-4x5, story
+
+## Ce qui est fixé
+
+les couleurs et les polices de la marque
+
+## Appel à l'action
+
+Retrouvez-nous au marché
+
+## Ce qui manque
+
+Rien ne manque.
+"""
+
+
 def job_view(j):
     return {k: j[k] for k in JOB_KEYS}
 
@@ -1240,6 +1276,13 @@ class StubBackend:
             if not kept:
                 raise Conflict("no piece is kept yet")
             return Download(f"{pid}.zip", "application/zip", workflow.zip_of([(f"{pid}-{pc['id']}.png", self._png(pc)) for pc in kept]))
+
+    # ---------- brief_export ----------
+    def export_brief(self, pid):
+        """One plausible, fixed brief in Markdown (the simulated studio writes nothing for real)."""
+        with self.lock:
+            p = self._p(pid)
+            return Download(workflow.export_name(f"brief-{p['name']}.md"), "text/markdown; charset=utf-8", BRIEF_EXPORT.encode("utf-8"))
 
     def decide(self, pid, i, verdict, words):
         with self.lock:
