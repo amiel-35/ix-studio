@@ -109,6 +109,7 @@ JSON, or stops with its reason and a non-zero code. Write the inputs from what y
 - `python3 "$AG" variant in.json` (`dir`, `id`, `mandate`, `common`): one blind variant, written in `<dir>/variants/<id>.json`; one call per mandate, in parallel.
 - `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.
 - `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
+- `python3 "$AG" engines [in.json]` (`image_engine`, `text_engine`, `openrouter_model`, `openrouter_key`, all optional): keeps the engines the person chooses and gives `{image_engine, text_engine, openrouter_model, key_saved}`; the key is kept on this machine, never given back, never written in the project. `text_engine` `openrouter` makes the agents that only answer (personas, names, competitors, mandates) use OpenRouter; `STUDIO_TEXT_ENGINE` and `STUDIO_IMAGE_ENGINE` say the same in the environment.
 
 The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
 The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.

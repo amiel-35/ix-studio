@@ -147,6 +147,7 @@ class StubBackend:
         self.speed = speed  # 0.01 in tests: the jobs end at once
         self.static = static_url
         self.brands, self.projects, self.jobs, self.judgements = {}, {}, {}, {}
+        self.engines = {"image_engine": "auto", "text_engine": "claude", "openrouter_model": "anthropic/claude-sonnet-4.5", "key_saved": False}  # engines: the simulated settings; a key is never kept
         self.ids = itertools.count(1)
         self._seed()
 
@@ -406,6 +407,22 @@ class StubBackend:
     # ---------- routes: health, tasks, jobs ----------
     def health(self):
         return {"ok": True, "backend": self.name}
+
+    # ---------- routes: engines ----------
+    def get_engines(self):
+        with self.lock:
+            return workflow.engines_view(self.engines)
+
+    def put_engines(self, kind, body):
+        """The engine of the images, or of the texts with its key (only whether one is saved is kept, never the key) and its model."""
+        patch = workflow.engines_patch(kind, body)
+        with self.lock:
+            for k, v in patch.items():
+                if k == "openrouter_key":
+                    self.engines["key_saved"] = bool(v.strip())
+                elif k != "openrouter_model" or v.strip():
+                    self.engines[k] = v.strip() if k == "openrouter_model" else v
+            return workflow.engines_view(self.engines)
 
     def machine(self):
         """What the machine lacks to run the studio for real: nothing, unless STUDIO_STUB_MISSING says so."""

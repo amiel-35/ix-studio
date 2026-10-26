@@ -447,6 +447,33 @@ def machine_view(found: dict) -> dict:
     return {"ok": not missing, "missing": missing}
 
 
+# ---------- engines: what the person chooses to draw and to write with (the key is never part of what is shown) ----------
+IMAGE_ENGINES = ["auto", "openai", "openrouter", "codex", "none"]
+TEXT_ENGINES = ["claude", "openrouter"]
+
+
+def engines_view(cfg: dict) -> dict:
+    """What the interface may show of the engines, from `cfg` (image_engine, text_engine, openrouter_model, key_saved): never a key."""
+    return {"image_engine": cfg["image_engine"], "image_engines": IMAGE_ENGINES, "text_engine": cfg["text_engine"], "text_engines": TEXT_ENGINES,
+            "openrouter_model": cfg["openrouter_model"], "key_saved": bool(cfg["key_saved"])}
+
+
+def engines_patch(kind: str, body: dict) -> dict:
+    """The choice sent by the interface (`image`: {engine}; `text`: {engine, key, model}) as the inputs of `agents engines`. ValueError if it does not hold."""
+    engine = body.get("engine")
+    if engine not in (IMAGE_ENGINES if kind == "image" else TEXT_ENGINES):
+        raise ValueError("engine: one of " + ", ".join(IMAGE_ENGINES if kind == "image" else TEXT_ENGINES))
+    if kind == "image":
+        return {"image_engine": engine}
+    patch = {"text_engine": engine}
+    for field, name in (("key", "openrouter_key"), ("model", "openrouter_model")):
+        if body.get(field) is not None:
+            if not isinstance(body[field], str):
+                raise ValueError(f"{field}: a text")
+            patch[name] = body[field]
+    return patch
+
+
 def zip_of(files) -> bytes:
     """A zip (the standard library's) of `[(name, bytes)]`: the pieces are png files, already compressed, so they are stored as they are."""
     buf = io.BytesIO()

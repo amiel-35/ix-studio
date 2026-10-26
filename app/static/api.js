@@ -57,6 +57,10 @@
   Object.assign(api, {
     health: () => call("GET", "/api/health"),
     machine: () => call("GET", "/api/machine"), // what the machine lacks to run the studio for real: { ok, missing: [{ key, label, say }] }
+    /* engines: the engine of the images and the engine of the texts (claude, or openrouter with its key and its model). The key goes in, never comes back: only key_saved. */
+    engines: () => call("GET", "/api/engines"), // { image_engine, image_engines, text_engine, text_engines, openrouter_model, key_saved }
+    saveEngine: (engine) => call("PUT", "/api/engines/image", { engine }),
+    saveTextEngine: (engine, key, model) => call("PUT", "/api/engines/text", { engine, key, model }), // key: undefined keeps the saved one, "" forgets it
     tasks: () => call("GET", "/api/tasks"),
     projects: () => call("GET", "/api/projects"),
     project: (p) => call("GET", P(p)),
