@@ -77,6 +77,10 @@ class Fake:
         self.personas = "ok"  # what the personas agent answers: ok (two personas), bad (one that does not hold), down (it fails)
         self.names = "ok"  # what the names agent answers: ok (two names), bad (a name without its line), down (it fails)
         self.competitors = "ok"  # what the competitors agent answers: ok (two), bad (one that does not hold), down (it fails)
+        self.storyboard = "ok"  # what the storyboard agent answers: ok (six shots on the colours it is given), bad (a film of three seconds), down (it fails)
+        self.film_fails = False  # the film command fails (no Chrome, no ffmpeg)
+        self.film_hold = None  # an Event: the film command waits for it
+        self.texts = "ok"  # what the texts agent answers: ok (two), bad (a figure that is not in the brief), down (it fails)
 
     def tool_env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
@@ -92,6 +96,13 @@ class Fake:
         if exe.startswith("python") and Path(argv[1]).name == "agents":  # the agents of the studio: the command for real, its `claude` faked here
             out, err = io.StringIO(), io.StringIO()
             return Result(agents.main(argv[2:], runner=self, stdout=out, stderr=err), out.getvalue(), err.getvalue())
+        if exe.startswith("python") and Path(argv[1]).name == "film":  # the film command: its Chrome and ffmpeg are faked here
+            if self.film_fails:
+                return Result(1, "", "film: no headless Chrome found (set CHROME=/path/to/chrome)")
+            if self.film_hold:
+                self.film_hold.wait(10)
+            Path(argv[argv.index("--out") + 1]).write_bytes(b"\x00\x00\x00 ftypmp42")
+            return Result(0, json.dumps({"video": argv[argv.index("--out") + 1], "seconds": 20.0, "frames": 200}), "")
         if exe == "node":
             return self.node(argv)
         if exe == "claude":
@@ -147,6 +158,10 @@ class Fake:
             return self.names_agent()
         if '{"competitors": [' in prompt:
             return self.competitors_agent()
+        if '{"script": "...", "shots"' in prompt:
+            return self.storyboard_agent(prompt)
+        if '{"texts": [' in prompt:
+            return self.texts_agent()
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -207,6 +222,21 @@ class Fake:
                                 {"name": "Brasserie du Quai", "from": "dossier", "sells": "de la bière au port.", "differs": "L'apéro, avec alcool."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def storyboard_agent(self, prompt):
+        if self.storyboard == "down":
+            return Result(1, "", "the agent gave up")
+        cols = re.findall(r"#[0-9a-f]{6}", re.search(r"colours of the brand: (.*)", prompt).group(1))
+        shot = lambda n, sec, visual="texte": {"seconds": sec, "visual": visual, "text": f"Texte {n}" if visual == "texte" else "", "colour": cols[n % len(cols)], "read": f"On lit {n}."}
+        shots = [shot(1, 1)] if self.storyboard == "bad" else [shot(n, 3) for n in range(1, 6)] + [shot(6, 2, "logo")]
+        return Result(0, "Voici :\n" + json.dumps({"script": "Une question, puis la marque.", "shots": shots}, ensure_ascii=False) + "\n", "")
+    def texts_agent(self):
+        if self.texts == "down":
+            return Result(1, "", "the agent gave up")
+        if self.texts == "bad":
+            return Result(0, json.dumps({"texts": [{"kind": "accroche", "text": "Déjà 3000 clients conquis."}]}), "")
+        body = {"texts": [{"kind": "accroche", "text": "Du thé qui a fait la fête."}, {"kind": "post", "text": "Tu croyais le kombucha tendance ?\nC'est surtout bon."}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def image(self, argv):
         d = Path(argv[3])
         if self.image_fails:
@@ -245,6 +275,8 @@ class Base(unittest.TestCase):
         f.personas = "ok"
         f.names = "ok"
         f.competitors = "ok"
+        f.storyboard, f.film_fails, f.film_hold = "ok", False, None
+        f.texts = "ok"
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -1023,6 +1055,96 @@ class Files(Base):
             self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
 
 
+class Storyboard(Base):
+    """storyboard: the script and the shots of the film of a project, proposed, corrected and saved by the person, then rendered."""
+
+    def test_the_agent_proposes_the_shots_the_person_saves_them_and_only_then_the_film_is_made(self):
+        pid = self.started(name="Film")
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((got["shots"], got["saved"], got["can_propose"], got["film"]), ([], False, False, None))
+        self.call("POST", f"/api/projects/{pid}/storyboard/propose", code=409)  # the brief is not confirmed
+        f = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**f, "objective": "faire connaître", "audience": "des citadins", "message": "c'est bon", "cta": "viens goûter"}})
+        self.settle_mandates(pid)
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)  # nothing to render yet
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        call = self.fake.where("--restricted")[-1]
+        prompt = call["argv"][2]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool, no search
+        self.assertIn("- message: c'est bon", prompt)
+        self.assertIn("- audience: des citadins", prompt)
+        self.assertIn("name: Marrowbay Ferments", prompt)
+        self.assertRegex(prompt, r"colours of the brand: #[0-9a-f]{6}")
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((len(got["shots"]), got["saved"], got["job"], got["error"], got["script"]), (6, False, None, None, "Une question, puis la marque."))
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)  # proposed, not read and saved: no film
+        shots = [{**x, "text": x["text"] + " corrigé"} if x["visual"] == "texte" else x for x in got["shots"]]
+        r = self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "Mon script.", "shots": shots})
+        self.assertEqual((r["saved"], r["script"], r["shots"][0]["text"]), (True, "Mon script.", "Texte 1 corrigé"))
+        self.assertEqual(json.loads((self.pdir(pid) / "project.json").read_text())["storyboard"]["saved"], True)
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/render"))
+        done = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((done["film"]["seconds"], done["film_job"], done["film_error"]), (20.0, None, None))
+        self.assertTrue(done["film"]["url"].startswith(f"/files/{pid}/piece/film.mp4"))
+        self.assertTrue(self.fetch(done["film"]["url"])[1].startswith(b"\x00\x00\x00 ftyp"))
+        film = [c for c in self.fake.calls if len(c["argv"]) > 1 and Path(c["argv"][1]).name == "film"][-1]
+        sent = json.loads((self.pdir(pid) / "piece" / "storyboard.json").read_text())
+        self.assertEqual(sent["shots"][0]["text"], "Texte 1 corrigé")  # the film is made from what the person saved
+        self.assertEqual(film["argv"][2], str(self.pdir(pid) / "piece"))
+        self.assertEqual(self.fetch(f"/api/projects/{pid}/storyboard/film")[0]["Content-Type"], "video/mp4")
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "Autre.", "shots": shots})  # corrected again: the old film is dropped
+        self.assertIsNone(self.call("GET", f"/api/projects/{pid}/storyboard")["film"])
+        self.fetch(f"/api/projects/{pid}/storyboard/film", code=409)
+
+    def test_the_storyboard_is_not_proposed_nor_saved_while_the_film_is_rendered(self):
+        pid = self.briefed(name="Film en cours")
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": got["shots"]})
+        self.fake.film_hold = threading.Event()
+        job = self.call("POST", f"/api/projects/{pid}/storyboard/render")
+        try:
+            for method, path, body in (("PUT", "storyboard", {"script": "Autre.", "shots": got["shots"]}), ("POST", "storyboard/propose", None)):
+                err = self.call(method, f"/api/projects/{pid}/{path}", body, code=409)
+                self.assertIn("rendu", err["error"])
+        finally:
+            self.fake.film_hold.set()
+        self.wait(job)
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/storyboard")["script"], got["script"])  # nothing was touched
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "Autre.", "shots": got["shots"]})  # the film done, it is allowed again
+
+    def test_a_correction_that_does_not_hold_is_refused_as_the_agent_answer_would_be(self):
+        pid = self.briefed(name="Film refusé")
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        cut = [{**x, "seconds": 1} for x in got["shots"]]
+        self.assertIn("il en faut de 15 à 30", self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "S", "shots": cut}, code=400)["error"])
+        paint = [{**got["shots"][0], "colour": "#000000"}, *got["shots"][1:]]
+        self.assertIn("couleur de la marque", self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "S", "shots": paint}, code=400)["error"])
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "S", "shots": "x"}, code=400)
+        self.assertFalse(self.call("GET", f"/api/projects/{pid}/storyboard")["saved"])
+
+    def test_an_answer_that_does_not_hold_or_a_failed_render_is_said_and_nothing_is_kept(self):
+        pid = self.briefed(name="Film raté")
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.storyboard = kind
+            self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"), "failed")
+            got = self.call("GET", f"/api/projects/{pid}/storyboard")
+            self.assertEqual(got["shots"], [])
+            self.assertIn(word, got["error"])
+        self.fake.storyboard = "ok"
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertIsNone(got["error"])
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": got["shots"]})
+        self.fake.film_fails = True
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/render"), "failed")
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual(got["film"], None)
+        self.assertIn("no headless Chrome", got["film_error"])
+        self.call("GET", "/api/projects/nope/storyboard", code=404)
+
+
 class Personas(Base):
     def test_an_agent_proposes_personas_from_the_dossier_and_only_the_kept_ones_are_written(self):
         bid = self.mkbrand(name="Personas Kombucha")
@@ -1125,6 +1247,38 @@ class Competitors(Base):
             self.fake.competitors = kind
             self.wait(self.call("POST", f"/api/brands/{bid}/competitors/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/competitors")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+# texts
+class Texts(Base):
+    def test_an_agent_proposes_texts_from_the_brief_and_only_the_kept_ones_are_written(self):
+        pid = self.started(name="Textes")
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # the brief is not confirmed
+        pid = self.briefed()
+        self.wait(self.call("POST", f"/api/projects/{pid}/texts/propose"))
+        call = self.fake.where("--restricted")[-1]
+        prompt = call["argv"][2]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search on the web
+        self.assertIn("message: c'est bon", prompt)
+        self.assertIn("its voice: franc, chaleureux, drôle", prompt)  # the voice of the brand
+        got = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual((got["texts"], got["job"], got["error"]), ([], None, None))
+        self.assertEqual(got["proposed"], ["Du thé qui a fait la fête.", "Tu croyais le kombucha tendance ?\nC'est surtout bon."])
+        self.assertFalse((self.backend._pdir(pid) / "work" / "texts").exists())
+        r = self.call("PUT", f"/api/projects/{pid}/texts", {"texts": [got["proposed"][0] + " Corrigé.", "Un texte écrit à la main."]})
+        self.assertEqual((r["texts"], r["proposed"]), ([got["proposed"][0] + " Corrigé.", "Un texte écrit à la main."], []))
+        saved = json.loads((self.backend._pdir(pid) / "project.json").read_text())
+        self.assertEqual(saved["texts"], {"kept": r["texts"], "proposed": []})
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["a"] * 7}, code=400)
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        pid = self.briefed()
+        for kind, word in (("bad", "chiffre"), ("down", "gave up")):
+            self.fake.texts = kind
+            self.wait(self.call("POST", f"/api/projects/{pid}/texts/propose"), "failed")
+            got = self.call("GET", f"/api/projects/{pid}/texts")
             self.assertEqual(got["proposed"], [])
             self.assertIn(word, got["error"])
 
