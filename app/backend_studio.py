@@ -50,7 +50,8 @@ BRANDKIT = SCRIPTS / "brandkit"
 AGENTS = SCRIPTS / "agents"
 COLLECT = SCRIPTS / "collect" / "collect.mjs"
 
-DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0}  # expected seconds: the progress is an estimate on these
+DURATION = {"learn": 75.0, "mandates": 45.0, "diverge": 150.0, "image": 150.0, "judge": 120.0, "reader": 90.0, "personas": 60.0, "names": 60.0, "competitors": 60.0, "interview": 45.0, "research": 90.0, "logos": 90.0, "texts": 60.0, "storyboard": 60.0, "film": 240.0}  # expected seconds: the progress is an estimate on these
+DURATION["rounds"] = 240.0  # rounds: three judges side by side, then the comparison
 CAP = 0.95  # a running job never reads more than this
 IMAGE_PARALLEL = 4  # images drawn at the same time: "draw them all" starts every job, the model is asked a few at a time
 DEFAULT_COMMON = ("Écrire dans la langue du brief ; aucun chiffre, lieu, label ni promesse qui ne soit dans la marque ou dans le brief ; "
@@ -156,7 +157,7 @@ class StudioBackend:
         self.home = Path(home or os.environ.get("STUDIO_HOME") or Path.home() / "ix-studio-projets").expanduser()
         self.home.mkdir(parents=True, exist_ok=True)
         self.runner = runner
-        self.image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE", "auto")
+        self._image_engine = image_engine or os.environ.get("STUDIO_IMAGE_ENGINE")  # said by whoever started the studio (and then it wins), else the choice of the settings
         self.probe = probe or (lambda: probe_machine(image_engine=self.image_engine))  # what the machine has, asked when the interface asks
         self._state = threading.RLock()  # short: reading and writing project.json and marque.json
         self._locks = {}  # one lock per project (and per brand) for the long operations that rewrite files (keep, pick, compose, decide)
@@ -743,6 +744,37 @@ class StudioBackend:
         now = now or time.time()
         return workflow.project_view(self._wf_state(p, now, bs), now)
 
+    # ---------- engines ----------
+    def _engines(self, patch=None) -> dict:
+        """`agents engines`, which keeps what is in `patch` and gives the choices (never a key). The patch goes through a file of its own, that only the
+        person can read and that does not outlive the call: a key does not go in an argument."""
+        with tempfile.TemporaryDirectory(prefix="ixs-engines-") as tmp:
+            args = []
+            if patch:
+                f = Path(tmp) / "inputs.json"
+                f.write_text(json.dumps(patch), encoding="utf-8")
+                args = [f]
+            res = self._sh(None, self._py(AGENTS, "engines", *args), timeout=30)
+        if res.code:
+            raise ToolError(tail(res))
+        return json.loads(res.out)
+
+    @property
+    def image_engine(self) -> str:
+        if self._image_engine:
+            return self._image_engine
+        try:
+            return self._engines()["image_engine"]
+        except (ToolError, ValueError, KeyError):
+            return "auto"
+
+    def get_engines(self):
+        return workflow.engines_view(self._engines())
+
+    def put_engines(self, kind, body):
+        """The engine of the images, or the engine of the texts with its key and its model: kept in the configuration of the person."""
+        return workflow.engines_view(self._engines(workflow.engines_patch(kind, body)))
+
     # ---------- routes ----------
     def health(self):
         which = shutil.which
@@ -1166,6 +1198,78 @@ class StudioBackend:
             self._brandkit(self._bcmd_log(bid), "pack", d, "--out", out)
             return Download(f"{bid}-dossier-de-marque.zip", "application/zip", out.read_bytes())
 
+    # ---------- research on the web ----------
+    def _research_view(self, b):
+        run = self._running(b, "research")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "research"), None)
+        return {"research": list(b.get("research", [])), "proposed": list(b.get("research_proposed", [])),
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_research(self, bid):
+        return self._research_view(self._loadb(bid))
+
+    def propose_research(self, bid):
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            if self._running(b, "research"):
+                raise Conflict("the research is already running")
+            return self._spawn(("brand", bid), "research", None, lambda jid: self._research_body(bid, jid))
+
+    def put_research(self, bid, research):
+        """The results the person keeps: only these are written in the brand (their addresses, nothing downloaded). The proposal is settled."""
+        kept = workflow.research_of(research)
+        with self._op("brand:" + bid):
+            self._mutateb(bid, lambda q: q.update(research=kept, research_proposed=[]))
+            return self.get_research(bid)
+
+    def _research_body(self, bid, jid):
+        found = self._brand_agent(bid, jid, "research", "un agent cherche sur le web")
+        self._mutateb(bid, lambda q: q.update(research_proposed=found))
+
+    # ---------- the logo tracks of the brand ----------
+    def _logos_view(self, b):
+        run = self._running(b, "logos")
+        last = next((j for j in reversed(b["jobs"]) if j["kind"] == "logos"), None)
+        return {"tracks": list(b.get("logo_tracks", [])), "proposed": list(b.get("logo_tracks_proposed", [])), "can_propose": True,
+                "job": self._job_public(run) if run else None, "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_logos(self, bid):
+        return self._logos_view(self._loadb(bid))
+
+    def propose_logos(self, bid):
+        with self._op("brand:" + bid):
+            if self._running(self._loadb(bid), "logos"):
+                raise Conflict("the logos are already being proposed")
+            return self._spawn(("brand", bid), "logos", None, lambda jid: self._logos_body(bid, jid))
+
+    def put_logos(self, bid, keep):
+        """The tracks the person keeps, among the kept and the proposed ones: only these stay. The proposal is settled."""
+        with self._op("brand:" + bid):
+            b = self._loadb(bid)
+            kept = workflow.logos_kept(keep, b.get("logo_tracks", []), b.get("logo_tracks_proposed", []))
+            self._mutateb(bid, lambda q: q.update(logo_tracks=kept, logo_tracks_proposed=[]))
+            return self.get_logos(bid)
+
+    def choose_logo(self, bid, tid):
+        """A kept track becomes the logo of the brand, as a logo dropped by the person."""
+        data = workflow.logo_chosen(tid, self._loadb(bid).get("logo_tracks", []))
+        self.add_logo(bid, data, "image/svg+xml", "piste de logo")
+        return self.get_logos(bid)
+
+    def _logos_body(self, bid, jid):
+        b = self._loadb(bid)
+        inputs = {**self._brand_inputs(b), "colours": [c["hex"] for c in self._colours_of(self._doc(bid))], "fonts": self._fonts_of(self._doc(bid))}
+        owner, work = ("brand", bid), self._mdir(bid) / "work" / "logos"
+        self._phase(owner, jid, "un agent dessine des pistes de logo")
+        try:
+            items = self._ask(self._joblog(owner, jid), "logos", inputs, work, 330)["logos"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutateb(bid, lambda q: q.update(logo_tracks_proposed=workflow.logo_tracks(items)))
+
+    def _fonts_of(self, doc) -> list:
+        return [str((it.get("family") or {}).get("value")) for it in (doc.get("typography") or {}).get("items", []) if (it.get("family") or {}).get("value")]
+
     # ---------- the projects ----------
     def _new_pid(self, name) -> str:
         base = slug(name) or "projet"
@@ -1353,6 +1457,77 @@ class StudioBackend:
             if not p["mandates"]["confirmed"] and not p["mandates"]["proposed"] and not self._running(p, "mandates"):
                 self._spawn(pid, "mandates", None, lambda jid: self._mandates_body(pid, jid))
             return {"fields": merged, "formats": chosen, "left_out": workflow.left_out_of(merged.get("format", ""))}
+
+    # ---------- interview: the brief of the project, pre-filled from a few answers ----------
+    def _interview_view(self, p):
+        run = self._running(p, "interview")
+        last = next((j for j in reversed(p["jobs"]) if j["kind"] == "interview"), None)
+        return {"questions": workflow.INTERVIEW_QUESTIONS, "proposed": p.get("interview_proposed"), "job": self._job_public(run) if run else None,
+                "error": last.get("error") if last and last["status"] == "failed" else None}
+
+    def get_interview(self, pid):
+        return self._interview_view(self._load(pid))
+
+    def start_interview(self, pid, answers):
+        answers = workflow.interview_answers_of(answers)
+        with self._op(pid):
+            p = self._load(pid)
+            if self._running(p, "interview"):
+                raise Conflict("the interview is already being written")
+            self._mutate(pid, lambda q: q.update(interview_proposed=None))
+            return self._spawn(pid, "interview", None, lambda jid: self._interview_body(pid, jid, answers))
+
+    def _interview_body(self, pid, jid, answers):
+        p = self._load(pid)
+        b = self._loadb(p["brand"])
+        who = self._identity(b, self._doc(b["id"])).get("who", {})
+        inputs = {"answers": answers, "language": p["brief"]["fields"].get("language") or "fr",
+                  "brand": {"name": b["name"], "who": who.get("value", "") if who.get("state") != "absent" else "", "personas": list(b.get("personas", []))}}
+        self._phase(pid, jid, "un agent écrit le brief")
+        work = self._piece_dir(pid) / "work" / "interview"
+        try:
+            proposed = self._ask(self._joblog(pid, jid), "interview", inputs, work, 270)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(interview_proposed=proposed))
+
+    # ---------- texts: the posts and hooks of a project ----------
+    def _texts_view(self, p):
+        run = self._running(p, "texts")
+        last = next((j for j in reversed(p["jobs"]) if j["kind"] == "texts"), None)
+        t = p.get("texts") or {}
+        return {"texts": list(t.get("kept", [])), "proposed": list(t.get("proposed", [])), "can_propose": p["brief"]["confirmed"],
+                "job": self._job_public(run) if run else None, "error": last["error"] if last and last["status"] == "failed" else None}
+
+    def get_texts(self, pid):
+        return self._texts_view(self._load(pid))
+
+    def propose_texts(self, pid):
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed yet: the texts come from it")
+            if self._running(p, "texts"):
+                raise Conflict("the texts are already being proposed")
+            return self._spawn(pid, "texts", None, lambda jid: self._texts_body(pid, jid))
+
+    def put_texts(self, pid, texts):
+        """The texts the person keeps (corrected, or written by hand), written in the project. The proposal is settled."""
+        kept = workflow.texts_of(texts)
+        with self._op(pid):
+            self._mutate(pid, lambda q: q.update(texts={"kept": kept, "proposed": []}))
+            return self.get_texts(pid)
+
+    def _texts_body(self, pid, jid):
+        p = self._load(pid)
+        self._phase(pid, jid, "un agent écrit les textes")
+        work = self._pdir(pid) / "work" / "texts"
+        try:
+            inputs = {"brief": workflow.judge_brief(p["brief"]["fields"]), "brand": self._brand_words(p["brand"]), "language": p["brief"]["fields"].get("language") or "fr"}
+            texts = self._ask(self._joblog(pid, jid), "texts", inputs, work, 330)["texts"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(texts={"kept": (q.get("texts") or {}).get("kept", []), "proposed": texts}))
 
     # ---------- 3. the instructions to the agents ----------
     def get_mandates(self, pid):
@@ -1816,6 +1991,37 @@ class StudioBackend:
             raise Conflict("the judge has not given its verdict yet")
         return Download(f"{jid}.html", "text/html; charset=utf-8", f.read_bytes())
 
+    # ---------- rounds: a piece judged three times, the remarks in three shelves (`agents rounds`) ----------
+    def judgement_rounds(self, jid):
+        j = self._loadj(jid)
+        last = next((x for x in reversed(j["jobs"]) if x["kind"] == "rounds"), None)
+        run = self._running(j, "rounds")
+        if run:
+            return workflow.rounds_view("running", job=run["id"])
+        if j.get("rounds"):
+            return workflow.rounds_view("done", j["rounds"]["synthesis"])
+        return workflow.rounds_view("failed", error=last.get("error")) if last and last["status"] == "failed" else workflow.rounds_view("none")
+
+    def run_judgement_rounds(self, jid):
+        """Judge the piece three times, then put the remarks side by side; again after a failure, or to read it anew."""
+        with self._op("judgement:" + jid):
+            if self._running(self._loadj(jid), "rounds"):
+                raise Conflict("the rounds are already running on this piece")
+            self._mutatej(jid, lambda q: q.update(rounds=None))
+            return self._spawn(("judgement", jid), "rounds", None, lambda job: self._rounds_body(jid, job))
+
+    def _rounds_body(self, jid, job):
+        owner, j = ("judgement", jid), self._loadj(jid)
+        d = self._jdir(jid)
+        self._phase(owner, job, "le juge relit la pièce, trois fois")
+        wdir = d / "work-rounds"
+        try:
+            r = self._ask(self._joblog(owner, job), "rounds", {"image": str(d / f"piece.{j['ext']}"), "brief": j["brief"], "brand": self._brand_words(j.get("brand"))},
+                          wdir, 1000)
+        finally:
+            shutil.rmtree(wdir, ignore_errors=True)
+        self._mutatej(jid, lambda q: q.update(rounds=r))
+
     # ---------- 9. the readers: one per persona of the brief, each in a call of its own ----------
     @staticmethod
     def _last_reader(jobs, piece, n):
@@ -1909,6 +2115,103 @@ class StudioBackend:
         if not files:
             raise Conflict("no piece is kept yet")
         return Download(f"{pid}.zip", "application/zip", workflow.zip_of(files))
+
+    # ---------- brief_export: the brief of a project, as a Markdown file ----------
+    def export_brief(self, pid):
+        """The brief as it is now (confirmed or not), written out by `scripts/agents export-brief`; what is empty is said missing."""
+        p = self._load(pid)
+        brand = self._loadb(p["brand"])
+        out = self._ask(self._cmd_log(pid), "export-brief", {"name": p["name"], "brand_name": brand["name"], "brief": p["brief"]["fields"],
+                                                             "confirmed": p["brief"]["confirmed"]}, self._pdir(pid) / "work", 60)
+        return Download(workflow.export_name(out["filename"]), "text/markdown; charset=utf-8", out["markdown"].encode("utf-8"))
+
+    # ---------- storyboard: the script and the shots of the project's film, then the film ----------
+    def _film_view(self, pid):
+        f = self._piece_dir(pid) / "film.mp4"
+        return {"url": self._url(pid, "piece/film.mp4", f), "seconds": (self._load(pid).get("storyboard") or {}).get("film_seconds")} if f.is_file() else None
+
+    def get_storyboard(self, pid):
+        p = self._load(pid)
+        last = lambda kind: next((j for j in reversed(p["jobs"]) if j["kind"] == kind), None)
+        run, frun, fl = self._running(p, "storyboard"), self._running(p, "film"), last("film")
+        sl = last("storyboard")
+        return workflow.storyboard_view(p.get("storyboard"), p["brief"]["confirmed"], run["id"] if run else None,
+                                        sl["error"] if sl and sl["status"] == "failed" and not run else None, self._film_view(pid), frun["id"] if frun else None,
+                                        fl["error"] if fl and fl["status"] == "failed" and not frun else None)
+
+    def _storyboard_inputs(self, pid) -> dict:
+        """What the storyboard agent is told: the brand (its fields and the colours of the piece's brand.md) and the confirmed brief of the project."""
+        p = self._load(pid)
+        b = self._loadb(p["brand"])
+        kv = self._brand_kv(pid)
+        colours = [c for c in dict.fromkeys(x.lower() for x in [hex_of(kv.get(k)) for k in ("background", "text", "accent")] + re.findall(r"#[0-9a-fA-F]{6}\b", kv.get("extra colours", ""))) if c]
+        ident = self._identity(b, self._doc(b["id"]))
+        fields = p["brief"]["fields"]
+        return {"name": b["name"], "brand": {k: v["value"] for k, v in ident.items() if k != "colours" and v["state"] != "absent"}, "colours": colours,
+                "brief": {k: fields.get(k, "") for k in ("objective", "audience", "message", "cta")}, "language": fields.get("language") or "fr"}
+
+    def propose_storyboard(self, pid):
+        """The storyboard agent (`agents storyboard`): the script and five to eight shots, a job. What it proposes is kept as not yet saved."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running(p, "storyboard"):
+                raise Conflict("the storyboard is already being proposed")
+            if self._running(p, "film"):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
+            return self._spawn(pid, "storyboard", None, lambda jid: self._storyboard_body(pid, jid))
+
+    def _storyboard_body(self, pid, jid):
+        self._phase(pid, jid, "un agent écrit le script et les plans")
+        work = self._pdir(pid) / "work" / "storyboard"
+        try:
+            sb = self._ask(self._joblog(pid, jid), "storyboard", self._storyboard_inputs(pid), work, 330)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        self._mutate(pid, lambda q: q.update(storyboard={"script": sb["script"], "shots": sb["shots"], "saved": False}))
+        (self._piece_dir(pid) / "film.mp4").unlink(missing_ok=True)
+
+    def put_storyboard(self, pid, script, shots):
+        """The storyboard the person corrected and keeps: checked as the agent's answer is. The film made from an older one is dropped."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not p["brief"]["confirmed"]:
+                raise Conflict("the brief is not confirmed: the film comes from it")
+            if self._running(p, "film"):
+                raise Conflict("le film du projet est en cours de rendu : attends qu'il soit fini pour toucher au découpage")
+            try:
+                sb = workflow.parse_storyboard({"script": script, "shots": shots}, self._storyboard_inputs(pid)["colours"])
+            except ValueError as err:
+                raise ValueError(f"storyboard: {err}") from None
+            self._mutate(pid, lambda q: q.update(storyboard={**sb, "saved": True}))
+            (self._piece_dir(pid) / "film.mp4").unlink(missing_ok=True)
+            return self.get_storyboard(pid)
+
+    def render_film(self, pid):
+        """The film of the saved storyboard (`film`, motion made by code, ffmpeg), a job."""
+        with self._op(pid):
+            p = self._load(pid)
+            if not (p.get("storyboard") or {}).get("saved"):
+                raise Conflict("the storyboard is not saved: read it, correct it and save it first")
+            if self._running(p, "film"):
+                raise Conflict("the film is already being made")
+            return self._spawn(pid, "film", None, lambda jid: self._film_body(pid, jid))
+
+    def _film_body(self, pid, jid):
+        self._phase(pid, jid, "chaque plan est animé, capturé image par image, puis assemblé")
+        piece, sb = self._piece_dir(pid), self._load(pid)["storyboard"]
+        src = piece / "storyboard.json"
+        write_json(src, {"shots": sb["shots"]})
+        out = piece / "film.mp4"
+        res = json.loads(self._must(self._joblog(pid, jid), self._py(SCRIPTS / "film", piece, src, "--out", out), timeout=1500).out)
+        self._mutate(pid, lambda q: q["storyboard"].update(film_seconds=res["seconds"]))
+
+    def download_film(self, pid):
+        f = self._piece_dir(pid) / "film.mp4"
+        if not f.is_file():
+            raise Conflict("the film is not made yet")
+        return Download(f"{pid}.mp4", "video/mp4", f.read_bytes())
 
     # ---------- the files of a project, and of a brand ----------
     def file(self, pid, rel) -> Path:

@@ -57,11 +57,17 @@
   Object.assign(api, {
     health: () => call("GET", "/api/health"),
     machine: () => call("GET", "/api/machine"), // what the machine lacks to run the studio for real: { ok, missing: [{ key, label, say }] }
+    /* engines: the engine of the images and the engine of the texts (claude, or openrouter with its key and its model). The key goes in, never comes back: only key_saved. */
+    engines: () => call("GET", "/api/engines"), // { image_engine, image_engines, text_engine, text_engines, openrouter_model, key_saved }
+    saveEngine: (engine) => call("PUT", "/api/engines/image", { engine }),
+    saveTextEngine: (engine, key, model) => call("PUT", "/api/engines/text", { engine, key, model }), // key: undefined keeps the saved one, "" forgets it
     tasks: () => call("GET", "/api/tasks"),
     projects: () => call("GET", "/api/projects"),
     project: (p) => call("GET", P(p)),
     brief: (p) => call("GET", P(p) + "/brief"),
     saveBrief: (p, fields) => call("PUT", P(p) + "/brief", { fields }),
+    /* interview: a few questions, an agent pre-fills the brief from the answers (a job); the person corrects it in the brief's form */
+    interview: (p, answers) => (answers ? call("POST", P(p) + "/interview", { answers }) : call("GET", P(p) + "/interview")), // GET { questions, proposed: { fields, missing } | null, job, error }; POST answers: [text], the job
     mandates: (p) => call("GET", P(p) + "/mandates"),
     saveMandates: (p, items, common) => call("PUT", P(p) + "/mandates", { items, common }),
     diverge: (p) => call("POST", P(p) + "/diverge"),
@@ -84,6 +90,8 @@
     judge: (file, meta) => upload("/api/judgements", file, meta), // a png or jpg File; meta: { brand, brief: { objective, audience, message, cta, fixed, personas } }. Answers the judgement
     runJudgement: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/run"),
     runJudgementReader: (j, n) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/readers/" + n + "/run"), // reader n, run again alone
+    rounds: (j) => call("GET", "/api/judgements/" + encodeURIComponent(j) + "/rounds"), // {status, synthesis: {holds, ambiguous, once}, error, job}: the piece judged three times
+    runRounds: (j) => call("POST", "/api/judgements/" + encodeURIComponent(j) + "/rounds"), // launch the three rounds (again, once done): a job
     judgementPage: (j) => download("/api/judgements/" + encodeURIComponent(j) + "/page"), // the flat page of the verdict, an html file
     /* The studio holds brands, a brand holds projects. (The routes of a project's brand, `/api/projects/{p}/brand…`, are kept by the studio but the interface no longer uses them.) */
     brands: () => call("GET", "/api/brands"),
@@ -106,10 +114,31 @@
     saveNames: (b, names, chosen) => call("PUT", B(b) + "/names", { names, chosen }), // chosen: one of names, becomes the brand's name
     /* export: the brand folder, a zip (brand.md, MOTION.md if any, the logo, brand.json with each value's source and status); answers {blob, name} */
     exportBrand: (b) => download(B(b) + "/export"),
+    /* brief_export: the brief of a project (confirmed or not) as a Markdown file to download; `r` is the project's id */
+    exportBrief: (r) => download("/api/briefs/" + encodeURIComponent(r) + "/export"),
     /* competitors: the studio proposes up to six (a job), the person keeps the ones they corrected or wrote */
     competitors: (b) => call("GET", B(b) + "/competitors"), // { competitors: [text], proposed: [text], can_propose, job, error }
     proposeCompetitors: (b) => call("POST", B(b) + "/competitors/propose"),
     saveCompetitors: (b, competitors) => call("PUT", B(b) + "/competitors", { competitors }), // only these are the brand's; the proposal is settled
+    /* research: the studio searches the web for what is said of a brand (a job, ten results at most), the person keeps or drops each; only addresses are kept */
+    research: (b) => call("GET", B(b) + "/research"), // { research: [{url, brings, belonging}], proposed: [{url, brings, belonging}], job, error }
+    proposeResearch: (b) => call("POST", B(b) + "/research/propose"),
+    saveResearch: (b, research) => call("PUT", B(b) + "/research", { research }), // only these are the brand's; the proposal is settled
+    /* logos: the studio proposes up to four tracks drawn in SVG (a job), the person keeps or drops each, and chooses one of the kept as the brand's logo */
+    logos: (b) => call("GET", B(b) + "/logo/tracks"), // { tracks: [{id, idea, svg}], proposed: [{id, idea, svg}], can_propose, job, error }
+    proposeLogos: (b) => call("POST", B(b) + "/logo/propose"),
+    keepLogos: (b, keep) => call("PUT", B(b) + "/logo/tracks", { keep }), // keep: ids among tracks and proposed; only these stay
+    chooseLogo: (b, id) => call("POST", B(b) + "/logo/choose", { id }), // id: one of tracks, becomes the brand's logo
+    /* texts: the studio proposes up to six hooks and posts for a project (a job), the person keeps the ones they corrected or wrote */
+    texts: (p) => call("GET", P(p) + "/texts"), // { texts: [text], proposed: [text], can_propose, job, error }
+    proposeTexts: (p) => call("POST", P(p) + "/texts/propose"),
+    saveTexts: (p, texts) => call("PUT", P(p) + "/texts", { texts }), // only these are the project's; the proposal is settled
+    /* storyboard: the script and the shots of a project's film: the studio proposes (a job), the person corrects and saves, then the film is rendered (a job) */
+    storyboard: (p) => call("GET", P(p) + "/storyboard"), // { script, shots: [{ seconds, visual, text, colour, read }], saved, can_propose, job, error, film: { url, seconds } | null, film_job, film_error }
+    proposeStoryboard: (p) => call("POST", P(p) + "/storyboard/propose"),
+    saveStoryboard: (p, script, shots) => call("PUT", P(p) + "/storyboard", { script, shots }),
+    renderFilm: (p) => call("POST", P(p) + "/storyboard/render"),
+    downloadFilm: (p) => download(P(p) + "/storyboard/film"), // the film, an mp4
     createProjectIn: (b, name, from) => call("POST", B(b) + "/projects", { name, from }),
     downloadPiece: (p, i) => download(P(p) + "/pieces/" + encodeURIComponent(i) + "/download"), // the composed piece, a png at its size
     downloadKept: (p) => download(P(p) + "/download"), // every piece kept, a zip
