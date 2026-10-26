@@ -46,6 +46,7 @@
     if (n("learn")) parts.push("lit la marque");
     if (n("mandates")) parts.push("prépare les consignes");
     if (n("judge")) parts.push("fait relire " + plural(n("judge"), "pièce", "pièces") + " au juge");
+    if (n("decline")) parts.push("décline une pièce en " + plural(n("decline"), "format", "formats"));
     const left = Math.max(...jobs.map((j) => j.eta || 0));
     return "Le studio " + parts.join(" et ") + ", " + eta(left);
   }
@@ -894,11 +895,12 @@
   function StudioCol({ ctx }) {
     const { tasks, brands, jobs, loaded } = ctx.data, { sel } = ctx;
     const judgements = useLive(ctx, () => api.judgements(), "judgements");
+    const declinaisons = useLive(ctx, () => api.declinaisons(), "declinaisons");
     const level = ctx.level(0);
     const total = (b) => b.waiting + b.projects.reduce((n, p) => n + p.waiting, 0);
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h("h2", { className: "sr" }, "Le studio")),
-      h(Row, { col: 0, select: true, sel: !sel.brand && !sel.panel && !sel.judgement ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
+      h(Row, { col: 0, select: true, sel: !sel.brand && !sel.panel && !sel.judgement && !sel.declinaison ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Le studio")), h(Count, { n: tasks.length })),
       h(JobLine, { jobs }),
       ctx.machine.missing.length > 0 && h("div", { className: "machine", role: "status", "data-machine": "missing" },
@@ -919,8 +921,15 @@
         h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, "Une image, son brief, un verdict"))),
       (judgements || []).map((j) => h(Row, { key: j.id, col: 0, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
         label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))));
+        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))),
+      h(Where, null, "Les déclinaisons"),
+      h(Row, { col: 0, select: true, sel: sel.panel === "newDecline" ? level : null, onClick: ctx.newDecline, label: "Décliner une pièce : déposer une image et cocher les formats" },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Décliner une pièce"), h("span", { className: "meta" }, "Une image, des formats, une déclinaison par format"))),
+      (declinaisons || []).map((d) => h(Row, { key: d.id, col: 0, select: true, sel: sel.declinaison === d.id ? level : null, onClick: () => ctx.selectDeclinaison(d.id),
+        label: d.name + ", " + DECLINE_WORD[d.status].toLowerCase() + (d.brand_name ? ", " + d.brand_name : "") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, d.name), h("span", { className: "meta" }, [DECLINE_WORD[d.status], d.brand_name, day(d.at)].filter(Boolean).join(" · "))))));
   }
+  const DECLINE_WORD = { running: "Le studio décline", done: "Déclinée" };
   const JUDGEMENT_WORD = { running: "Le juge relit", done: "Jugée", failed: "Le juge a échoué" };
   const day = (sec) => sec ? new Date(sec * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
 
@@ -1248,6 +1257,83 @@
             h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page")))));
   }
 
+  /* ---------- a piece declined on its own: dropped with what it says and the formats, then one declination per format ---------- */
+  function DeclineForm({ ctx }) {
+    const [file, setFile] = useState(null);
+    const [url, setUrl] = useState(null);
+    const [words, setWords] = useState("");
+    const [brand, setBrand] = useState("");
+    const [formats, setFormats] = useState([]);
+    const input = useRef(null);
+    useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+    const pick = (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      ev.target.value = "";
+      if (!f) return;
+      if (!/^image\/(png|jpeg)$/.test(f.type)) { ctx.fail(new Error("Une pièce à décliner se dépose en png ou en jpg.")); return; }
+      if (f.size > JUDGE_MAX) { ctx.fail(new Error("Ce fichier fait plus de 10 Mo.")); return; }
+      setFile(f); setUrl(URL.createObjectURL(f));
+    };
+    const toggle = (k) => setFormats(formats.includes(k) ? formats.filter((x) => x !== k) : [...formats, k]);
+    const launch = () => ctx.act(async () => {
+      const d = await api.decline(file, { brand: brand || null, words, formats });
+      ctx.touch(); await ctx.refresh();
+      ctx.selectDeclinaison(d.id, "Le studio décline " + d.name + " en " + plural(formats.length, "format", "formats") + ".");
+    }, "Le studio envoie la pièce.");
+    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Les déclinaisons"), h("h2", { className: "titre" }, "Décliner une pièce")),
+      h("div", { className: "sec form" },
+        h("input", { ref: input, type: "file", className: "sr", accept: "image/png,image/jpeg", onChange: pick, tabIndex: -1, "aria-hidden": "true" }),
+        url && h("figure", { className: "frame wide" }, h("img", { src: url, alt: "La pièce à décliner : " + file.name })),
+        h("div", null, h(Button, { variant: file ? "ghost" : "secondary", size: "md", disabled: ctx.busy, onClick: () => input.current && input.current.click(), "aria-label": (file ? "Changer d'image" : "Déposer l'image de la pièce") + " (png ou jpg, 10 Mo au plus)" }, file ? "Changer d'image" : "Déposer l'image")),
+        h("div", { className: "field" }, h("label", { htmlFor: "dw" }, "Ce qu'elle dit (facultatif)"),
+          h("input", { id: "dw", type: "text", value: words, onChange: (e) => setWords(e.target.value), "aria-describedby": "dw-hint", placeholder: "Son titre, sa sous-ligne, son appel à l'action" }),
+          h("span", { id: "dw-hint", className: "small muted" }, "En une ligne. Sans rien, le studio lit les mots sur l'image.")),
+        h("div", { className: "field" }, h("label", { htmlFor: "db" }, "Sa marque (facultatif)"),
+          h("select", { id: "db", value: brand, onChange: (e) => setBrand(e.target.value), "aria-describedby": "db-hint" }, h("option", { value: "" }, "Sans marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
+          h("span", { id: "db-hint", className: "small muted" }, "Avec une marque, ses couleurs, ses polices et son logo. Sans, les couleurs lues sur la pièce.")),
+        h("fieldset", { className: "field" }, h("legend", null, "Les formats voulus"),
+          Object.keys(FORMAT_WORDS).map((k) => h("label", { key: k, className: "small" }, h("input", { type: "checkbox", checked: formats.includes(k), onChange: () => toggle(k) }), " " + fmtWord(k)))),
+        h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy || !file || !formats.length, onClick: launch, "aria-label": "Décliner cette pièce dans les formats cochés" }, "Décliner"),
+          h(Button, { variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Ne pas décliner de pièce" }, "Annuler")),
+        h("p", { className: "small muted", role: "status" }, !file ? "Il manque l'image." : !formats.length ? "Coche au moins un format." : "Une déclinaison par format : " + plural(formats.length, "déclinaison", "déclinaisons") + ".")));
+  }
+
+  function DeclinaisonCol({ ctx, did }) {
+    const dc = useLive(ctx, () => api.declinaison(did), did);
+    const [back, setBack] = useState(null); // the format being sent back
+    const [words, setWords] = useState("");
+    if (!dc) return h("div", { className: "colhead" }, h(Eyebrow, null, "Déclinaison"), h("p", { className: "vide" }, "Un instant."));
+    const send = (f, verdict) => ctx.act(async () => {
+      await api.decideDeclinaison(did, f, verdict, verdict === "again" ? words : "");
+      setBack(null); setWords(""); ctx.touch(); await ctx.refresh();
+      ctx.notify(fmtWord(f) + (verdict === "keep" ? " : gardée." : " : le studio la décline à nouveau."));
+    });
+    const kept = dc.pieces.filter((p) => p.decision && p.decision.verdict === "keep").length;
+    const take = () => ctx.act(async () => { const f = await api.downloadDeclinaison(did); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(kept, "déclinaison", "déclinaisons") + "."); }, "Le studio prépare le zip.");
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Déclinaison"), h("h2", { className: "titre" }, dc.name),
+        h("p", { className: "sub" }, [dc.brand_name || "Sans marque", day(dc.at)].filter(Boolean).join(" · "))),
+      h("div", { className: "bodyc" },
+        dc.source && h("figure", { className: "frame wide" }, h("img", { src: dc.source, alt: "La pièce de départ : " + dc.name })),
+        dc.words && h("p", { className: "small muted" }, "Elle dit : " + dot(dc.words) + "."),
+        dc.pieces.map((p) => h("section", { key: p.format, className: "sec" }, h("h3", { className: "cap" }, fmtWord(p.format) + ", " + p.size[0] + " par " + p.size[1]),
+          p.status === "running" ? h("p", { className: "muted", role: "status" }, "Le studio la décline.")
+            : p.status === "failed" ? h(React.Fragment, null, h(Callout, { tone: "risk", label: "Le studio n'a pas pu la décliner" }, p.error || "raison inconnue"),
+              h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: () => send(p.format, "again"), "aria-label": "Relancer la déclinaison " + fmtWord(p.format) }, "Relancer")))
+            : h(React.Fragment, null, h(Frame, { src: p.image, alt: "Déclinaison " + fmtWord(p.format), size: p.size }),
+              p.decision && h("p", { className: "small" }, h(Badge, { tone: "success" }, "Gardée")),
+              back === p.format ? h("div", { className: "sec" },
+                h("div", { className: "field" }, h("label", { htmlFor: "dwb" }, "Qu'est-ce qui ne va pas ?"),
+                  h("textarea", { id: "dwb", autoFocus: true, value: words, onChange: (e) => setWords(e.target.value), placeholder: "Par exemple : le titre est coupé" })),
+                h("div", { className: "gestures" },
+                  h(Button, { variant: "primary", size: "md", disabled: ctx.busy || !words.trim(), onClick: () => send(p.format, "again"), "aria-label": "Renvoyer cette déclinaison avec cette raison" }, "Renvoyer"),
+                  h(Button, { variant: "ghost", size: "md", onClick: () => setBack(null), "aria-label": "Ne pas renvoyer" }, "Annuler")))
+                : h("div", { className: "gestures" },
+                  !p.decision && h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: () => send(p.format, "keep"), "aria-label": "Garder la déclinaison " + fmtWord(p.format) }, "Garder"),
+                  h(Button, { variant: "secondary", size: "md", onClick: () => { setBack(p.format); setWords(""); }, "aria-label": "Renvoyer la déclinaison " + fmtWord(p.format) + " en disant pourquoi" }, "Renvoyer"))))),
+        kept > 0 && h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger les déclinaisons gardées, un zip" }, "Télécharger les gardées"))));
+  }
+
   /* ================= the palette and the menu ================= */
   function matches(c, q) {
     const words = norm(q).split(/\s+/).filter(Boolean);
@@ -1294,12 +1380,14 @@
   /* ================= the application ================= */
   /* what each column is, from left to right, for a selection: the studio always, then a brand (or the form of a new one), a project (or the
      form that edits or creates), the detail of a step (or its form) */
-  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null, judgement: null };
+  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null, judgement: null, declinaison: null };
   function columnsOf(sel) {
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
     if (sel.panel === "newJudge") { c.push("newJudge"); return c; }
     if (sel.judgement) { c.push("judgement"); return c; }
+    if (sel.panel === "newDecline") { c.push("newDecline"); return c; }
+    if (sel.declinaison) { c.push("declinaison"); return c; }
     if (!sel.brand) return c;
     c.push("brand");
     if (sel.panel === "editBrand") { c.push("editBrand"); return c; }
@@ -1309,7 +1397,7 @@
     if (sel.detail) c.push(sel.detail.kind);
     return c;
   }
-  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
+  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.declinaison ? { ...sel, declinaison: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
   /* the width of the window, to know how many columns fit side by side */
   function useWidth() {
@@ -1364,7 +1452,7 @@
         const r = await api.tasks();
         skew.current = r.now * 1000 - Date.now();
         const STEP_OF = { learn: "brand", mandates: "mandates", diverge: "diverge", image: "image", judge: "check" };
-        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id) && !j.judgement).forEach((j) => { // a piece judged on its own has no journal
+        prevJobs.current.filter((j) => !r.jobs.some((x) => x.id === j.id) && !j.judgement && !j.declinaison).forEach((j) => { // a piece judged or declined on its own has no journal
           const failed = r.tasks.find((t) => t.kind === "job-failed" && (j.project ? t.project === j.project && t.step === STEP_OF[j.kind] && (t.piece || null) === (j.piece || null) : t.scope === "brand" && t.brand === j.brand));
           const where = j.project || "@" + j.brand;
           if (failed) log(where, "studio", "Échec : " + taskTitle(failed), failed.question);
@@ -1398,6 +1486,8 @@
     const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
     const newJudge = useCallback(() => move(() => ({ ...EMPTY, panel: "newJudge" })), [move]);
     const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judgement: id }), text), [move]);
+    const newDecline = useCallback(() => move(() => ({ ...EMPTY, panel: "newDecline" })), [move]);
+    const selectDeclinaison = useCallback((id, text) => move(() => ({ ...EMPTY, declinaison: id }), text), [move]);
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
     const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
@@ -1464,7 +1554,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, selectJudgement, newDecline, selectDeclinaison };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -1480,6 +1570,7 @@
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
       cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
       cmds.push({ id: "new-judge", group: "Créer", label: "Juger une pièce", run: newJudge });
+      cmds.push({ id: "new-decline", group: "Créer", label: "Décliner une pièce", run: newDecline });
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
       if (sel.brand && sel.project) {
@@ -1579,12 +1670,12 @@
 
     /* ----- the columns ----- */
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
-      : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+      : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "newDecline" ? h(DeclineForm, { ctx }) : kind === "declinaison" ? h(DeclinaisonCol, { ctx, did: sel.declinaison, key: sel.declinaison }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", judgement: "Le jugement", newDecline: "Décliner une pièce", declinaison: "La déclinaison", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
     const shell = (kind, i) => {
       const last = i === cols.length - 1;

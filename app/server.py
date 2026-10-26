@@ -79,13 +79,19 @@ ROUTES = [
     ("GET", rf"/api/judgements/{J}", lambda b, m, d: b.judgement(m["j"])),
     ("POST", rf"/api/judgements/{J}/run", lambda b, m, d: b.run_judgement(m["j"])),
     ("GET", rf"/api/judgements/{J}/page", lambda b, m, d: b.judgement_page(m["j"])),
+    # a piece declined on its own
+    ("GET", r"/api/declinaisons", lambda b, m, d: b.list_declinaisons()),
+    ("POST", r"/api/declinaisons", lambda b, m, d: b.create_declinaison(d["raw"], d["type"], d["name"], d["meta"])),
+    ("GET", rf"/api/declinaisons/{J}", lambda b, m, d: b.declinaison(m["j"])),
+    ("POST", rf"/api/declinaisons/{J}/pieces/(?P<f>[\w-]+)/decide", lambda b, m, d: b.decide_declinaison(m["j"], m["f"], d.get("verdict"), d.get("words", ""))),
+    ("GET", rf"/api/declinaisons/{J}/download", lambda b, m, d: b.download_declinaison(m["j"])),
     ("GET", r"/api/jobs/(?P<j>[\w-]+)", lambda b, m, d: b.job(m["j"])),
 ]
 
 
 # the routes that take a file, not JSON: the body is the file itself, its type is the request's Content-Type and its name an X-Filename header;
 # what comes with it, if anything, is an X-Judge header (JSON, URL-encoded). Each with the size beyond which the body is refused (bytes)
-RAW_ROUTES = {rf"/api/brands/{B}/logo": workflow.LOGO_MAX, r"/api/judgements": workflow.JUDGE_MAX}
+RAW_ROUTES = {rf"/api/brands/{B}/logo": workflow.LOGO_MAX, r"/api/judgements": workflow.JUDGE_MAX, r"/api/declinaisons": workflow.JUDGE_MAX}
 RAW_DRAIN = 16 * 1024 * 1024  # a refused body up to this size is read and thrown away, so the answer reaches the browser; beyond, the connection closes
 
 
