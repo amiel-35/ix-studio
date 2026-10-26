@@ -1149,11 +1149,11 @@
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
     const drop = (i) => setEd(list.filter((x, k) => k !== i));
     const dirty = ed !== null || data.proposed.length > 0;
-    const propose = () => ctx.act(async () => { await api.proposeTexts(pid); ctx.log("@" + pid, "toi", "Textes demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
+    const propose = () => ctx.act(async () => { await api.proposeTexts(pid); ctx.log(pid, "toi", "Textes demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
     const save = () => ctx.act(async () => {
       const texts = list.filter((x) => x.kept).map((x) => x.text.trim()).filter(Boolean);
       await api.saveTexts(pid, texts);
-      ctx.log("@" + pid, "toi", "Textes enregistrés", plural(texts.length, "texte gardé", "textes gardés"));
+      ctx.log(pid, "toi", "Textes enregistrés", plural(texts.length, "texte gardé", "textes gardés"));
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "texte est enregistré", "textes sont enregistrés") + " dans le projet." : "Le projet n'a plus de texte.");
     });
     const copy = (text) => navigator.clipboard.writeText(text).then(() => ctx.notify("Texte copié."), () => ctx.notify("La copie n'a pas marché : sélectionne le texte et copie-le."));
