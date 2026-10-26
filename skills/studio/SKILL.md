@@ -99,19 +99,29 @@ dropped in as `<dir>/image.png`) skips the divergence: `python3 "$ST" compose <d
 After `decide again`, the pick and the piece are cleared: write new variants (they read `bans.md`) and run
 `diverge` again; `status` says so.
 
+## install
+
+To install the interface on a new Mac and open it, run `bash <repo>/install.sh` (it says what is missing and never asks for a password).
+
 ## The agents, as commands
 
 The studio's agents are commands, the same ones the interface runs (`AG="${CLAUDE_PLUGIN_ROOT}/scripts/agents"`, from a clone
 `<repo>/scripts/agents`). Each takes an `inputs.json` (its keys are listed by `python3 "$AG" --help`; paths in it are read from its folder) and gives
 JSON, or stops with its reason and a non-zero code. Write the inputs from what you know, show what comes back, let the person correct it.
 
+- `python3 "$AG" interview in.json` (`answers`, up to five, to the questions `python3 "$AG" interview` of an empty `{}` gives; `brand`): the project's brief pre-filled, `{fields, missing}`; the objective and the target nobody gave stay empty and flagged, never guessed. Show it, let the person correct it, then write `brief.md`.
 - `python3 "$AG" mandates in.json` (`dir`: the piece folder): the common rule and four mandates, when the person wants them proposed rather than written by you.
 - `python3 "$AG" variant in.json` (`dir`, `id`, `mandate`, `common`): one blind variant, written in `<dir>/variants/<id>.json`; one call per mandate, in parallel.
+- `python3 "$AG" texts in.json` (`brief`, `brand`, `language`): up to six hooks and posts for a project, in the voice of the brand, with no figure that is not in the brief or the brand; show them, let the person correct, keep or drop each.
 - `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.
+- `python3 "$AG" rounds in.json` (as `judge`): the judge three times, each alone, then what holds (all three), what is ambiguous (the rounds disagree) and what came out once; show it beside the piece, the person decides.
 - `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
+- `python3 "$AG" storyboard in.json` (`name`, `brand`, `colours`, `brief`, `language`): the script and five to eight shots of a 15 to 30 second film; show them, let the person correct them, then `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/film" <piece dir> storyboard.json --out film.mp4` renders the film by code (Chrome and ffmpeg), vertical 9:16.
+- `python3 "$AG" engines [in.json]` (`image_engine`, `text_engine`, `openrouter_model`, `openrouter_key`, all optional): keeps the engines the person chooses and gives `{image_engine, text_engine, openrouter_model, key_saved}`; the key is kept on this machine, never given back, never written in the project. `text_engine` `openrouter` makes the agents that only answer (personas, names, competitors, texts, mandates) use OpenRouter; `STUDIO_TEXT_ENGINE` and `STUDIO_IMAGE_ENGINE` say the same in the environment.
+- `python3 "$AG" export-brief in.json` (`name`, `brand_name`, `confirmed`, `brief`: the fields of the project's brief): the brief as a Markdown file, what is missing said as missing; no model is called, `--out brief.md` writes the file itself.
 
-The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
-The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.
+The judge and the readers (and each round of `rounds`) run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
+The brand's agents (personas, names, competitors, research on the web, logos) are in the `brand-dossier` skill.
 
 ## Which tool for which job
 

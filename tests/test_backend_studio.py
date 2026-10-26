@@ -76,7 +76,14 @@ class Fake:
         self.readers = []  # the inputs.md each reader read
         self.personas = "ok"  # what the personas agent answers: ok (two personas), bad (one that does not hold), down (it fails)
         self.names = "ok"  # what the names agent answers: ok (two names), bad (a name without its line), down (it fails)
+        self.research = "ok"  # what the research agent answers: ok, bad, down
+        self.logos = "ok"  # what the logos agent answers: ok (two tracks), bad (a drawing with a script), down (it fails)
         self.competitors = "ok"  # what the competitors agent answers: ok (two), bad (one that does not hold), down (it fails)
+        self.interview = "ok"  # what the interview agent answers: ok (a brief), bad (one that does not hold), down (it fails)
+        self.storyboard = "ok"  # what the storyboard agent answers: ok (six shots on the colours it is given), bad (a film of three seconds), down (it fails)
+        self.film_fails = False  # the film command fails (no Chrome, no ffmpeg)
+        self.film_hold = None  # an Event: the film command waits for it
+        self.texts = "ok"  # what the texts agent answers: ok (two), bad (a figure that is not in the brief), down (it fails)
 
     def tool_env(self):
         env = {k: v for k, v in os.environ.items() if k not in ("OPENAI_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY")}
@@ -92,6 +99,13 @@ class Fake:
         if exe.startswith("python") and Path(argv[1]).name == "agents":  # the agents of the studio: the command for real, its `claude` faked here
             out, err = io.StringIO(), io.StringIO()
             return Result(agents.main(argv[2:], runner=self, stdout=out, stderr=err), out.getvalue(), err.getvalue())
+        if exe.startswith("python") and Path(argv[1]).name == "film":  # the film command: its Chrome and ffmpeg are faked here
+            if self.film_fails:
+                return Result(1, "", "film: no headless Chrome found (set CHROME=/path/to/chrome)")
+            if self.film_hold:
+                self.film_hold.wait(10)
+            Path(argv[argv.index("--out") + 1]).write_bytes(b"\x00\x00\x00 ftypmp42")
+            return Result(0, json.dumps({"video": argv[argv.index("--out") + 1], "seconds": 20.0, "frames": 200}), "")
         if exe == "node":
             return self.node(argv)
         if exe == "claude":
@@ -147,6 +161,16 @@ class Fake:
             return self.names_agent()
         if '{"competitors": [' in prompt:
             return self.competitors_agent()
+        if '{"objective": "..."' in prompt:
+            return self.interview_agent()
+        if '{"research": [' in prompt:
+            return self.research_agent()
+        if '{"logos": [' in prompt:
+            return self.logos_agent(prompt)
+        if '{"script": "...", "shots"' in prompt:
+            return self.storyboard_agent(prompt)
+        if '{"texts": [' in prompt:
+            return self.texts_agent()
         if "--tools" in argv and argv[argv.index("--tools") + 1] == "":  # the instructions
             body = json.dumps({"common": "Écrire en français. Rien d'inventé.", "mandates": ["Le goût d'abord", "Démonter l'idée reçue", "Le temps long", "Rupture : l'entre-deux"]})
             return Result(0, "Voilà ma proposition :\n```json\n" + body + "\n```\n", "")
@@ -198,6 +222,15 @@ class Fake:
         body = {"names": [{"name": "Quai Ambré", "why": "Le port et la couleur de la boisson."}, {"name": "Bulle Lente", "why": "Une fermentation qui prend son temps."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
+    def logos_agent(self, prompt):
+        if self.logos == "down":
+            return Result(1, "", "the agent gave up")
+        svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'><text x='10' y='60'>{}</text></svg>"
+        if self.logos == "bad":
+            return Result(0, json.dumps({"logos": [{"idea": "Piégé.", "svg": svg.format("<script>alert(1)</script>")}]}), "")
+        body = {"logos": [{"idea": "Le nom en capitales.", "svg": svg.format("A")}, {"idea": "Le nom en minuscules.", "svg": svg.format("B")}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
     def competitors_agent(self):
         if self.competitors == "down":
             return Result(1, "", "the agent gave up")
@@ -205,6 +238,39 @@ class Fake:
             return Result(0, json.dumps({"competitors": [{"name": "Kombucha du Coin", "from": "vu à la télé", "sells": "du kombucha", "differs": "plus sucré"}]}), "")
         body = {"competitors": [{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha en canette, en grande surface.", "differs": "Un ton bien-être."},
                                 {"name": "Brasserie du Quai", "from": "dossier", "sells": "de la bière au port.", "differs": "L'apéro, avec alcool."}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
+    def interview_agent(self):
+        if self.interview == "down":
+            return Result(1, "", "the agent gave up")
+        if self.interview == "bad":
+            return Result(0, "pas du json", "")
+        body = {"objective": "Faire connaître le kombucha.", "audience": "Les citadins curieux.", "message": "Du thé qui a fait la fête.", "cta": "Venir goûter.", "fixed": "La signature."}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
+    def research_agent(self):
+        if self.research == "down":
+            return Result(1, "", "the agent gave up")
+        if self.research == "bad":
+            return Result(0, json.dumps({"research": [{"url": "", "brings": "un site", "belonging": "officielle"}]}), "")
+        body = {"research": [{"url": "https://cabane.test/", "brings": "Le site : couleurs et ton.", "belonging": "officielle"},
+                             {"url": "https://presse.test/cabane", "brings": "Un article sur la campagne.", "belonging": "officielle relayée"}]}
+        return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
+
+    def storyboard_agent(self, prompt):
+        if self.storyboard == "down":
+            return Result(1, "", "the agent gave up")
+        cols = re.findall(r"#[0-9a-f]{6}", re.search(r"colours of the brand: (.*)", prompt).group(1))
+        shot = lambda n, sec, visual="texte": {"seconds": sec, "visual": visual, "text": f"Texte {n}" if visual == "texte" else "", "colour": cols[n % len(cols)], "read": f"On lit {n}."}
+        shots = [shot(1, 1)] if self.storyboard == "bad" else [shot(n, 3) for n in range(1, 6)] + [shot(6, 2, "logo")]
+        return Result(0, "Voici :\n" + json.dumps({"script": "Une question, puis la marque.", "shots": shots}, ensure_ascii=False) + "\n", "")
+
+    def texts_agent(self):
+        if self.texts == "down":
+            return Result(1, "", "the agent gave up")
+        if self.texts == "bad":
+            return Result(0, json.dumps({"texts": [{"kind": "accroche", "text": "Déjà 3000 clients conquis."}]}), "")
+        body = {"texts": [{"kind": "accroche", "text": "Du thé qui a fait la fête."}, {"kind": "post", "text": "Tu croyais le kombucha tendance ?\nC'est surtout bon."}]}
         return Result(0, "Voici :\n" + json.dumps(body, ensure_ascii=False) + "\n", "")
 
     def image(self, argv):
@@ -245,6 +311,11 @@ class Base(unittest.TestCase):
         f.personas = "ok"
         f.names = "ok"
         f.competitors = "ok"
+        f.interview = "ok"
+        f.research = "ok"
+        f.logos = "ok"
+        f.storyboard, f.film_fails, f.film_hold = "ok", False, None
+        f.texts = "ok"
 
     def call(self, method, path, body=None, code=200, headers=None, raw=False):
         req = urllib.request.Request(self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
@@ -1023,6 +1094,96 @@ class Files(Base):
             self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
 
 
+class Storyboard(Base):
+    """storyboard: the script and the shots of the film of a project, proposed, corrected and saved by the person, then rendered."""
+
+    def test_the_agent_proposes_the_shots_the_person_saves_them_and_only_then_the_film_is_made(self):
+        pid = self.started(name="Film")
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((got["shots"], got["saved"], got["can_propose"], got["film"]), ([], False, False, None))
+        self.call("POST", f"/api/projects/{pid}/storyboard/propose", code=409)  # the brief is not confirmed
+        f = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**f, "objective": "faire connaître", "audience": "des citadins", "message": "c'est bon", "cta": "viens goûter"}})
+        self.settle_mandates(pid)
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)  # nothing to render yet
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        call = self.fake.where("--restricted")[-1]
+        prompt = call["argv"][2]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool, no search
+        self.assertIn("- message: c'est bon", prompt)
+        self.assertIn("- audience: des citadins", prompt)
+        self.assertIn("name: Marrowbay Ferments", prompt)
+        self.assertRegex(prompt, r"colours of the brand: #[0-9a-f]{6}")
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((len(got["shots"]), got["saved"], got["job"], got["error"], got["script"]), (6, False, None, None, "Une question, puis la marque."))
+        self.call("POST", f"/api/projects/{pid}/storyboard/render", code=409)  # proposed, not read and saved: no film
+        shots = [{**x, "text": x["text"] + " corrigé"} if x["visual"] == "texte" else x for x in got["shots"]]
+        r = self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "Mon script.", "shots": shots})
+        self.assertEqual((r["saved"], r["script"], r["shots"][0]["text"]), (True, "Mon script.", "Texte 1 corrigé"))
+        self.assertEqual(json.loads((self.pdir(pid) / "project.json").read_text())["storyboard"]["saved"], True)
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/render"))
+        done = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual((done["film"]["seconds"], done["film_job"], done["film_error"]), (20.0, None, None))
+        self.assertTrue(done["film"]["url"].startswith(f"/files/{pid}/piece/film.mp4"))
+        self.assertTrue(self.fetch(done["film"]["url"])[1].startswith(b"\x00\x00\x00 ftyp"))
+        film = [c for c in self.fake.calls if len(c["argv"]) > 1 and Path(c["argv"][1]).name == "film"][-1]
+        sent = json.loads((self.pdir(pid) / "piece" / "storyboard.json").read_text())
+        self.assertEqual(sent["shots"][0]["text"], "Texte 1 corrigé")  # the film is made from what the person saved
+        self.assertEqual(film["argv"][2], str(self.pdir(pid) / "piece"))
+        self.assertEqual(self.fetch(f"/api/projects/{pid}/storyboard/film")[0]["Content-Type"], "video/mp4")
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "Autre.", "shots": shots})  # corrected again: the old film is dropped
+        self.assertIsNone(self.call("GET", f"/api/projects/{pid}/storyboard")["film"])
+        self.fetch(f"/api/projects/{pid}/storyboard/film", code=409)
+
+    def test_the_storyboard_is_not_proposed_nor_saved_while_the_film_is_rendered(self):
+        pid = self.briefed(name="Film en cours")
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": got["shots"]})
+        self.fake.film_hold = threading.Event()
+        job = self.call("POST", f"/api/projects/{pid}/storyboard/render")
+        try:
+            for method, path, body in (("PUT", "storyboard", {"script": "Autre.", "shots": got["shots"]}), ("POST", "storyboard/propose", None)):
+                err = self.call(method, f"/api/projects/{pid}/{path}", body, code=409)
+                self.assertIn("rendu", err["error"])
+        finally:
+            self.fake.film_hold.set()
+        self.wait(job)
+        self.assertEqual(self.call("GET", f"/api/projects/{pid}/storyboard")["script"], got["script"])  # nothing was touched
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "Autre.", "shots": got["shots"]})  # the film done, it is allowed again
+
+    def test_a_correction_that_does_not_hold_is_refused_as_the_agent_answer_would_be(self):
+        pid = self.briefed(name="Film refusé")
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        cut = [{**x, "seconds": 1} for x in got["shots"]]
+        self.assertIn("il en faut de 15 à 30", self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "S", "shots": cut}, code=400)["error"])
+        paint = [{**got["shots"][0], "colour": "#000000"}, *got["shots"][1:]]
+        self.assertIn("couleur de la marque", self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "S", "shots": paint}, code=400)["error"])
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": "S", "shots": "x"}, code=400)
+        self.assertFalse(self.call("GET", f"/api/projects/{pid}/storyboard")["saved"])
+
+    def test_an_answer_that_does_not_hold_or_a_failed_render_is_said_and_nothing_is_kept(self):
+        pid = self.briefed(name="Film raté")
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.storyboard = kind
+            self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"), "failed")
+            got = self.call("GET", f"/api/projects/{pid}/storyboard")
+            self.assertEqual(got["shots"], [])
+            self.assertIn(word, got["error"])
+        self.fake.storyboard = "ok"
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/propose"))
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertIsNone(got["error"])
+        self.call("PUT", f"/api/projects/{pid}/storyboard", {"script": got["script"], "shots": got["shots"]})
+        self.fake.film_fails = True
+        self.wait(self.call("POST", f"/api/projects/{pid}/storyboard/render"), "failed")
+        got = self.call("GET", f"/api/projects/{pid}/storyboard")
+        self.assertEqual(got["film"], None)
+        self.assertIn("no headless Chrome", got["film_error"])
+        self.call("GET", "/api/projects/nope/storyboard", code=404)
+
+
 class Personas(Base):
     def test_an_agent_proposes_personas_from_the_dossier_and_only_the_kept_ones_are_written(self):
         bid = self.mkbrand(name="Personas Kombucha")
@@ -1093,6 +1254,41 @@ class Names(Base):
             self.wait(self.call("POST", f"/api/brands/{bid}/names/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/names")
             self.assertEqual((got["proposed"], got["name"]), ([], "Noms Ratés"))
+# logos
+class Logos(Base):
+    def test_an_agent_draws_logo_tracks_the_kept_ones_stay_and_the_chosen_one_is_the_logo(self):
+        bid = self.mkbrand(name="Logos Kombucha", site=None)  # no brief needed: a name is enough
+        self.wait(self.call("POST", f"/api/brands/{bid}/logo/propose"))
+        call = self.fake.where("--restricted")[-1]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search, no image engine
+        self.assertIn("Logos Kombucha", call["argv"][2])
+        got = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+        self.assertEqual((got["tracks"], got["job"], got["error"], len(got["proposed"])), ([], None, None, 2))  # a proposal never becomes the brand's
+        self.assertFalse((self.home / "marques" / bid / "work" / "logos").exists())
+        self.assertFalse(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        first, second = got["proposed"]
+        self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": first["id"]}, code=400)  # not kept yet
+        self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": ["nope"]}, code=400)
+        self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": "x"}, code=400)
+        r = self.call("PUT", f"/api/brands/{bid}/logo/tracks", {"keep": [second["id"]]})  # the first one dropped
+        self.assertEqual((r["tracks"], r["proposed"]), ([second], []))
+        r = self.call("POST", f"/api/brands/{bid}/logo/choose", {"id": second["id"]})
+        self.assertEqual(r["tracks"], [second])
+        self.assertTrue(self.call("GET", f"/api/brands/{bid}")["assets"]["logo"])
+        saved = json.loads((self.home / "marques" / bid / "marque.json").read_text())
+        self.assertEqual((saved["logo_tracks"], saved["logo_tracks_proposed"]), ([second], []))
+        self.call("GET", "/api/brands/nope/logo/tracks", code=404)
+
+    def test_a_drawing_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        bid = self.mkbrand(name="Logos Ratés", site=None)
+        for kind, word in (("bad", "script"), ("down", "gave up")):
+            self.fake.logos = kind
+            self.wait(self.call("POST", f"/api/brands/{bid}/logo/propose"), "failed")
+            got = self.call("GET", f"/api/brands/{bid}/logo/tracks")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
 # competitors
 class Competitors(Base):
     def test_landscape_a_market_gives_its_players_through_the_command(self):
@@ -1103,6 +1299,17 @@ class Competitors(Base):
         for kind in ("bad", "down"):
             self.fake.competitors = kind
             self.call("POST", "/api/competitors", {"market": "Le kombucha."}, code=409)
+
+    def test_each_landscape_call_has_its_own_work_folder_and_leaves_nothing_behind(self):
+        before = len(self.fake.calls)
+        for _ in range(2):
+            self.call("POST", "/api/competitors", {"market": "Le kombucha en canette."})
+        runs = [c for c in self.fake.calls[before:] if c["argv"][2:3] == ["competitors"]]
+        folders = [Path(c["argv"][3]).parent for c in runs]
+        self.assertEqual(len(folders), 2)
+        self.assertNotEqual(folders[0], folders[1])  # not one shared folder that a call would empty under another
+        self.assertTrue(all(f.parent == self.home / "paysages" and f.name != "work" for f in folders), folders)
+        self.assertEqual(sorted(x.name for x in (self.home / "paysages").iterdir()), ["landscape.log"])  # each cleaned its own
 
     def test_an_agent_proposes_competitors_from_the_dossier_and_only_the_kept_ones_are_written(self):
         bid = self.mkbrand(name="Concurrents Kombucha")
@@ -1134,6 +1341,122 @@ class Competitors(Base):
             self.fake.competitors = kind
             self.wait(self.call("POST", f"/api/brands/{bid}/competitors/propose"), "failed")
             got = self.call("GET", f"/api/brands/{bid}/competitors")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+class Export(Base):
+    def test_the_brand_folder_is_the_zip_of_brandkit_pack_and_a_brand_without_dossier_has_none(self):
+        import io, zipfile
+        bid = self.mkbrand(name="Export Kombucha", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "un kombucha de port"}})
+        head, data = self.fetch(f"/api/brands/{bid}/export")
+        self.assertIn(f'filename="{bid}-dossier-de-marque.zip"', head["Content-Disposition"])
+        z = zipfile.ZipFile(io.BytesIO(data))
+        card = json.loads(z.read("brand.json"))
+        self.assertEqual({"brand.md", "brand.json"} - set(z.namelist()), set())
+        by = {v["path"]: v for v in card["values"]}
+        self.assertEqual((by["identity.name"]["value"], by["identity.name"]["status"]), ("Export Kombucha", "confirmed"))
+        self.assertEqual((by["identity.one_liner"]["value"], by["identity.one_liner"]["status"]), ("un kombucha de port", "confirmed"))
+        self.assertIn("promise.signature_line", card["missing"])  # nobody gave it: written missing
+        self.assertIsNone(card["logo"])
+        self.assertTrue(self.fake.where("pack"))
+        self.fetch("/api/brands/nope/export", code=404)
+
+    def test_a_pack_that_fails_is_an_error_not_an_empty_file(self):
+        bid = self.mkbrand(name="Export Raté", site=None)
+        self.call("PUT", f"/api/brands/{bid}/brief", {"fields": {"what": "x"}})
+        (self.home / "marques" / bid / "brand" / "state.json").write_text("pas du json")
+        self.fetch(f"/api/brands/{bid}/export", code=400)
+
+
+# interview
+class Interview(Base):
+    def test_an_agent_writes_the_brief_from_the_answers_and_the_person_still_confirms_it(self):
+        pid = self.started()
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        self.assertEqual((len(got["questions"]), got["proposed"], got["job"]), (5, None, None))
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["a"] * 6}, code=400)
+        self.call("POST", f"/api/projects/{pid}/interview", {"answers": []}, code=400)
+        self.wait(self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["Faire connaître", "Les citadins curieux", "", "", ""]}))
+        call = self.fake.where("--restricted")[-1]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search on the web
+        self.assertIn("réponse (objective) : Faire connaître", call["argv"][2])
+        self.assertIn("réponse (message) : (aucune)", call["argv"][2])
+        self.assertIn("for whom, as the brand says it: des citadins", call["argv"][2])  # the brand's own words, to name its persona
+        got = self.call("GET", f"/api/projects/{pid}/interview")
+        f = got["proposed"]["fields"]
+        self.assertEqual((f["objective"], f["audience"], f["message"], got["proposed"]["missing"]), ("Faire connaître le kombucha.", "Les citadins curieux.", "", []))  # the agent's guess for message is dropped
+        self.assertFalse(self.call("GET", f"/api/projects/{pid}/brief")["confirmed"])  # nothing is validated by itself
+        self.assertFalse((self.pdir(pid) / "piece" / "brief.md").exists())
+        self.assertFalse((self.pdir(pid) / "work" / "interview").exists())
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        pid = self.started()
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.interview = kind
+            self.wait(self.call("POST", f"/api/projects/{pid}/interview", {"answers": ["Vendre"]}), "failed")
+            got = self.call("GET", f"/api/projects/{pid}/interview")
+            self.assertEqual(got["proposed"], None)
+            self.assertIn(word, got["error"])
+
+
+# research
+class Research(Base):
+    def test_an_agent_searches_the_web_and_only_the_kept_results_are_written(self):
+        bid = self.mkbrand(name="Recherche Kombucha")
+        self.wait(self.call("POST", f"/api/brands/{bid}/research/propose"))  # no brief needed: a name is enough
+        call = self.fake.where("--restricted")[-1]
+        self.assertIn("--tools=WebSearch", call["argv"])
+        self.assertIn("Recherche Kombucha", call["argv"][2])
+        got = self.call("GET", f"/api/brands/{bid}/research")
+        self.assertEqual((got["research"], got["job"], got["error"]), ([], None, None))
+        self.assertEqual([x["belonging"] for x in got["proposed"]], ["officielle", "officielle relayée"])
+        self.assertFalse((self.home / "marques" / bid / "work" / "research").exists())
+        r = self.call("PUT", f"/api/brands/{bid}/research", {"research": got["proposed"][1:]})
+        self.assertEqual((r["research"], r["proposed"]), (got["proposed"][1:], []))
+        saved = json.loads((self.home / "marques" / bid / "marque.json").read_text())
+        self.assertEqual((saved["research"], saved["research_proposed"]), (r["research"], []))
+        self.call("PUT", f"/api/brands/{bid}/research", {"research": [{"url": "x", "brings": "y", "belonging": "probable"}]}, code=400)
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        bid = self.mkbrand(name="Recherche Ratée", site=None)
+        for kind, word in (("bad", "illisible"), ("down", "gave up")):
+            self.fake.research = kind
+            self.wait(self.call("POST", f"/api/brands/{bid}/research/propose"), "failed")
+            got = self.call("GET", f"/api/brands/{bid}/research")
+            self.assertEqual(got["proposed"], [])
+            self.assertIn(word, got["error"])
+
+
+# texts
+class Texts(Base):
+    def test_an_agent_proposes_texts_from_the_brief_and_only_the_kept_ones_are_written(self):
+        pid = self.started(name="Textes")
+        self.call("POST", f"/api/projects/{pid}/texts/propose", code=409)  # the brief is not confirmed
+        pid = self.briefed()
+        self.wait(self.call("POST", f"/api/projects/{pid}/texts/propose"))
+        call = self.fake.where("--restricted")[-1]
+        prompt = call["argv"][2]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool: no search on the web
+        self.assertIn("message: c'est bon", prompt)
+        self.assertIn("its voice: franc, chaleureux, drôle", prompt)  # the voice of the brand
+        got = self.call("GET", f"/api/projects/{pid}/texts")
+        self.assertEqual((got["texts"], got["job"], got["error"]), ([], None, None))
+        self.assertEqual(got["proposed"], ["Du thé qui a fait la fête.", "Tu croyais le kombucha tendance ?\nC'est surtout bon."])
+        self.assertFalse((self.backend._pdir(pid) / "work" / "texts").exists())
+        r = self.call("PUT", f"/api/projects/{pid}/texts", {"texts": [got["proposed"][0] + " Corrigé.", "Un texte écrit à la main."]})
+        self.assertEqual((r["texts"], r["proposed"]), ([got["proposed"][0] + " Corrigé.", "Un texte écrit à la main."], []))
+        saved = json.loads((self.backend._pdir(pid) / "project.json").read_text())
+        self.assertEqual(saved["texts"], {"kept": r["texts"], "proposed": []})
+        self.call("PUT", f"/api/projects/{pid}/texts", {"texts": ["a"] * 7}, code=400)
+
+    def test_an_answer_that_does_not_hold_is_a_failed_job_and_nothing_is_proposed(self):
+        pid = self.briefed()
+        for kind, word in (("bad", "chiffre"), ("down", "gave up")):
+            self.fake.texts = kind
+            self.wait(self.call("POST", f"/api/projects/{pid}/texts/propose"), "failed")
+            got = self.call("GET", f"/api/projects/{pid}/texts")
             self.assertEqual(got["proposed"], [])
             self.assertIn(word, got["error"])
 
@@ -1180,6 +1503,36 @@ class Brief(Base):
         self.assertRegex(md, r"(?m)^- text: #[0-9a-f]{6}.*(to confirm|à confirmer)")  # nobody gave the text colour: completed from the measured ones, marked
         self.assertTrue((self.pdir(pid) / "piece" / "references.md").exists())
         self.settle_mandates(pid)
+
+
+class BriefExport(Base):
+    def test_the_brief_is_exported_in_markdown_confirmed_or_not(self):
+        pid = self.started()
+        head, data = self.fetch(f"/api/briefs/{pid}/export")  # not validated yet: the prefilled brief, what is empty said missing
+        self.assertRegex(head["Content-Disposition"], r'^attachment; filename="brief-[^"]+\.md"$')
+        self.assertTrue(head["Content-Type"].startswith("text/markdown"))
+        self.assertTrue(any(c["argv"][2:3] == ["export-brief"] for c in self.fake.calls))
+        self.assertFalse(any("-p" in c["argv"] for c in self.fake.calls if "export-brief" in c["argv"]))  # no claude for this one
+        self.assertIn("brief non validé", data.decode())
+        f = self.call("GET", f"/api/projects/{pid}/brief")["fields"]
+        self.call("PUT", f"/api/projects/{pid}/brief", {"fields": {**f, "objective": "o", "audience": "a", "message": "m", "cta": "c"}})
+        _, data = self.fetch(f"/api/briefs/{pid}/export")
+        md = data.decode()
+        self.assertIn("brief validé", md)
+        self.assertIn("## Objectif\n\no\n", md)
+        self.assertIn("## Appel à l'action\n\nc\n", md)
+        self.fetch("/api/briefs/nope/export", code=404)
+        self.settle_mandates(pid)
+
+    def test_a_project_named_outside_latin_1_is_downloaded_under_an_ascii_name(self):
+        for name, stem in (("Cœur de ville", "brief-cur-de-ville"), ("投资 Marché", "brief-marche"), ("投资", "brief")):  # a header only carries latin-1: the name goes through workflow.slug
+            with self.subTest(name=name):
+                pid = self.started(name=name)
+                head, data = self.fetch(f"/api/briefs/{pid}/export")
+                self.assertEqual(head["Content-Disposition"], f'attachment; filename="{stem}.md"')
+                head["Content-Disposition"].encode("ascii")
+                self.assertIn("# Brief :", data.decode())
+                self.settle_mandates(pid)
 
 
 class Mandates(Base):

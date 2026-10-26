@@ -18,6 +18,7 @@ import exports  # noqa: E402
 import infer  # noqa: E402
 import interview  # noqa: E402
 import media  # noqa: E402
+import pack  # noqa: E402
 import review as rv  # noqa: E402
 import visual  # noqa: E402
 from fuse import Fusion, iter_values  # noqa: E402
@@ -224,6 +225,15 @@ def cmd_export(a):
     if not a.draft and doc["meta"]["draft"]:
         doc = read_json(dz.history / f"v{doc['meta']['version']}" / "brand.json")
     _export(dz, doc)
+
+
+# ---------- export: the brand folder to download ----------
+def cmd_pack(a):
+    dz = Dossier(a.dir).require()
+    doc = merge(dz, quiet=True)[0]
+    out = Path(a.out or dz.root.parent / "dossier-de-marque.zip")
+    out.write_bytes(pack.pack(doc, dz.root))
+    print(f"packed {out}")
 
 
 def cmd_get(a):
@@ -464,6 +474,8 @@ def build_parser():
     s.add_argument("--by", default="user")
     s = add("export", cmd_export, "regenerate brand.md and MOTION.md", "dir")
     s.add_argument("--draft", action="store_true")
+    s = add("pack", cmd_pack, "the brand folder in one zip: brand.md, MOTION.md, the logo, brand.json with each value's source and status", "dir")
+    s.add_argument("--out", help="the zip to write (default: dossier-de-marque.zip next to the dossier)")
     s = add("get", cmd_get, "read a field as a downstream module does (C11)", "dir")
     s.add_argument("path")
     s.add_argument("--look")

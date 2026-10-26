@@ -29,6 +29,17 @@ ANSWERS = {{
     '{{"personas": [': {{"personas": [{{"need": "goûter avant d'acheter", "lines": [{{"from": "supposé", "say": "Tu as la cinquantaine."}}]}}]}},
     '{{"names": [': {{"names": [{{"name": "Quai Ambré", "why": "Le port et la couleur."}}]}},
     '{{"competitors": [': {{"competitors": [{{"name": "Kombucha du Coin", "from": "supposé", "sells": "du kombucha", "differs": "plus sucré"}}]}},
+    '{{"objective": ': {{"objective": "Faire connaître le kombucha.", "audience": "Les citadins curieux.", "message": "Du thé qui a fait la fête.", "cta": "Venir goûter.", "fixed": "La signature."}},
+    '{{"research": [': {{"research": [{{"url": "https://cabane.fr/", "brings": "Le site, ses couleurs.", "belonging": "officielle"}}]}},
+    '{{"logos": [': {{"logos": [{{"idea": "Le nom en capitales.", "svg": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 120'><text x='10' y='60' fill='#123456'>Cabane</text></svg>"}}]}},
+    '"script": "...",': {{"script": "Une question, puis le geste, puis la marque.", "shots": [
+        {{"seconds": 3, "visual": "texte", "text": "C'est quoi ?", "colour": "#1E2A24", "read": "C'est quoi ?"}},
+        {{"seconds": 3, "visual": "texte", "text": "Du thé qui fermente.", "colour": "#c8553d", "read": "Du thé qui fermente."}},
+        {{"seconds": 4, "visual": "texte", "text": "Brassé au port.", "colour": "#f4efe6", "read": "Brassé au port."}},
+        {{"seconds": 4, "visual": "texte", "text": "Un goût franc.", "colour": "#1e2a24", "read": "Un goût franc."}},
+        {{"seconds": 3, "visual": "texte", "text": "Servez-vous.", "colour": "#c8553d", "read": "Servez-vous."}},
+        {{"seconds": 3, "visual": "logo", "text": "", "colour": "#1e2a24", "read": "Cabane."}}]}},
+    '{{"texts": [': {{"texts": [{{"kind": "accroche", "text": "Du thé qui a fait la fête."}}, {{"kind": "post", "text": "Goûte.\\nC'est bon."}}]}},
     '{{"common": ': {{"common": "Écrire en français.", "mandates": ["Un", "Deux", "Trois", "Rupture : Quatre"]}},
 }}
 for key, body in ANSWERS.items():
@@ -91,10 +102,15 @@ class Agents(unittest.TestCase):
         "personas": (BRAND, "personas", ["personas"]),
         "names": (BRAND, "names", ["names"]),
         "competitors": (BRAND, "competitors", ["competitors"]),
+        "research": ({"name": "Cabane"}, "research", ["research"]),
+        "logos": ({**BRAND, "colours": ["#123456", "#FFFFFF"], "fonts": ["Georgia"]}, "logos", ["logos"]),
+        "texts": ({"brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "cta": "viens"}, "brand": {"name": "Cabane", "voice": "franche"}, "language": "fr"}, "texts", ["texts"]),
         "mandates": ({"dir": "piece", "language": "fr"}, "common", ["common", "mandates"]),
         "variant": ({"dir": "piece", "id": "v1", "mandate": "Un", "common": "Rien d'inventé.", "language": "fr"}, "headline", ["headline", "layout"]),
         "judge": (PIECE, "target", ["target", "works", "snags", "unsourced", "brand", "missing"]),
         "reader": ({"image": "piece.png", "persona": "Tu as la cinquantaine.", "texts": {"headline": "H", "subline": ""}}, "aimed", ["aimed", "why"]),
+        "storyboard": ({"name": "Cabane", "brand": {"what": "un kombucha"}, "colours": ["#1e2a24", "#c8553d", "#f4efe6"],
+                        "brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "cta": "viens"}}, "script", ["script", "shots"]),
     }
 
     def test_every_command_gives_its_answer_as_json(self):
@@ -121,6 +137,52 @@ class Agents(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (1, ""))
                 self.assertIn(said, r.stderr)
 
+    def test_the_research_agent_has_the_web_search_and_nothing_else_and_its_results_hold(self):
+        r = self.run_cmd("research", {"name": "Cabane"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"research": [{"url": "https://cabane.fr/", "brings": "Le site, ses couleurs.", "belonging": "officielle"}]})
+        argv = self.calls()[-1]["argv"]
+        self.assertIn("--tools=WebSearch", argv)
+        self.assertNotIn("--permission-mode=acceptEdits", argv)  # it writes nothing: no right to edit
+        from importlib import util
+        spec = util.spec_from_file_location("answers", AGENTS / "answers.py")
+        answers = util.module_from_spec(spec)
+        spec.loader.exec_module(answers)
+        one = {"url": "https://a.fr/", "brings": "Un site.", "belonging": "probable"}
+        for bad in ({"research": []}, {"research": [{**one, "url": ""}]}, {"research": [{**one, "url": "a.fr"}]}, {"research": [{**one, "belonging": "sûre"}]},
+                    {"research": [{**one, "brings": ""}]}, {"research": [one, one]}, {"research": [{**one, "url": f"https://a.fr/{n}"} for n in range(11)]}, "rien"):
+            with self.assertRaises(ValueError):
+                answers.parse_research(bad)
+        self.assertEqual(answers.parse_research({"research": [{**one, "belonging": "officielle relayee"}]})[0]["belonging"], "officielle relayée")
+
+    def test_the_storyboard_is_checked_and_its_prompt_gives_only_the_brief_and_the_brand(self):
+        inputs = self.CASES["storyboard"][0]
+        got = json.loads(self.run_cmd("storyboard", inputs).stdout)
+        self.assertEqual((len(got["shots"]), sum(x["seconds"] for x in got["shots"])), (6, 20))
+        self.assertEqual(got["shots"][0]["colour"], "#1e2a24")  # lower case
+        self.assertEqual(got["shots"][-1], {"seconds": 3, "visual": "logo", "text": "", "colour": "#1e2a24", "read": "Cabane."})
+        call = self.calls()[-1]
+        self.assertEqual(call["argv"][call["argv"].index("--tools") + 1], "")  # no tool, no search
+        self.assertEqual(call["ls"], [])
+        self.assertFalse(call["key"])
+        self.assertEqual(self.model_of(call), "sonnet")
+        # a colour that is not the brand's, a film too short, too few shots: refused with the reason
+        for colours, why in ((["#000000"], "couleur de la marque"),):
+            r = self.run_cmd("storyboard", {**inputs, "colours": colours})
+            self.assertEqual(r.returncode, 1)
+            self.assertIn(why, r.stderr)
+        from importlib import util
+        spec = util.spec_from_file_location("ixs_answers", AGENTS / "answers.py")
+        answers = util.module_from_spec(spec)
+        spec.loader.exec_module(answers)
+        ok = json.loads(self.run_cmd("storyboard", inputs).stdout)
+        for bad, word in (({**ok, "shots": ok["shots"][:4]}, "de 5 à 8"), ({**ok, "shots": [{**x, "seconds": 2} for x in ok["shots"]]}, "il en faut de 15 à 30"),
+                          ({**ok, "script": ""}, "script"), ({**ok, "shots": [{**ok["shots"][0], "visual": "video"}, *ok["shots"][1:]]}, "visual"),
+                          ({**ok, "shots": [{**ok["shots"][0], "text": ""}, *ok["shots"][1:]]}, "texte à l'écran"),
+                          ({**ok, "shots": [{**ok["shots"][0], "read": ""}, *ok["shots"][1:]]}, "ce qu'on lit")):
+            with self.assertRaisesRegex(ValueError, word):
+                answers.parse_storyboard(bad)
+
     def test_the_answer_can_also_go_in_a_file(self):
         out = self.tmp / "answer.json"
         r = self.run_cmd("names", self.BRAND, "ok", "--out", str(out))
@@ -145,12 +207,85 @@ class Agents(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (1, ""))
                 self.assertIn("Claude Code is not signed in", r.stderr)
 
+    # ---- brief_export: the command that writes the brief out calls no claude
+    BRIEF = {"name": "Été au marché", "brand_name": "Cabane", "confirmed": True,
+             "brief": {"objective": "faire goûter", "audience": "les citadins", "message": "c'est bon", "format": "post-4x5, story", "fixed": "", "cta": "Viens", "personas": ["Léa"]}}
+
+    def test_export_brief_writes_the_brief_and_says_what_is_missing_as_missing(self):
+        out = self.tmp / "brief.md"
+        r = self.run_cmd("export-brief", self.BRIEF, "down", "--out", str(out))  # claude is down: it is not called
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.calls(), [])
+        got = json.loads(r.stdout)
+        self.assertEqual(got["filename"], "brief-été-au-marché.md")
+        self.assertEqual(out.read_text(encoding="utf-8"), got["markdown"])  # --out is the file itself
+        md = got["markdown"]
+        for line in ("# Brief : Été au marché", "Marque : Cabane", "brief validé", "## Objectif\n\nfaire goûter", "## Cible\n\nles citadins", "## Format\n\npost-4x5, story",
+                     "## Appel à l'action\n\nViens", "- Léa", "## Ce qui est fixé\n\nManquant : ce qui est fixé."):
+            self.assertIn(line, md)
+        self.assertIn("## Ce qui manque\n\n- ce qui est fixé\n", md)
+        self.assertNotIn("\u2014", md)
+        full = self.run_cmd("export-brief", {**self.BRIEF, "confirmed": False, "brief": {**self.BRIEF["brief"], "fixed": "les couleurs"}})
+        self.assertIn("non validé", json.loads(full.stdout)["markdown"])
+        self.assertIn("Rien ne manque.", json.loads(full.stdout)["markdown"])
+
+    def test_export_brief_refuses_what_it_cannot_write(self):
+        for inputs in ({"name": "x"}, {"brief": "texte"}, {"brief": {"objective": " "}}):  # no brief, a brief that is not fields, an empty brief
+            with self.subTest(inputs=inputs):
+                r = self.run_cmd("export-brief", inputs)
+                self.assertEqual((r.returncode, r.stdout), (1, ""))
+                self.assertTrue(r.stderr.strip().splitlines()[-1].startswith("agents: "), r.stderr)
+        f = self.tmp / "inputs.json"
+        f.write_text("{pas du json", encoding="utf-8")  # inputs that do not read
+        r = subprocess.run([sys.executable, str(AGENTS), "export-brief", str(f)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn("not readable JSON", r.stderr)
+
+    def test_the_logos_are_drawings_checked_before_they_are_given(self):
+        r = self.run_cmd("logos", self.CASES["logos"][0])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)["logos"]
+        self.assertEqual((len(got), got[0]["idea"]), (1, "Le nom en capitales."))
+        self.assertIn("#123456", self.calls()[0]["argv"][1])  # the colours and the fonts of the brand are in the prompt
+        self.assertIn("Georgia", self.calls()[0]["argv"][1])
+        sys.path.insert(0, str(AGENTS))
+        from answers import parse_logos
+        good = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><circle r='4' fill='#000'/></svg>"
+        self.assertEqual(parse_logos({"logos": [{"idea": "Un rond.", "svg": good}] * 4})[0]["svg"], good)
+        bad_svgs = ["pas du svg", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><g></svg>", "<svg xmlns='http://www.w3.org/2000/svg'><g/></svg>",  # not well formed, no viewBox
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><script>alert(1)</script></svg>", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' onload='x()'/>",
+                    "<svg viewBox='0 0 1 1'><circle r='1'/></svg>", "<svg:svg xmlns:svg='http://example.org/not-svg' viewBox='0 0 1 1'/>",  # no SVG namespace: not an SVG for a browser
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><image href='https://x.fr/a.png'/></svg>", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><rect fill='url(http://x.fr/a)'/></svg>",
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><foreignObject/></svg>", "<!DOCTYPE svg [<!ENTITY a 'b'>]><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'>&a;</svg>",
+                    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'><style>@import 'x';</style></svg>", "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1'>" + "<g/>" * 6000 + "</svg>"]
+        for svg in bad_svgs:
+            with self.subTest(svg=svg[:50]), self.assertRaises(ValueError):
+                parse_logos({"logos": [{"idea": "Un rond.", "svg": svg}]})
+        for bad in ({"logos": []}, {"logos": [{"idea": "Un rond.", "svg": good}] * 5}, {"logos": [{"idea": "", "svg": good}]}, {"logos": [{"svg": good}]}):
+            with self.subTest(bad=str(bad)[:40]), self.assertRaises(ValueError):
+                parse_logos(bad)
+
     def test_a_missing_input_or_file_is_an_error(self):
         self.assertEqual(self.run_cmd("judge", {"brief": {}}).returncode, 1)
         r = self.run_cmd("reader", {"image": "absent.png", "persona": "x"})
         self.assertEqual(r.returncode, 1)
         self.assertIn("image", r.stderr)
         self.assertEqual(self.run_cmd("variant", {"dir": "piece"}).returncode, 1)
+
+    def test_the_texts_are_checked_and_never_invent_a_figure(self):
+        inputs = self.CASES["texts"][0]
+        got = json.loads(self.run_cmd("texts", inputs).stdout)
+        self.assertEqual(got["texts"], ["Du thé qui a fait la fête.", "Goûte.\nC'est bon."])
+        self.assertIn("Nothing invented", json.loads(self.log.read_text().splitlines()[0])["argv"][1])
+        self.assertEqual(self.run_cmd("texts", {"brief": {}}).returncode, 1)  # no brief: nothing to write from
+        sys.path.insert(0, str(AGENTS))
+        from answers import parse_texts
+        one = {"kind": "accroche", "text": "Le goût d'abord."}
+        for bad in ({"texts": [{**one, "text": "100 % naturel."}]}, {"texts": [{**one, "text": "Un thé — et c'est bon."}]}, {"texts": [one, one]},
+                    {"texts": [{**one, "kind": "slogan"}]}, {"texts": [{**one, "text": "x" * 121}]}, {"texts": [one] * 2 + [{**one, "text": str(n)} for n in range(5)]}, {"texts": []}):
+            with self.assertRaises(ValueError):
+                parse_texts(bad)
+        self.assertEqual(parse_texts({"texts": [{**one, "text": "100 % naturel."}]}, "100 % naturel"), ["100 % naturel."])  # a figure of the brief is allowed
 
     def test_the_variant_is_written_in_the_piece_and_only_its_own_files_are_seen(self):
         r = self.run_cmd("variant", self.CASES["variant"][0])
@@ -161,7 +296,7 @@ class Agents(unittest.TestCase):
     def test_the_judge_and_the_readers_run_on_the_best_model_the_others_on_sonnet(self):
         for cmd, (inputs, _, _) in self.CASES.items():
             self.run_cmd(cmd, inputs)
-        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 5 + ["claude-fable-5-1"] * 2)
+        self.assertEqual([self.model_of(c) for c in self.calls()], ["sonnet"] * 8 + ["claude-fable-5-1"] * 2 + ["sonnet"])
 
     def test_the_model_changes_by_option_or_by_variable_without_touching_the_code(self):
         self.run_cmd("judge", self.PIECE, "ok", "--model", "opus")
@@ -175,6 +310,45 @@ class Agents(unittest.TestCase):
         self.assertEqual([c["key"] for c in self.calls()], [False, True])
         self.assertEqual(self.calls()[0]["argv"][0], "-p")
         self.assertIn("--restricted", self.calls()[0]["argv"])
+
+    # interview: the questions, then the brief the answers make
+    ANSWERS = ["Faire connaître", "Les citadins curieux", "Du thé qui a fait la fête", "Venir goûter", "La signature"]
+
+    def test_the_interview_gives_its_questions_without_asking_claude(self):
+        r = self.run_cmd("interview", {})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(json.loads(r.stdout)["questions"]), 5)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_interview_writes_the_brief_from_the_answers_and_shows_what_it_lacks(self):
+        r = self.run_cmd("interview", {"answers": self.ANSWERS, "brand": {"name": "Cabane", "who": "des citadins", "personas": ["Besoin : goûter"]}})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual((got["fields"]["objective"], got["fields"]["audience"], got["missing"]), ("Faire connaître le kombucha.", "Les citadins curieux.", []))
+        prompt = self.calls()[0]["argv"][1]
+        self.assertIn("persona of the brand 1: Besoin : goûter", prompt)
+        self.assertIn("réponse (objective) : Faire connaître", prompt)
+        # nobody said the objective or the target: empty and flagged, whatever the agent wrote
+        r = self.run_cmd("interview", {"answers": ["", "", "Du thé qui a fait la fête"]})
+        got = json.loads(r.stdout)
+        self.assertEqual((got["fields"]["objective"], got["fields"]["audience"], got["fields"]["cta"], got["missing"]), ("", "", "", ["objective", "audience"]))
+        self.assertEqual(got["fields"]["message"], "Du thé qui a fait la fête.")
+        self.assertIn("réponse (objective) : (aucune)", self.calls()[-1]["argv"][1])
+
+    def test_the_interview_refuses_what_is_not_five_answers_or_none(self):
+        for bad in ({"answers": ["a"] * 6}, {"answers": "a"}, {"answers": ["", " "]}):
+            self.assertEqual(self.run_cmd("interview", bad).returncode, 1)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_interview_answer_that_does_not_read_or_that_fails_is_an_error_with_its_reason(self):
+        r = self.run_cmd("interview", {"answers": self.ANSWERS}, "bad")
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertRegex(r.stderr, "illisible|pas de JSON")
+        self.assertIn("pas de json ici", r.stderr)
+        r = self.run_cmd("interview", {"answers": self.ANSWERS}, "down")
+        self.assertEqual((r.returncode, r.stdout), (1, ""))
+        self.assertIn("Claude Code is not signed in", r.stderr)
+        self.assertEqual(self.model_of(self.calls()[0]), "sonnet")
 
 
 if __name__ == "__main__":

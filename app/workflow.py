@@ -21,6 +21,7 @@ The state a backend gives (a dict):
 """
 
 import copy
+import hashlib
 import html
 import io
 import ipaddress
@@ -34,9 +35,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "agents"))
-from answers import (COMPETITOR_HEAD, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
-                     PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, _name_item, judge_missing, one_line, parse_competitors, parse_names,  # noqa: F401
-                     parse_personas, parse_reading, parse_verdict)  # the checks of what the agents answer live with the commands (scripts/agents)
+from answers import (COMPETITOR_HEAD, INTERVIEW_KEYS, INTERVIEW_QUESTIONS, COMPETITORS_MAX, JUDGE_BRIEF, JUDGE_ITEMS, JUDGE_LISTS, JUDGE_NEEDED, JUDGE_REACHED, LOGOS_MAX, NAMES_MAX, PERSONA_FROM,  # noqa: E402,F401
+                     PERSONA_HEAD, PERSONAS_MAX, READING_AIMED, READING_KEYS, TEXTS_MAX, _name_item, judge_missing, one_line, parse_competitors, parse_interview, parse_logos, parse_names,  # noqa: F401
+                     parse_personas, parse_reading, parse_research, parse_rounds, parse_storyboard, parse_texts, parse_verdict, research_list)  # the checks of what the agents answer live with the commands (scripts/agents)
 
 
 class NotFound(Exception):
@@ -61,12 +62,18 @@ FORMATS = {"post-4x5": (1080, 1350), "post-1x1": (1080, 1080), "story": (1080, 1
            "poster-3x2": (1800, 1200), "linkedin": (1200, 627)}
 SEVEN = [("brand", "La marque"), ("brief", "Le brief"), ("mandates", "Les consignes"), ("diverge", "La divergence"), ("image", "Les images"),
          ("piece", "La composition"), ("decide", "La décision")]  # the seven steps the interface counts (check belongs to piece)
-KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand"}
+KIND_STEP = {"learn": "brand", "mandates": "mandates", "diverge": "diverge", "image": "image", "judge": "check", "reader": "check", "personas": "brand", "names": "brand", "competitors": "brand", "interview": "brief", "research": "brand", "logos": "brand", "texts": "texts", "storyboard": "film", "film": "film"}
 
 
 def slug(text: str) -> str:
     t = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-")[:32]
+
+
+def export_name(filename: str) -> str:
+    """The name of a file to download, ASCII (a header only carries latin-1): `brief-Cœur.md` is `brief-cur.md`; a name with nothing left is `brief`."""
+    stem, dot, ext = filename.rpartition(".")
+    return (slug(stem if dot else filename) or "brief") + (dot + ext if dot else "")
 
 
 def fmt_key(token: str) -> str:
@@ -447,6 +454,33 @@ def machine_view(found: dict) -> dict:
     return {"ok": not missing, "missing": missing}
 
 
+# ---------- engines: what the person chooses to draw and to write with (the key is never part of what is shown) ----------
+IMAGE_ENGINES = ("auto", "openai", "openrouter", "codex", "none")
+TEXT_ENGINES = ("claude", "openrouter")
+
+
+def engines_view(cfg: dict) -> dict:
+    """What the interface may show of the engines, from `cfg` (image_engine, text_engine, openrouter_model, key_saved): never a key."""
+    return {"image_engine": cfg["image_engine"], "image_engines": list(IMAGE_ENGINES), "text_engine": cfg["text_engine"], "text_engines": list(TEXT_ENGINES),
+            "openrouter_model": cfg["openrouter_model"], "key_saved": bool(cfg["key_saved"])}
+
+
+def engines_patch(kind: str, body: dict) -> dict:
+    """The choice sent by the interface (`image`: {engine}; `text`: {engine, key, model}) as the inputs of `agents engines`. ValueError if it does not hold."""
+    engine = body.get("engine")
+    if engine not in (IMAGE_ENGINES if kind == "image" else TEXT_ENGINES):
+        raise ValueError("engine: one of " + ", ".join(IMAGE_ENGINES if kind == "image" else TEXT_ENGINES))
+    if kind == "image":
+        return {"image_engine": engine}
+    patch = {"text_engine": engine}
+    for field, name in (("key", "openrouter_key"), ("model", "openrouter_model")):
+        if body.get(field) is not None:
+            if not isinstance(body[field], str):
+                raise ValueError(f"{field}: a text")
+            patch[name] = body[field]
+    return patch
+
+
 def zip_of(files) -> bytes:
     """A zip (the standard library's) of `[(name, bytes)]`: the pieces are png files, already compressed, so they are stored as they are."""
     buf = io.BytesIO()
@@ -717,3 +751,82 @@ def market_of(raw) -> str:
     if not text:
         raise ValueError("market: a sentence that describes the market")
     return text[:600]
+
+
+# ---------- interview: a few questions, the brief of the project pre-filled from the answers, read and corrected by the person ----------
+def interview_answers_of(raw) -> list:
+    """The answers the person gives (`POST interview`): a list of texts, one per question, five at most, at least one said."""
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw) or len(raw) > len(INTERVIEW_QUESTIONS):
+        raise ValueError(f"answers: a list of {len(INTERVIEW_QUESTIONS)} texts at most")
+    out = [x.strip()[:1000] for x in raw]
+    if not any(out):
+        raise ValueError("answers: answer at least one question")
+    return out
+
+
+# ---------- research: what the web says of a brand, proposed by an agent, kept or dropped by the person ----------
+def research_of(raw) -> list:
+    """The results the person keeps (`PUT research`): `[{url, brings, belonging}]`, at most ten, checked as the agent's are; none is allowed."""
+    if raw == []:
+        return []
+    try:
+        return research_list(raw)
+    except ValueError as err:
+        raise ValueError(f"research: {err}") from None
+
+
+# ---------- logos: up to four tracks of logo drawn in SVG by an agent, kept or dropped by the person, one of the kept chosen as the brand's logo ----------
+def logo_tracks(items) -> list:
+    """What `parse_logos` gives, each track with its id (from its drawing, so the same drawing keeps the same id): [{id, idea, svg}]."""
+    return [{"id": "t" + hashlib.sha256(x["svg"].encode("utf-8")).hexdigest()[:8], "idea": x["idea"], "svg": x["svg"]} for x in items]
+
+
+def logos_kept(ids, kept: list, proposed: list) -> list:
+    """The tracks the person keeps (`PUT logo/tracks` `keep`, a list of ids among the kept and the proposed ones), at most four, in the order given."""
+    if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
+        raise ValueError("keep: a list of ids of tracks")
+    known = {t["id"]: t for t in kept + proposed}
+    if any(x not in known for x in ids):
+        raise ValueError("keep: an unknown track")
+    out = [known[x] for x in dict.fromkeys(ids)]
+    if len(out) > LOGOS_MAX:
+        raise ValueError(f"keep: {LOGOS_MAX} at most")
+    return out
+
+
+def logo_chosen(tid, kept: list) -> bytes:
+    """The drawing of the kept track `tid` (`POST logo/choose`), or a ValueError when it is not kept."""
+    t = next((x for x in kept if x["id"] == tid), None) if isinstance(tid, str) else None
+    if not t:
+        raise ValueError("id: one of the tracks kept")
+    return t["svg"].encode("utf-8")
+
+
+# ---------- storyboard: the script and the shots of a project's film, proposed by an agent, corrected and saved by the person, then rendered ----------
+def storyboard_view(sb, brief_confirmed, job=None, error=None, film=None, film_job=None, film_error=None) -> dict:
+    """What `GET storyboard` answers, the same for both backends. `sb` is what is kept ({script, shots, saved}) or None; `saved` is False while the
+    person has not read and saved what the agent proposed: the film is not rendered before. `film` is {url, seconds} once rendered."""
+    sb = sb or {}
+    return {"script": sb.get("script", ""), "shots": list(sb.get("shots", [])), "saved": bool(sb.get("saved")), "can_propose": bool(brief_confirmed),
+            "job": job, "error": error, "film": film, "film_job": film_job, "film_error": film_error}
+
+
+# ---------- texts: the posts and hooks of a project, proposed by an agent from its brief, corrected and kept by the person ----------
+def texts_of(raw) -> list:
+    """The texts the person keeps (`PUT texts`): a list of texts, at most six; the empty ones are dropped."""
+    if not isinstance(raw, list) or not all(isinstance(x, str) for x in raw):
+        raise ValueError("texts: a list of texts")
+    out = [x.strip()[:2000] for x in raw if x.strip()]
+    if len(out) > TEXTS_MAX:
+        raise ValueError(f"texts: {TEXTS_MAX} at most")
+    return out
+
+
+# ---------- rounds: a piece judged three times, the remarks in three shelves (holds, ambiguous, once) ----------
+KIND_STEP["rounds"] = "check"
+
+
+def rounds_view(status, synthesis=None, error=None, job=None) -> dict:
+    """Where the rounds of a judgement stand, for the interface: `{status, synthesis, error, job}`; `status` is `none` (never launched), `running`,
+    `done` (`synthesis`: `{holds, ambiguous, once}`, each a list of `{heading, where, say, rounds}`) or `failed` (`error`)."""
+    return {"status": status, "synthesis": synthesis, "error": error, "job": job}
