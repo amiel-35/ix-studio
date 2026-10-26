@@ -613,6 +613,17 @@ class Api(unittest.TestCase):
             with self.assertRaises(ValueError):
                 workflow.parse_competitors(bad)
 
+    def test_the_brief_of_a_project_is_downloaded_in_markdown(self):
+        bid = self.ready_brand(name="Brief à emporter")
+        pid = self.call("POST", f"/api/brands/{bid}/projects", {"name": "À emporter"})["id"]
+        head, data = self.fetch(f"/api/briefs/{pid}/export")  # confirmed or not, the same fixed brief
+        self.assertTrue(head["Content-Type"].startswith("text/markdown"))
+        self.assertRegex(head["Content-Disposition"], r'^attachment; filename="[^"]+\.md"$')
+        md = data.decode("utf-8")
+        for title in ("## Objectif", "## Cible", "## Message", "## Format", "## Ce qui est fixé", "## Appel à l'action", "## Ce qui manque"):
+            self.assertIn(title, md)
+        self.fetch("/api/briefs/nope/export", code=404)
+
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
         self.call("GET", "/api/projects/nope", code=404)

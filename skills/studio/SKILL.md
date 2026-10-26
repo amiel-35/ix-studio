@@ -110,6 +110,8 @@ JSON, or stops with its reason and a non-zero code. Write the inputs from what y
 - `python3 "$AG" judge in.json` (`image`, `brief`, `brand`, `texts`): the judge's verdict on a piece, without a score; after `compose` and `check`, or on a piece dropped by the person.
 - `python3 "$AG" reader in.json` (`image`, `persona`, `texts`): what one persona understands of a piece; one call per persona of the brief.
 
+- `python3 "$AG" export-brief in.json` (`name`, `brand_name`, `confirmed`, `brief`: the fields of the project's brief): the brief as a Markdown file, what is missing said as missing; no model is called, `--out brief.md` writes the file itself.
+
 The judge and the readers run on `claude-fable-5-1`, the others on `sonnet`; `--model` or `STUDIO_MODEL_<COMMAND>` (`STUDIO_MODEL_JUDGE`) changes it.
 The brand's agents (personas, names, competitors) are in the `brand-dossier` skill.
 

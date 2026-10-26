@@ -16,7 +16,7 @@ shapes, and the interface does not have to know which one runs (`STUDIO_BACKEND`
 brand, what was deduced confirmed); its projects use it. What waits for the person, which step holds the hand, the stage of a
 brand and the order of the steps are written once, in `workflow.py`, which both backends feed with plain data. Tomorrow the same routes can run on a central server, behind an authentication.
 
-Every route answers JSON, except the three downloads (a png, a zip, the page of a judgement). Every route but `GET /api/health` goes through the authentication hook
+Every route answers JSON, except the four downloads (a png, a zip, the page of a judgement, the Markdown of a brief). Every route but `GET /api/health` goes through the authentication hook
 (`server.py`, `authenticate`): `STUDIO_AUTH=none` (default, local) lets everything through; `STUDIO_AUTH=token`
 asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that hook with its own (sessions, SSO).
 
@@ -175,6 +175,7 @@ asks for `Authorization: Bearer <STUDIO_TOKEN>`. A central server replaces that 
 | `POST /api/projects/{p}/pieces/{i}/decide` `{verdict, words}` | `keep`, or `again` with what is wrong |
 | `GET /api/projects/{p}/pieces/{i}/download` | **a file, not JSON**: the composed piece as a png at the size of its format (the file `studio compose` made), sent as an attachment (`Content-Disposition`, name `<project>-<piece>.png`). 409 while the piece is not composed. The simulated backend has one picture for all of them |
 | `GET /api/projects/{p}/download` | **a file, not JSON**: a zip of every piece **kept** (`<project>-<piece>.png` each, written with the standard library), name `<project>.zip`. 409 while no piece is kept |
+| `GET /api/briefs/{r}/export` | **a file, not JSON** (brief_export): the brief of a project, confirmed or not, in Markdown (`text/markdown`, `brief-<name>.md`): objective, target, message, format, what is fixed, call to action, the personas if any, and **what is missing, written as missing**. `{r}` is the project's id (the brief has no id of its own: it is read and written at `projects/{p}/brief`). It exports the brief as saved, not what is being typed. 404 for an unknown project. The real backend runs `scripts/agents export-brief` (no call to claude); the simulated one gives one fixed brief |
 | `GET /api/judgements` | the pieces judged on their own, the newest first: `[{id, name, brand, brand_name, status, at}]` |
 | `POST /api/judgements` (the file itself) | **judge a piece on its own**: the body is the image, not JSON (`Content-Type` `image/png` or `image/jpeg`, the first bytes must agree; 10 MB at most), its name an `X-Filename` header, and what comes with it an `X-Judge` header, JSON, URL-encoded: `{name?, brand?, brief}` (`brief`: any of `objective, audience, message, cta, fixed`, the same sentence as a project's brief, and `personas`; `brand` the id of a brand, optional). 400 for another type, an empty, false or too big file, an unknown brand, an `X-Judge` that is not JSON. The judge starts at once (a job), and one reader per persona beside it. Answers the judgement. `name` defaults to the file's name |
 | `GET /api/judgements/{j}` | a judgement, its verdict once it is `done` |

@@ -1898,6 +1898,15 @@ class StudioBackend:
             raise Conflict("no piece is kept yet")
         return Download(f"{pid}.zip", "application/zip", workflow.zip_of(files))
 
+    # ---------- brief_export: the brief of a project, as a Markdown file ----------
+    def export_brief(self, pid):
+        """The brief as it is now (confirmed or not), written out by `scripts/agents export-brief`; what is empty is said missing."""
+        p = self._load(pid)
+        brand = self._loadb(p["brand"])
+        out = self._ask(self._cmd_log(pid), "export-brief", {"name": p["name"], "brand_name": brand["name"], "brief": p["brief"]["fields"],
+                                                             "confirmed": p["brief"]["confirmed"]}, self._pdir(pid) / "work", 60)
+        return Download(out["filename"], "text/markdown; charset=utf-8", out["markdown"].encode("utf-8"))
+
     # ---------- the files of a project, and of a brand ----------
     def file(self, pid, rel) -> Path:
         """A file served to the interface, or NotFound. Anything that leaves its folder is refused.
