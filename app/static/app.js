@@ -19,17 +19,22 @@
   /* the system's Callout, in a frame that darkens its red where it writes on its own tint (WCAG AA, see app.css .alerte) */
   const Callout = (props) => h("div", { className: "alerte" }, h(DS.Callout, props));
   /* a failure said to the person (rule 9 of the grammar): what happened and what to do, in French; what the machine said, when it is not
-     that, unfolds on demand */
-  const inFrench = (raw) => /[éèêàçùôî]/.test(raw) && raw.length < 240;
-  function explain(raw) {
-    if (/OPENAI_API_KEY|OPENROUTER_API_KEY|image generator/i.test(raw)) return "Aucun moteur d'image ne marche sur ce poste. Il lui faut une clé OpenAI ou OpenRouter, ou Codex connecté ; les Réglages disent lequel est choisi.";
-    if (/timed? ?out|timeout/i.test(raw)) return "Le moteur a mis trop de temps à répondre. Relance : ça passe souvent au deuxième essai.";
-    return "Le studio n'a pas pu finir. Relance, et si ça recommence, le détail dit pourquoi.";
-  }
-  function Failure({ label, error }) {
+     that, unfolds on demand. A known cause is explained; otherwise the shape of the text decides: a short French sentence written by the
+     studio shows as it is, what looks like a program's output (English, paths, traces) folds under "Le détail technique" */
+  const KNOWN = [
+    [/no image tool|image tool/i, "Aucun moteur d'image n'est réglé sur ce poste. Choisis-en un dans les Réglages, en bas de la colonne du studio."],
+    [/OPENAI_API_KEY|OPENROUTER_API_KEY|image generator/i, "Aucun moteur d'image ne marche sur ce poste. Il lui faut une clé OpenAI ou OpenRouter, ou Codex connecté ; les Réglages disent lequel est choisi."],
+    [/timed? ?out|timeout/i, "Le moteur a mis trop de temps à répondre. Relance : ça passe souvent au deuxième essai."],
+  ];
+  const explain = (raw) => { const k = KNOWN.find(([re]) => re.test(raw)); return k ? k[1] : "Le studio n'a pas pu finir. Relance, et si ça recommence, le détail dit pourquoi."; };
+  /* what a program wrote, not the studio: a known cause, several lines, a trace, a path or a file, an English word of the machine, or too long for a sentence */
+  const MACHINE = /\n|Traceback|\w+(Error|Exception)\b|\bat \S+:\d+|\/\S+\/|\S\.(py|js|json|png|jpg|log)\b|\bHTTP\b|[{}]|\b(the|is|not|no|to|of|with|for|was|failed|error|invalid|cannot|unable|missing)\b/i;
+  const machine = (raw) => raw.length >= 240 || MACHINE.test(raw) || KNOWN.some(([re]) => re.test(raw));
+  function Failure({ label, error, children }) {
     const raw = String(error || "").trim();
-    if (!raw || inFrench(raw)) return h(Callout, { tone: "risk", label }, raw || "Le studio ne dit pas pourquoi.");
-    return h(Callout, { tone: "risk", label }, explain(raw), h("details", { className: "detail" }, h("summary", null, "Le détail technique"), h("pre", null, raw)));
+    if (!raw) return h(Callout, { tone: "risk", label }, "Le studio ne dit pas pourquoi.", children);
+    if (!machine(raw)) return h(Callout, { tone: "risk", label }, raw, children);
+    return h(Callout, { tone: "risk", label }, explain(raw), children, h("details", { className: "detail" }, h("summary", null, "Le détail technique"), h("pre", null, raw)));
   }
   const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
@@ -554,7 +559,7 @@
             h("input", { id: "iv-" + i, type: "text", value: answers[i] || "", onChange: (e) => setAnswers(iv.questions.map((x, k) => (k === i ? e.target.value : answers[k] || ""))) }))),
           h("p", { className: "small muted" }, "Laisse vide ce que tu ne sais pas encore : le studio ne le devine pas."),
           h("div", { className: "actions" },
-            h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || !said, onClick: send, "aria-label": "Écrire le brief à partir de mes réponses" }, "Écrire le brief"),
+            h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || !said, onClick: send, "aria-label": "Écrire le brief à partir de mes réponses" }, "Écrire le brief"), // the task's filled button is "Valider le brief" (rule 8)
             h(Button, { variant: "ghost", size: "sm", onClick: () => setOpen(false), "aria-label": "Fermer les questions" }, "Fermer"))));
   }
 
@@ -753,8 +758,8 @@
         r.status === "done" ? h(React.Fragment, null, h("p", null, h("strong", null, "Elle me vise : " + AIMED[r.reading.aimed] + ". "), r.reading.why),
           READ_HEADS.filter(([k]) => r.reading[k]).map(([k, label]) => h("div", { key: k }, h("h3", { className: "cap" }, label), h("p", null, r.reading[k]))))
           : r.status === "running" ? h("p", { className: "small muted" }, "Ce lecteur lit la pièce.")
-          : h("p", { className: "small" }, r.status === "failed" ? "Ce lecteur n'a pas pu la lire : " + dot(r.error) + ". " : "Pas encore lue. ",
-            h("button", { type: "button", className: "linkbtn", disabled: busy, onClick: () => run(r.n), "aria-label": "Relancer le lecteur " + (r.n + 1) }, "Relancer"))))));
+          : h(React.Fragment, null, r.status === "failed" ? h(Failure, { label: "Ce lecteur n'a pas pu la lire", error: r.error }) : h("p", { className: "small" }, "Pas encore lue."),
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: busy, onClick: () => run(r.n), "aria-label": "Relancer le lecteur " + (r.n + 1) }, "Relancer")))))));
   }
 
   /* ================= 6. a piece: prompt, composition, decision ================= */
@@ -873,8 +878,9 @@
         : h("div", { className: "sec" },
           h("div", { className: "gestures" },
             h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: compose, "aria-label": "Composer la pièce et la vérifier" }, "Composer et vérifier"),
-            h(Button, { variant: "secondary", size: "lg", onClick: () => setRedo(true), "aria-label": "Refaire l'image de " + pl(pc) }, "Refaire l'image")),
-          ready > 1 && h("p", { className: "small muted" }, h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: all, "aria-label": "Composer et vérifier les " + ready + " pièces qui ont leur image" }, "Composer tout"), " : les " + ready + " pièces qui ont leur image."))));
+            h(Button, { variant: "secondary", size: "lg", onClick: () => setRedo(true), "aria-label": "Refaire l'image de " + pl(pc) }, "Refaire l'image"),
+            ready > 1 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: all, "aria-label": "Composer et vérifier les " + ready + " pièces qui ont leur image" }, "Composer tout")),
+          ready > 1 && h("p", { className: "small muted" }, "« Composer tout » compose et vérifie les " + ready + " pièces qui ont leur image, une par une."))));
   }
 
   function Decide({ ctx, pid, id }) {
@@ -911,8 +917,8 @@
       notes && h("ul", { className: "notes" }, alerts.map((n, i) => h("li", { key: i }, n.say))),
       pc.judge && h("div", { className: "juge", "aria-live": "polite" }, h("p", { className: "cap" }, "Le juge"),
         pc.judge.status === "running" ? h("p", { className: "small muted" }, "Le juge relit la pièce. Tu peux trancher sans l'attendre.")
-          : pc.judge.status === "failed" ? h("p", { className: "small" }, "Le juge n'a pas pu la relire : " + dot(pc.judge.error) + ". ",
-            h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: rejudge, "aria-label": "Relancer le juge sur " + pl(pc) }, "Relancer"))
+          : pc.judge.status === "failed" ? h(React.Fragment, null, h(Failure, { label: "Le juge n'a pas pu la relire", error: pc.judge.error }),
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: rejudge, "aria-label": "Relancer le juge sur " + pl(pc) }, "Relancer")))
           : h(Verdict, { v: pc.judge.verdict })),
       h(Readers, { readers: pc.readers, busy: ctx.busy, run: reread }),
       pc.decision && h("p", { className: "small" }, h(Badge, { tone: "success" }, "Gardée"), " ", pc.decision.words || "Sans commentaire."),
@@ -925,8 +931,9 @@
           h(Button, { variant: "ghost", size: "lg", onClick: () => setBack(false), "aria-label": "Ne pas renvoyer" }, "Annuler")))
         : h("div", { className: "gestures" },
           !pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: () => send("keep"), "aria-label": "Garder cette pièce" }, "Garder"),
-          // a piece already kept comes back to be taken out: "Télécharger" leads, "Renvoyer" (going back on the decision) is the second gesture
-          pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger"),
+          // a piece already kept comes back to be taken out: "Télécharger" leads, "Renvoyer" (going back on the decision) is the second gesture;
+          // nothing is filled, the piece is decided, and "Télécharger" is secondary everywhere (rule 5)
+          pc.decision && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger"),
           h(Button, { variant: "secondary", size: "lg", onClick: () => setBack(true), "aria-label": pc.decision ? "Revenir sur cette décision et renvoyer la pièce" : "Renvoyer la pièce en disant pourquoi" }, "Renvoyer"),
           !pc.decision && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger")))));
   }
@@ -1491,7 +1498,8 @@
     const [ed, setEd] = useState(null); // the storyboard being corrected, { script, shots }; null: nothing touched
     useEffect(() => setEd(null), [pid]);
     useDirty(ctx, "pieces", pid, "son film", ed !== null);
-    if (!data || !data.can_propose) return null;
+    if (!data) return h("div", { id: "film", className: "bloc" }, h(Where, null, "Son film"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data.can_propose) return null;
     const shots = ed ? ed.shots : data.shots, script = ed ? ed.script : data.script;
     const total = shots.reduce((a, x) => a + (Number(x.seconds) || 0), 0);
     const colours = [...new Set(data.shots.map((x) => x.colour))];
@@ -1766,16 +1774,17 @@
     useDirty(ctx, "settings", null, "les réglages", cfg && (image !== cfg.image_engine || text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()));
     useEffect(() => { api.engines().then(show).catch(ctx.fail); }, []);
     const changed = cfg && (image !== cfg.image_engine || text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || !!key.trim());
-    /* one form, one filled button (rule 8): what changed is saved, the image engine and the text engine each by its own route */
+    /* one form, one filled button (rule 8): what changed is saved, the image engine and the text engine each by its own route; each route
+       that went through shows at once, so the screen tells what is saved when the next one fails */
     const save = (e) => {
       e.preventDefault();
       ctx.act(async () => {
-        let c = cfg;
-        if (image !== cfg.image_engine) c = await api.saveEngine(image);
-        if (text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()) c = await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined);
-        show(c); ctx.notify("Les réglages sont enregistrés.");
+        if (image !== cfg.image_engine) show(await api.saveEngine(image));
+        if (text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()) show(await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined));
+        ctx.notify("Les réglages sont enregistrés.");
       });
     };
+    const needsKey = cfg && text === "openrouter" && text !== cfg.text_engine && !key.trim() && !cfg.key_saved; // only a change of text engine waits for its key
     const forget = () => ctx.act(async () => { show(await api.saveTextEngine(text, "")); ctx.notify("La clé est oubliée."); });
     return h(React.Fragment, null, h(ColHead, { sort: "Réglages", title: "Moteurs d'image et de texte" }),
       !cfg ? h(Loading) : h("form", { className: "sec form", onSubmit: save },
@@ -1788,7 +1797,7 @@
             h("input", { id: "st-key", type: "password", value: key, onChange: (e) => setKey(e.target.value), autoComplete: "off", placeholder: cfg.key_saved ? "Une clé est enregistrée" : "", "aria-describedby": "st-key-hint" }),
             h("span", { id: "st-key-hint", className: "small muted", "data-key-saved": cfg.key_saved }, cfg.key_saved ? "Une clé est enregistrée. Elle reste sur ce poste et ne s'affiche jamais. Écris-en une autre pour la remplacer." : "Aucune clé enregistrée. Elle reste sur ce poste et ne s'affiche jamais.")),
           h("div", { className: "field" }, h("label", { htmlFor: "st-model" }, "Modèle"), h("input", { id: "st-model", type: "text", value: model, onChange: (e) => setModel(e.target.value), autoComplete: "off" }))),
-        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !changed || (text === "openrouter" && !key.trim() && !cfg.key_saved), "aria-label": "Enregistrer les réglages" }, "Enregistrer"),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !changed || needsKey, "aria-label": "Enregistrer les réglages" }, "Enregistrer"),
           text === "openrouter" && cfg.key_saved && h(Button, { type: "button", variant: "ghost", size: "md", onClick: forget, disabled: ctx.busy, "aria-label": "Oublier la clé" }, "Oublier la clé"),
           h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Fermer les réglages" }, "Fermer"))));
   }
@@ -1883,7 +1892,7 @@
         said.length > 0 && h("p", { className: "small muted" }, said.join(". ") + "."),
         jg.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce.")
           : jg.status === "failed" ? h(React.Fragment, null, h(Failure, { label: "Le juge n'a pas pu la relire", error: jg.error }),
-            h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
           : h(React.Fragment, null, h(Verdict, { v: jg.verdict }),
             h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page"))),
         jg.status === "done" && h(Rounds, { ctx, jid, name: jg.name }),
@@ -2173,7 +2182,7 @@
     /* acting on the whole series: every missing image, every piece ready to compose. Inside a task (`core`), the next one opens; from a column, a line says it */
     const composeAll = useCallback(async (pid, snap, core) => {
       const r = await api.composeAll(pid);
-      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : " + dot(r.failed[0].error) : "") + ".";
+      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : le journal dit pourquoi" : "") + "."; // what the machine said goes to the journal (rule 9)
       log(pid, "studio", "Pièces composées d'un coup : " + r.composed.length, r.failed.map((f) => f.piece + " : " + f.error).join(" ; "));
       if (core) await answered(pid, text, { before: snap }); else { await refresh(); setRev((x) => x + 1); setNotice(text); }
     }, [answered, refresh, log]);
@@ -2301,7 +2310,7 @@
     /* what the studio says in passing (done, working) floats at the bottom: it never pushes the content, which does not jump when it comes or goes */
     const fresh = stale && h("p", { className: "notice", role: "status" }, "L'interface a changé depuis l'ouverture de cette page.", h("button", { type: "button", className: "linkbtn", onClick: () => window.location.reload() }, "Recharger"));
     const toasts = (note.text || slow || fresh) && h("div", { className: "toasts" }, fresh, slow, noticeEl);
-    const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
+    const err = error && h("div", { role: "alert", className: "err" }, h(Failure, { label: "Le studio refuse", error }, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer"))); // the server often answers in English: said in French, the rest folded (rule 9)
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
     const pal = ask ? h(Leave, { what: ask.what, onStay: () => setAsk(null), onGo: () => { const go = ask.go; setAsk(null); leave(go); } })
       : palette && h(Palette, { cmds, onClose: () => setPalette(false) });
@@ -2331,9 +2340,9 @@
       const t = dive;
       const last = labels[cols[cols.length - 1]];
       const shut = foldPlan(cols, width - CORE_MIN, besideOf(cols, folds.beside), -1);
-      /* a column that does not fit beside the task even alone: the columns come back, at that level */
+      /* a column that does not fit beside the task even alone: the columns come back as they were left (rule 7), cut at that level */
       const beside = (kind) => { const i = cols.indexOf(kind), f = besideIn(folds, kind);
-        if (foldPlan(cols, width - CORE_MIN, besideOf(cols, f.beside), -1)[i]) guard({ dive: null, sel: popped(sel, i + 1) }, () => { setDive(null); setNotice(null); setSel((s) => popped(s, i + 1)); });
+        if (foldPlan(cols, width - CORE_MIN, besideOf(cols, f.beside), -1)[i]) { const to = popped(restored(), i + 1); guard({ dive: null, sel: to }, () => { before.current = null; setDive(null); setNotice(null); setSel(to); }); }
         else guard({ folds: f }, () => setFolds((x) => besideIn(x, kind))); };
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)

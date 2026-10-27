@@ -31,11 +31,14 @@ The interface holds to ten rules, so that every screen reads the same way:
    task's head is drawn the same way;
 4. the same order in every column: the head, what waits there, then the content; a "+" in the heading of the list it adds to;
 5. one shape per sort of thing: what waits is a box of task lines, never rows of a list, and the same gesture has the same button
-   everywhere (in a page's blocks: keep, write, propose, save are secondary, drop is quiet);
+   everywhere (in a page's blocks: keep, write, propose, save are secondary, drop is quiet; "Télécharger", "Composer tout" and
+   "Relancer" are secondary wherever they stand, the size following the place, except the relaunch of a failed job, the one
+   gesture of its task; a link in a sentence stays a link only in the middle of the text);
 6. the studio's column keeps its places: what waits and what is missing at the top, the settings at the bottom, the middle alone scrolls;
 7. a task is the one time the screen changes shape, and leaving it gives back the columns as they were;
 8. one filled button per column, and one per task;
-9. no machine message: a failure says in French what happened and what to do, what the machine said unfolds under "Le détail
+9. no machine message: a failure says in French what happened and what to do, what the machine said (a known cause, or what reads
+   as a program's output: English, paths, traces) unfolds under "Le détail
    technique"; no format key in a title ("post 4×5", not "post-4x5");
 10. the screen does not jump: a column shows its head at once, before its data, and a block keeps its place while it loads.
 
