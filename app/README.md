@@ -5,10 +5,13 @@ logo, write its brief, confirm what the studio deduced), then, for each project 
 read and correct the instructions the agents will get, follow the divergence, pick a series, correct each image prompt,
 follow the image, compose, check, decide.
 
-The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere and what the machine
-lacks at the top, the brands and the judge in the middle, the settings at the bottom) / a brand (what waits, its identity, its projects) /
-its identity and assets, or a project (what waits, its seven steps, "Ses pièces") / the detail of a step already done, or of steps 5 to 7
-as soon as they have begun ("x sur y pièces"), or the page of what the project made: its series as thumbnails, its texts, its film. What is
+The levels are columns, side by side, from the widest to the most precise: the studio (its head and what the machine
+lacks at the top, the brands and the judge in the middle, the settings at the bottom) / a brand (its identity, its projects) /
+its identity and assets, or a project (its seven steps, then its pieces: "Série", "Textes", "Film") / the detail of a step already done, or of
+steps 5 to 7 as soon as they have begun ("x sur y pièces"), or one of the pieces: the series as thumbnails, the texts, the film, a column each.
+What waits at a level (the studio, a brand, a project) is a counter in the head of its column, beside the name: a button that opens the
+column "Ce qui t'attend" on the right, the tasks as lines (for the studio, the next one of each brand and project, "et n autres" behind);
+no counter when nothing waits. What is
 selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
 (a brand, a project, a piece to judge) and its "Modifier". One rule: a row opens a column on its right, nothing unfolds under it.
 Any column but the deepest folds into a thin strip that keeps its name, by hand (its "‹" in the top corner) or when the columns do
@@ -26,15 +29,18 @@ one column at a time, with a way back. A page opened before the interface change
 The interface holds to ten rules, so that every screen reads the same way:
 1. a row opens a column on its right, nothing unfolds under it;
 2. a column is a list (rows that open what follows) or a page (forms, editors, images), never both: a project lists its steps and
-   opens "Ses pièces", as a brand opens its identity;
+   its pieces ("Série", "Textes", "Film", a column each), as a brand opens its identity; an intertitle names its thing without a
+   possessive ("Brief", "Étapes", "Pièces"), the sentences keep theirs;
 3. one head everywhere: the sort of thing, its name, where it stands, "Modifier" in the same place; a strip bears that same name, and a
    task's head is drawn the same way;
-4. the same order in every column: the head, what waits there, then the content; a "+" in the heading of the list it adds to;
-5. one shape per sort of thing: what waits is a box of task lines, never rows of a list, and the same gesture has the same button
+4. the same order in every column: the head (with its counter of what waits, when something does), then the content; a "+" in the heading
+   of the list it adds to;
+5. one shape per sort of thing: what waits is a counter in the head that opens the column "Ce qui t'attend", a list of task lines, never
+   rows of a list, and the same gesture has the same button
    everywhere (in a page's blocks: keep, write, propose, save are secondary, drop is quiet; "Télécharger", "Composer tout" and
    "Relancer" are secondary wherever they stand, the size following the place, except the relaunch of a failed job, the one
    gesture of its task; a link in a sentence stays a link only in the middle of the text);
-6. the studio's column keeps its places: what waits and what is missing at the top, the settings at the bottom, the middle alone scrolls;
+6. the studio's column keeps its places: its head and what is missing at the top, the settings at the bottom, the middle alone scrolls;
 7. a task is the one time the screen changes shape, and leaving it gives back the columns as they were;
 8. one filled button per column, and one per task;
 9. no machine message: a failure says in French what happened and what to do, what the machine said (a known cause, or what reads
