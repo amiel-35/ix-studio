@@ -83,7 +83,7 @@ img { display: block; max-width: 100%; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 /* on a tinted ground (the studio column, a selected row or step) the muted grey falls under 4.5:1: the body ink there keeps WCAG AA */
-.col.c1 .row .meta, .row[data-sel] .meta, button.etape[data-sel], button.etape[data-sel] .m { color: var(--text-body); }
+.col.c1 .row .meta, .row[data-sel] .meta, .row:hover .meta, button.etape[data-sel], button.etape[data-sel] .m, button.etape:hover, button.etape:hover .m { color: var(--text-body); }
 
 /* the seven segments of a project */
 .seg { display: flex; gap: 2px; margin-top: var(--space-1); width: 150px; max-width: 100%; }
