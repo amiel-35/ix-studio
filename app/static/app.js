@@ -1340,6 +1340,7 @@
         !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: search, "aria-label": "Demander au studio de chercher sur le web" }, list.length ? "Chercher encore" : "Chercher sur le web"),
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les résultats gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque résultat avant d'enregistrer."));
+  }
 
   /* ---------- logos: the studio draws up to four tracks in SVG, the person keeps or drops each, and chooses one of the kept as the brand's logo ---------- */
   const LOGOS_MAX = 4;
@@ -1382,6 +1383,8 @@
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les pistes de logo gardées dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= LOGOS_MAX && h("p", { className: "small muted" }, "Quatre pistes au plus."));
+  }
+
   /* ---------- texts of a project: the studio proposes up to six hooks and posts, the person corrects each, keeps or drops it, or writes one by hand.
      Only the kept ones are saved in the project, and copied in one gesture ---------- */
   const TEXTS_MAX = 6;
@@ -1422,6 +1425,7 @@
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les textes gardés dans le projet" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= TEXTS_MAX && h("p", { className: "small muted" }, "Six textes au plus."));
+  }
 
   /* ---------- storyboard: "Son film". The studio proposes the script and the shots (a job); the person reads them, corrects the seconds and the words,
      saves, and only then renders the film (a job): motion made by code, an mp4 to watch and to download ---------- */
