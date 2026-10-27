@@ -151,6 +151,12 @@ def authenticate(headers) -> bool:
     return False
 
 
+def static_build():
+    """The version of the interface on disk (its newest file): a page opened before it changed offers to reload, an open tab never
+    fetches its css or its scripts again by itself."""
+    return max((int(f.stat().st_mtime) for f in STATIC.iterdir() if f.is_file()), default=0)
+
+
 def make_handler(backend):
     class Handler(BaseHTTPRequestHandler):
         server_version = "ix-studio"
@@ -173,7 +179,7 @@ def make_handler(backend):
         def api(self, method):
             path = self.path.split("?", 1)[0].rstrip("/")
             if path == "/api/health":
-                return self.send(200, {**backend.health(), "auth": os.environ.get("STUDIO_AUTH", "none")})
+                return self.send(200, {**backend.health(), "auth": os.environ.get("STUDIO_AUTH", "none"), "build": static_build()})
             if not authenticate(self.headers):
                 return self.send(401, {"error": "authentication required"})
             try:
