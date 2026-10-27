@@ -79,6 +79,11 @@ img { display: block; max-width: 100%; }
 .bloc > .groupe { padding-bottom: 0; }
 .bloc > button { justify-self: start; }
 .bloc .editor { padding-bottom: var(--space-1); }
+/* a callout: its red label sits on a tint of the same red and falls under 4.5:1; inside the frame the red takes some of the
+   heading ink (two tokens of the system, no colour of its own) */
+.alerte { --alerte-ink: color-mix(in srgb, var(--status-danger) 72%, var(--text-heading)); }
+.alerte > * { --status-danger: var(--alerte-ink); }
+
 /* a group of buttons: never a row of a list (no hover of its own, no height of a row) */
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
