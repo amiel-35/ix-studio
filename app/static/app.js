@@ -10,9 +10,11 @@
 (function () {
   "use strict";
   const DS = window[Object.keys(window).find((k) => k.endsWith("DesignSystem_9fde59"))]; // the design system's global, found by its suffix
-  const { Button, Badge, Callout, Eyebrow } = DS;
+  const { Button, Badge, Eyebrow } = DS;
   const api = window.studioApi;
   const h = React.createElement;
+  /* the system's Callout, in a frame that darkens its red where it writes on its own tint (WCAG AA, see app.css .alerte) */
+  const Callout = (props) => h("div", { className: "alerte" }, h(DS.Callout, props));
   const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
   /* ---------- small helpers ---------- */
