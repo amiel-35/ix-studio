@@ -2,6 +2,11 @@
 
 ## Code
 
+**React** 18.3.1, MIT License, Copyright (c) Facebook, Inc. and its affiliates, https://github.com/facebook/react
+
+- `app/static/ds-public/components/lib/react.production.min.js` and `react-dom.production.min.js` are the UMD builds of
+  `react@18.3.1` and `react-dom@18.3.1`, unchanged, with their licence header.
+
 **huashu-motion**, MIT License, Copyright (c) 2026 Huashu, https://github.com/alchaincyf/huashu-motion
 
 - `scripts/collect/vendor/cdp.js` and `scripts/collect/vendor/browser.js` are copied unchanged from

@@ -178,7 +178,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .app.narrow .col > * { max-width: none; }
 .app.narrow .coeur { padding: var(--space-6) var(--space-4); }
 .app.narrow .colhead { padding-left: var(--space-4); padding-right: var(--space-4); }
-.app.narrow .row, .app.narrow .etape, .app.narrow .groupe, .app.narrow .groupe.fold, .app.narrow .vide, .app.narrow .bphrase, .app.narrow .assets, .app.narrow .working, .app.narrow .form, .app.narrow .bodyc, .app.narrow .journal, .app.narrow .take, .app.narrow .serie, .app.narrow .machine, .app.narrow .bloc { padding-left: var(--space-4); padding-right: var(--space-4); }
+.app.narrow .row, .app.narrow .etape, .app.narrow .groupe, .app.narrow .groupe.fold, .app.narrow .vide, .app.narrow .bphrase, .app.narrow .assets, .app.narrow .working, .app.narrow .form, .app.narrow .bodyc, .app.narrow .journal, .app.narrow .take, .app.narrow .serie, .app.narrow .machine, .app.narrow .bloc, .app.narrow .desc { padding-left: var(--space-4); padding-right: var(--space-4); }
 .app.narrow .pieces { margin: 0; width: 100%; }
 .app.narrow .coeur-in .working { padding-left: 0; padding-right: 0; }
 .app.narrow .toasts { right: var(--space-4); bottom: var(--space-4); width: calc(100vw - 2 * var(--space-4)); }

@@ -155,8 +155,12 @@ def codex(prompt, wh, out):
         os.replace(tmp, out)
         return True, "drawn by Codex (your ChatGPT plan)"
     tmp.unlink(missing_ok=True)
-    last = next((x for x in reversed((r.stderr or "").strip().splitlines()) if x.strip()), "")
-    return False, f"codex ran (exit {r.returncode}) but saved no usable PNG or JPEG image" + (f": {last.strip()[:200]}" if last else ".")
+    # what Codex said last is on its output (its error, if any, on stderr; the last line of stderr is often only the tokens used)
+    said = next((x for x in reversed((r.stdout or "").strip().splitlines()) if x.strip()), "")
+    err = next((x for x in (r.stderr or "").splitlines() if x.startswith("ERROR")), "")
+    why = (err or said).strip()[:240]
+    return False, f"codex ran (exit {r.returncode}) but saved no usable PNG or JPEG image" + (f": {why}" if why else ".") + \
+        " (Codex draws only with a model that has an image tool on your plan; otherwise use OPENAI_API_KEY or OpenRouter.)"
 
 
 def none(prompt, wh, out):

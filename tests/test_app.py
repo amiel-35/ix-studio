@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -874,6 +875,26 @@ class Api(unittest.TestCase):
             urllib.request.urlopen(req)
         self.assertEqual(cm.exception.code, 404)
         cm.exception.close()
+
+    def test_without_the_brand_design_system_the_neutral_one_is_served(self):
+        """On a new machine app/static/ds/ is not there (it is not published): ds/... answers with ds-public/..., never a 404
+        (a blank page). Where ds/ is installed, it wins."""
+        own = (server.STATIC / "ds" / "components" / "bundle.js").is_file()
+        for rel in ("ds/tokens.css", "ds/components/bundle.css", "ds/components/bundle.js", "ds/components/lib/react.production.min.js", "ds/components/lib/react-dom.production.min.js"):
+            with self.subTest(rel), urllib.request.urlopen(self.base + "/" + rel) as r:
+                self.assertEqual(r.status, 200)
+        with urllib.request.urlopen(self.base + "/ds/components/bundle.js") as r:
+            self.assertEqual("NeutralDesignSystem_9fde59" in r.read().decode(), not own)
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            urllib.request.urlopen(self.base + "/ds/../../server.py")
+        self.assertEqual(cm.exception.code, 404)
+        cm.exception.close()
+
+    def test_the_neutral_design_system_has_every_variable_the_interface_reads(self):
+        static = server.STATIC
+        used = set(re.findall(r"var\((--[a-z0-9-]+)", (static / "app.css").read_text() + (static / "app.js").read_text()))
+        given = set(re.findall(r"(--[a-z0-9-]+):", (static / "ds-public" / "tokens.css").read_text() + (static / "app.css").read_text()))
+        self.assertEqual(used - given - {"--ratio", "--w"}, set())  # set by the interface itself, inline
 
 
 
