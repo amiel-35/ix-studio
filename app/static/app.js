@@ -19,6 +19,14 @@
   const Callout = (props) => h("div", { className: "alerte" }, h(DS.Callout, props));
   const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+  /* what a part of a column holds and has not saved yet: it says so at each render, under the column it lives in (`kind`) and the
+     brand or project of that column (`id`); the studio asks before a gesture that would take it off the screen */
+  function useDirty(ctx, kind, id, label, on) {
+    const key = useRef({}).current;
+    ctx.dirty.current.set(key, { kind, id: id || null, label, on: !!on });
+    useEffect(() => () => { ctx.dirty.current.delete(key); }, []);
+  }
+
   /* ---------- small helpers ---------- */
   const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   const MOD = IS_MAC ? "⌘" : "Ctrl";
@@ -1112,6 +1120,7 @@
     const data = useLive(ctx, () => api.names(bid), bid);
     const [ed, setEd] = useState(null); // the list being decided, [{name, why, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [bid]);
+    useDirty(ctx, "identity", bid, "ses noms", ed !== null);
     if (!data) return null;
     const list = ed || data.names.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
@@ -1157,6 +1166,7 @@
     const data = useLive(ctx, () => api.personas(bid), bid);
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [bid]);
+    useDirty(ctx, "identity", bid, "ses personas", ed !== null);
     if (!data) return null;
     const list = ed || data.personas.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
@@ -1198,6 +1208,7 @@
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     const [market, setMarket] = useState(null); // the market described for a landscape; null: not asked
     useEffect(() => { setEd(null); setMarket(null); }, [bid]);
+    useDirty(ctx, "identity", bid, "ses concurrents", ed !== null || !!(market && market.trim()));
     if (!data) return null;
     const list = ed || data.competitors.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
@@ -1257,6 +1268,7 @@
     const [ed, setEd] = useState(null); // the values being corrected, [{...value, kept}] (`kept` false: not decided yet); null: nothing touched
     const [replace, setReplace] = useState(false); // the colours of the brand are confirmed: the person is asked before they are replaced
     useEffect(() => { setEd(null); setReplace(false); }, [bid]);
+    useDirty(ctx, "identity", bid, "ses fichiers", ed !== null);
     if (!data) return null;
     const list = ed || data.proposed.map((x) => ({ ...x, kept: false }));
     const undecided = list.filter((x) => !x.kept).length, kept = list.filter((x) => x.kept);
@@ -1313,6 +1325,7 @@
     const data = useLive(ctx, () => api.research(bid), bid);
     const [ed, setEd] = useState(null); // the list being decided, [{url, brings, belonging, kept}]; null: nothing touched
     useEffect(() => setEd(null), [bid]);
+    useDirty(ctx, "identity", bid, "sa recherche", ed !== null);
     if (!data) return null;
     const list = ed || data.research.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
@@ -1348,6 +1361,7 @@
   function Logos({ ctx, bid }) {
     const data = useLive(ctx, () => api.logos(bid), bid);
     const [ed, setEd] = useState(null); // the tracks being decided, [{id, idea, svg, kept}]; null: nothing touched
+    useDirty(ctx, "identity", bid, "ses logos", ed !== null);
     useEffect(() => setEd(null), [bid]);
     if (!data) return null;
     const list = ed || data.tracks.map((t) => ({ ...t, kept: true })).concat(data.proposed.map((t) => ({ ...t, kept: false })));
@@ -1392,6 +1406,7 @@
     const data = useLive(ctx, () => api.texts(pid), pid);
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [pid]);
+    useDirty(ctx, "project", pid, "ses textes", ed !== null);
     if (!data) return null;
     const list = ed || data.texts.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
@@ -1433,6 +1448,7 @@
     const data = useLive(ctx, () => api.storyboard(pid), pid + "|sb");
     const [ed, setEd] = useState(null); // the storyboard being corrected, { script, shots }; null: nothing touched
     useEffect(() => setEd(null), [pid]);
+    useDirty(ctx, "project", pid, "son film", ed !== null);
     if (!data || !data.can_propose) return null;
     const shots = ed ? ed.shots : data.shots, script = ed ? ed.script : data.script;
     const total = shots.reduce((a, x) => a + (Number(x.seconds) || 0), 0);
@@ -1587,6 +1603,7 @@
   /* ---------- the "+" and "Modifier" forms, in the column to the right of the one that holds them ---------- */
   function NewBrandForm({ ctx }) {
     const [name, setName] = useState(""), [site, setSite] = useState("");
+    useDirty(ctx, "newBrand", null, "la nouvelle marque", name.trim() || site.trim());
     const create = (e) => {
       e.preventDefault();
       ctx.act(async () => {
@@ -1602,13 +1619,14 @@
         h("div", { className: "field" }, h("label", { htmlFor: "nb-site" }, "Son site (facultatif)"), h("input", { id: "nb-site", type: "text", inputMode: "url", value: site, onChange: (e) => setSite(e.target.value), autoComplete: "off", placeholder: "ma-marque.example", "aria-describedby": "nb-hint" }),
           h("span", { id: "nb-hint", className: "small muted" }, "Un site lance la lecture : le studio y cherche les visuels, le logo, les couleurs. Sans site, tu écris son brief et tu déposes son logo.")),
         h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": "Créer la marque" }, "Créer la marque"),
-          h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Ne pas créer de marque" }, "Annuler"))));
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.leave(ctx.close), "aria-label": "Ne pas créer de marque" }, "Annuler"))));
   }
 
   function EditBrandForm({ ctx, bid }) {
     const b = useLive(ctx, () => api.getBrand(bid), "edit|" + bid);
     const [f, setF] = useState(null);
     useEffect(() => { if (b && !f) setF({ name: b.name, site: b.site ? host(b.site) : "", description: b.description || "" }); }, [b]);
+    useDirty(ctx, "editBrand", bid, "la marque modifiée", b && f && (f.name !== b.name || f.site !== (b.site ? host(b.site) : "") || f.description !== (b.description || "")));
     if (!b || !f) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
     const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
     const save = (e) => {
@@ -1633,13 +1651,14 @@
         h("div", { className: "field" }, h("label", { htmlFor: "eb-site" }, "Site"), h("input", { id: "eb-site", type: "text", inputMode: "url", value: f.site, onChange: set("site"), autoComplete: "off", placeholder: "ma-marque.example" })),
         h("div", { className: "field" }, h("label", { htmlFor: "eb-desc" }, "Description"), h("textarea", { id: "eb-desc", value: f.description, onChange: set("description") })),
         h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !f.name.trim(), "aria-label": "Enregistrer la marque" }, "Enregistrer"),
-          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Fermer sans enregistrer" }, "Annuler")),
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.leave(ctx.close), "aria-label": "Fermer sans enregistrer" }, "Annuler")),
         b.can_discover && h("p", { className: "small muted" }, "Le site enregistré se relit à part : ", h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: reread, "aria-label": "Relire le site de la marque" }, "Relire le site"), ".")));
   }
 
   function NewProjectForm({ ctx, bid }) {
     const b = useLive(ctx, () => api.getBrand(bid), "np|" + bid);
     const [name, setName] = useState(""), [from, setFrom] = useState("");
+    useDirty(ctx, "newProject", bid, "le nouveau projet", name.trim());
     if (!b) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
     const create = (e) => {
       e.preventDefault();
@@ -1657,13 +1676,14 @@
           h("select", { id: "np-from", value: from, onChange: (e) => setFrom(e.target.value), "aria-describedby": "np-hint" }, h("option", { value: "" }, "Non, on part de zéro"), b.projects.map((p) => h("option", { key: p.id, value: p.id }, p.name))),
           h("span", { id: "np-hint", className: "small muted" }, "Une déclinaison reprend le brief de l'original : tu ne corriges que ce qui change.")),
         h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": from ? "Créer la déclinaison" : "Créer le projet" }, from ? "Créer la déclinaison" : "Créer le projet"),
-          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Ne pas créer de projet" }, "Annuler"))));
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.leave(ctx.close), "aria-label": "Ne pas créer de projet" }, "Annuler"))));
   }
 
   function EditProjectForm({ ctx, pid }) {
     const p = useLive(ctx, () => api.project(pid), "ep|" + pid);
     const [name, setName] = useState(null);
     useEffect(() => { if (p && name === null) setName(p.name); }, [p]);
+    useDirty(ctx, "editProject", pid, "le projet renommé", p && name !== null && name !== p.name);
     if (!p || name === null) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
     const save = (e) => {
       e.preventDefault();
@@ -1673,7 +1693,7 @@
       h("form", { className: "sec form", onSubmit: save },
         h("div", { className: "field" }, h("label", { htmlFor: "ep-name" }, "Nom du projet"), h("input", { id: "ep-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off" })),
         h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": "Enregistrer le projet" }, "Enregistrer"),
-          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.closeDetail(), "aria-label": "Fermer sans enregistrer" }, "Annuler"))));
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: () => ctx.leave(ctx.closeDetail), "aria-label": "Fermer sans enregistrer" }, "Annuler"))));
   }
 
   /* ---------- the judge on its own: a piece dropped with the brief it answers, then its verdict ---------- */
@@ -1720,6 +1740,7 @@
     const [brand, setBrand] = useState("");
     const input = useRef(null);
     useEscapeClose(ctx, open, setOpen);
+    useDirty(ctx, "newJudge", null, "la pièce à juger", file || Object.values(fields).some((v) => (Array.isArray(v) ? v.length : String(v).trim())));
     useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
     const pick = (ev) => {
       const f = ev.target.files && ev.target.files[0];
@@ -1759,7 +1780,7 @@
           h("select", { id: "jb", value: brand, onChange: (e) => setBrand(e.target.value), "aria-describedby": "jb-hint" }, h("option", { value: "" }, "Sans marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
           h("span", { id: "jb-hint", className: "small muted" }, "Avec une marque, le juge regarde aussi sa voix et son ton.")),
         h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy || !file, onClick: launch, "aria-label": "Lancer le juge sur cette pièce" }, "Lancer le juge"),
-          h(Button, { variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Ne pas juger de pièce" }, "Annuler")),
+          h(Button, { variant: "ghost", size: "md", onClick: () => ctx.leave(ctx.close), "aria-label": "Ne pas juger de pièce" }, "Annuler")),
         !file ? h("p", { className: "small muted", role: "status" }, "Il manque l'image.")
           : missing.length > 0 && h("p", { className: "small muted", role: "status" }, "Il manque " + missing.map((k) => JNEEDED[k]).join(", ") + " : le juge le dira et jugera le reste.")));
   }
@@ -1851,6 +1872,24 @@
         h("p", { className: "pal-foot" }, "Flèches pour choisir, Entrée pour lancer, Échap pour fermer.")));
   }
 
+  /* before a gesture takes off the screen what is not saved: stay (the default, Escape) or leave without saving */
+  function Leave({ what, onStay, onGo }) {
+    const box = useRef(null), prev = useRef(document.activeElement);
+    useEffect(() => { box.current.querySelector("button").focus(); return () => { const p = prev.current; if (p && p.isConnected && p.focus) p.focus(); }; }, []);
+    const key = (ev) => {
+      if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); onStay(); }
+      else if (ev.key === "Tab") { const b = [...ev.currentTarget.querySelectorAll("button")]; const i = b.indexOf(document.activeElement); ev.preventDefault(); b[(i + (ev.shiftKey ? -1 : 1) + b.length) % b.length].focus(); }
+    };
+    const list = what.length > 1 ? what.slice(0, -1).join(", ") + " et " + what[what.length - 1] : what[0];
+    return h("div", { className: "scrim", onMouseDown: (e) => { if (e.target === e.currentTarget) onStay(); } },
+      h("div", { ref: box, className: "palette quitter", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "quitter-t", "aria-describedby": "quitter-d", onKeyDown: key },
+        h("h2", { id: "quitter-t", className: "head" }, "Quitter sans enregistrer ?"),
+        h("p", { id: "quitter-d" }, "Ce que tu as changé dans " + list + " n'est pas enregistré : en quittant, tu le perds."),
+        h("div", { className: "actions" },
+          h(Button, { variant: "primary", size: "md", onClick: onStay }, "Rester"),
+          h(Button, { variant: "secondary", size: "md", onClick: onGo }, "Quitter sans enregistrer"))));
+  }
+
   /* ================= the application ================= */
   /* what each column is, from left to right, for a selection: the studio always, then a brand (or the form of a new one), a project (or the
      form that edits or creates), the detail of a step (or its form) */
@@ -1870,6 +1909,8 @@
     if (sel.detail) c.push(sel.detail.kind);
     return c;
   }
+  const KEY_OF = { identity: "brand", editBrand: "brand", newProject: "brand", project: "project", editProject: "project" }; // what a column shows the parts of
+  const popped = (s, n) => { let x = s; while (columnsOf(x).length > n) { const y = popOnce(x); if (y === x) break; x = y; } return x; };
   const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.judges ? { ...sel, judges: false } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
   /* the width of the window, to know how many columns fit side by side */
@@ -1898,6 +1939,11 @@
     const list = (v) => Array.isArray(v) ? v.filter((k) => typeof k === "string") : [];
     try { const x = JSON.parse(localStorage.getItem(FOLDS) || "{}") || {}; return { shut: list(x.shut), open: list(x.open), beside: list(x.beside) }; } catch (e) { return { shut: [], open: [], beside: [] }; }
   };
+  const shutIn = (x, kind) => ({ ...x, shut: x.shut.filter((k) => k !== kind).concat(kind), open: x.open.filter((k) => k !== kind) });
+  const openIn = (x, kind) => ({ ...x, shut: x.shut.filter((k) => k !== kind), open: x.open.filter((k) => k !== kind).concat(kind) });
+  const besideIn = (x, kind) => ({ ...x, beside: x.beside.filter((k) => k !== kind).concat(kind) });
+  const notBesideIn = (x, kind) => ({ ...x, beside: x.beside.filter((k) => k !== kind) });
+  const besideOf = (cols, open) => ({ shut: cols.filter((k) => !open.includes(k)), open }); // beside a task, a column is a strip unless opened
   const saveFolds = (x) => { try { localStorage.setItem(FOLDS, JSON.stringify(x)); } catch (e) { /* private window: nothing kept */ } };
 
   function useNarrow() {
@@ -1922,15 +1968,14 @@
     const [, setTick] = useState(0);
     const [folds, setFolds] = useState(loadFolds); // { shut, open }: the columns folded and unfolded by hand; beside: those opened next to a task
     useEffect(() => saveFolds(folds), [folds]);
-    const fold = useCallback((kind) => setFolds((x) => ({ ...x, shut: x.shut.filter((k) => k !== kind).concat(kind), open: x.open.filter((k) => k !== kind) })), []);
-    const unfold = useCallback((kind) => setFolds((x) => ({ ...x, shut: x.shut.filter((k) => k !== kind), open: x.open.filter((k) => k !== kind).concat(kind) })), []);
-    const openBeside = useCallback((kind) => setFolds((x) => ({ ...x, beside: x.beside.filter((k) => k !== kind).concat(kind) })), []);
-    const shutBeside = useCallback((kind) => setFolds((x) => ({ ...x, beside: x.beside.filter((k) => k !== kind) })), []);
+    const [ask, setAsk] = useState(null); // { what, go }: a gesture waits for the person to leave what is not saved
     const narrow = useNarrow();
     const width = useWidth();
+    const dirty = useRef(new Map()), acting = useRef(0), leaving = useRef(false), foldsRef = useRef(folds), widthRef = useRef(width), narrowRef = useRef(narrow);
+    foldsRef.current = folds; widthRef.current = width; narrowRef.current = narrow;
     const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), digest = useRef(""), cmdsRef = useRef([]), overlayRef = useRef(false), arrowsRef = useRef(false), backTo = useRef(null);
     const selRef = useRef(sel), diveRef = useRef(dive), opened = useRef(0);
-    overlayRef.current = palette;
+    overlayRef.current = palette || !!ask;
     selRef.current = sel; diveRef.current = dive;
 
     const log = useCallback((p, who, text, why) => {
@@ -1938,6 +1983,32 @@
       saveJournal(p, [{ at: Date.now(), who, text, why: why || "" }, ...loadJournal(p)]);
     }, []);
     const fail = useCallback((e) => setError(e && e.message ? e.message : String(e)), []);
+
+    /* ----- what is not saved: a gesture that would take it off the screen asks first. The columns on the screen after a change are
+       computed as the layout does; going from the columns to a task or back mounts everything anew. Not asked: a gesture made inside
+       an action (it saved, then moves on), and an explicit abandon (`leave`, the forms' own "Annuler") ----- */
+    const shownOf = (st) => {
+      const cols = columnsOf(st.sel);
+      if (narrowRef.current) return st.dive ? [] : [cols[cols.length - 1]];
+      const plan = st.dive ? foldPlan(cols, widthRef.current - CORE_MIN, besideOf(cols, st.folds.beside), -1) : foldPlan(cols, widthRef.current, st.folds, cols.length - 1);
+      return cols.filter((k, i) => !plan[i]);
+    };
+    const guard = useCallback((change, go) => {
+      if (acting.current || leaving.current) return go();
+      const cur = { sel: selRef.current, dive: diveRef.current, folds: foldsRef.current }, next = { ...cur, ...change };
+      const shown = shownOf(next);
+      const lost = [...dirty.current.values()].filter((d) => d.on && !(!cur.dive === !next.dive && shown.includes(d.kind) && (!KEY_OF[d.kind] || next.sel[KEY_OF[d.kind]] === d.id)));
+      if (!lost.length) return go();
+      setAsk({ what: [...new Set(lost.map((d) => d.label))], go });
+    }, []);
+    const leave = useCallback((fn) => { leaving.current = true; try { fn(); } finally { leaving.current = false; } }, []);
+    useEffect(() => {
+      const f = (ev) => { if ([...dirty.current.values()].some((d) => d.on)) { ev.preventDefault(); ev.returnValue = ""; } }; // closing or reloading the tab: the browser asks
+      window.addEventListener("beforeunload", f);
+      return () => window.removeEventListener("beforeunload", f);
+    }, []);
+    const fold = useCallback((kind) => guard({ folds: shutIn(foldsRef.current, kind) }, () => setFolds((x) => shutIn(x, kind))), [guard]);
+    const shutBeside = useCallback((kind) => guard({ folds: notBesideIn(foldsRef.current, kind) }, () => setFolds((x) => notBesideIn(x, kind))), [guard]);
 
     const refresh = useCallback(async () => {
       try {
@@ -1977,7 +2048,7 @@
     useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(t); }, []);
 
     /* ----- moving about the columns ----- */
-    const move = useCallback((fn, text) => { setSel(fn); setNotice(text || null); setError(null); setDive(null); }, []);
+    const move = useCallback((fn, text) => guard({ sel: typeof fn === "function" ? fn(selRef.current) : fn, dive: null }, () => { setSel(fn); setNotice(text || null); setError(null); setDive(null); }), [guard]);
     const selectStudio = useCallback(() => move(() => EMPTY), [move]);
     const selectBrand = useCallback((id, text) => move(() => ({ ...EMPTY, brand: id }), text), [move]);
     const selectProject = useCallback((id, text, brand) => move((s) => ({ ...EMPTY, brand: brand || s.brand, project: id }), text), [move]);
@@ -1994,18 +2065,18 @@
     const showJournal = useCallback(() => move((s) => ({ ...s, detail: { kind: "journal" }, task: null })), [move]);
     const close = useCallback((text) => move((s) => ({ ...s, panel: null }), typeof text === "string" || (text && text.text) ? text : null), [move]);
     const closeDetail = useCallback((text) => move((s) => ({ ...s, detail: null }), typeof text === "string" ? text : null), [move]);
-    const popTo = useCallback((n) => { setNotice(null); setSel((s) => { let x = s; while (columnsOf(x).length > n) { const y = popOnce(x); if (y === x) break; x = y; } return x; }); }, []);
+    const popTo = useCallback((n) => guard({ sel: popped(selRef.current, n) }, () => { setNotice(null); setSel((s) => popped(s, n)); }), [guard]);
 
     /* ----- diving into a task, and coming back ----- */
-    const openTask = useCallback((t, keepNotice, col) => {
+    const openTask = useCallback((t, keepNotice, col) => guard({ sel: { ...EMPTY, brand: t.brand || selRef.current.brand, project: t.project || null, task: t.id }, dive: t }, () => {
       if (!keepNotice) setNotice(null);
       setError(null);
       backTo.current = { id: t.id, col };
       setSel((s) => ({ ...EMPTY, brand: t.brand || s.brand, project: t.project || null, task: t.id }));
       setDive({ ...t, _k: ++opened.current }); // a new key each time: the same task opened again (a sibling that keeps its id) starts afresh
       window.scrollTo(0, 0);
-    }, []);
-    const back = useCallback(() => setDive(null), []);
+    }), [guard]);
+    const back = useCallback(() => guard({ dive: null }, () => setDive(null)), [guard]);
 
     /* an action runs under `busy`; `snap` is the set of tasks before it, to know which ones are new afterwards */
     const snap = useCallback(() => new Set(tasksRef.current.map((t) => t.id)), []);
@@ -2013,7 +2084,8 @@
       setBusy(true); setError(null);
       const s = snap();
       const timer = setTimeout(() => setWait(word || "Un instant."), 1000); // a gesture that takes more than a second says so
-      try { return await fn(s); } catch (e) { fail(e); } finally { clearTimeout(timer); setWait(null); setBusy(false); }
+      acting.current += 1;
+      try { return await fn(s); } catch (e) { fail(e); } finally { acting.current -= 1; clearTimeout(timer); setWait(null); setBusy(false); }
     }, [fail, snap]);
 
     /* an answer settles a task: on to the next one of the same owner if it follows, else back to the columns, with one line that says what was done.
@@ -2054,7 +2126,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings, dirty, leave };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -2160,7 +2232,8 @@
     const toasts = (note.text || slow || fresh) && h("div", { className: "toasts" }, fresh, slow, noticeEl);
     const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
-    const pal = palette && h(Palette, { cmds, onClose: () => setPalette(false) });
+    const pal = ask ? h(Leave, { what: ask.what, onStay: () => setAsk(null), onGo: () => { const go = ask.go; setAsk(null); leave(go); } })
+      : palette && h(Palette, { cmds, onClose: () => setPalette(false) });
 
     /* ----- the columns ----- */
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
@@ -2183,11 +2256,11 @@
     if (dive) {
       const t = dive;
       const last = labels[cols[cols.length - 1]];
-      const besideOf = (open) => ({ shut: cols.filter((k) => !open.includes(k)), open });
-      const shut = foldPlan(cols, width - CORE_MIN, besideOf(folds.beside), -1);
+      const shut = foldPlan(cols, width - CORE_MIN, besideOf(cols, folds.beside), -1);
       /* a column that does not fit beside the task even alone: the columns come back, at that level */
-      const beside = (kind) => { const i = cols.indexOf(kind), open = folds.beside.filter((k) => k !== kind).concat(kind);
-        if (foldPlan(cols, width - CORE_MIN, besideOf(open), -1)[i]) { back(); popTo(i + 1); } else openBeside(kind); };
+      const beside = (kind) => { const i = cols.indexOf(kind), f = besideIn(folds, kind);
+        if (foldPlan(cols, width - CORE_MIN, besideOf(cols, f.beside), -1)[i]) guard({ dive: null, sel: popped(sel, i + 1) }, () => { setDive(null); setNotice(null); setSel((s) => popped(s, i + 1)); });
+        else guard({ folds: f }, () => setFolds((x) => besideIn(x, kind))); };
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : cols.map((kind, i) => shut[i] ? strip(kind, i, beside, "Ouvrir à côté de la tâche : ") : shell(kind, i, false, shutBeside)),
@@ -2204,9 +2277,8 @@
     }
     const shut = foldPlan(cols, width, folds, cols.length - 1); // by hand, or when the columns do not fit: those on the left fold into strips that keep their names
     /* a strip unfolds its column alone; when even then it does not fit, the columns on its right close, as a strip did before */
-    const open = (kind) => { const i = cols.indexOf(kind);
-      unfold(kind);
-      if (foldPlan(cols, width, { shut: folds.shut.filter((k) => k !== kind), open: folds.open.filter((k) => k !== kind).concat(kind) }, cols.length - 1)[i]) popTo(i + 1); };
+    const open = (kind) => { const i = cols.indexOf(kind), f = openIn(folds, kind), pop = foldPlan(cols, width, f, cols.length - 1)[i];
+      guard({ folds: f, ...(pop ? { sel: popped(sel, i + 1) } : {}) }, () => { setFolds((x) => openIn(x, kind)); if (pop) { setNotice(null); setSel((s) => popped(s, i + 1)); } }); };
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
       h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => shut[i] ? strip(kind, i, open, "Déplier la colonne : ") : shell(kind, i, i === cols.length - 1, i < cols.length - 1 && cols.length > 1 ? fold : null)),
         cols.length === 1 && h("div", { className: "rest" }, err, h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),

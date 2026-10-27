@@ -273,6 +273,9 @@ input.pal-input { border: 0; border-bottom: 1px solid var(--border-subtle); bord
 input.pal-input:focus-visible { outline-offset: -2px; }
 .pal-list { max-height: min(50vh, 420px); overflow: auto; padding: var(--space-2); }
 .pal-none { padding: var(--space-3); color: var(--text-muted); }
+/* leaving what is not saved: the palette's surface, a question and two answers */
+.quitter { display: grid; gap: var(--space-4); padding: var(--space-6); }
+.quitter .head { font-size: var(--fs-h3); }
 .pal-foot { padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-subtle); font-size: var(--fs-small); color: var(--text-muted); }
 
 @media (max-width: 640px) {
