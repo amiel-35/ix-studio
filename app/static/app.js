@@ -150,9 +150,11 @@
   /* a piece or an image at the ratio it will have; a click opens it full screen (a click, Escape or "Fermer" brings it back) */
   function Frame({ src, alt, size }) {
     const [big, setBig] = useState(false);
-    const ratio = size ? size[0] / size[1] : 4 / 5;
+    const [read, setRead] = useState(null); // the ratio of the image itself, when the piece does not say its size (a piece judged on its own)
+    const ratio = size ? size[0] / size[1] : read || 4 / 5;
+    const onLoad = size ? undefined : (e) => { const { naturalWidth: w, naturalHeight: hh } = e.target; if (w && hh) setRead(w / hh); };
     return h(React.Fragment, null,
-      h("button", { type: "button", className: "frame zoomable", style: { "--ratio": ratio }, onClick: () => setBig(true), "aria-label": "Voir en grand : " + alt }, h("img", { src, alt: "" })),
+      h("button", { type: "button", className: "frame zoomable", style: { "--ratio": ratio }, onClick: () => setBig(true), "aria-label": "Voir en grand : " + alt }, h("img", { src, alt: "", onLoad })),
       big && h(Zoom, { src, alt, onClose: () => setBig(false) }));
   }
   function Zoom({ src, alt, onClose }) {
@@ -419,13 +421,13 @@
           pal.accent ? h(Pick, { role: "accent", hex: pal.accent, onChange: (x) => touch("accent", x), onClear: () => touch("accent", null) })
             : h("button", { type: "button", className: "linkbtn small", onClick: () => touch("accent", SEED), "aria-label": "Ajouter une couleur d'accent" }, "Ajouter un accent")),
         h("span", { className: "small muted" }, "Touche une pastille pour choisir sa couleur. Le fond et le texte suffisent, l'accent est facultatif."),
-        h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait")))
+        h("div", { className: "actions" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait")))
       : cur && h("div", { className: "editor" },
         h("label", { htmlFor: "bed", className: "small" }, "Corriger " + cur.label),
         cur.area ? h("textarea", { id: "bed", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value) })
           : h("input", { id: "bed", type: "text", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
         (cur.k === "voice" || cur.k === "never") && h("span", { className: "small muted" }, "Sépare par des virgules."),
-        h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
+        h("div", { className: "actions" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
       h("div", { className: "gestures" },
         h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !(fields.what || "").trim() || palWrong, onClick: submit, "aria-label": "Valider le brief de la marque" }, data.done ? "Enregistrer le brief" : "Valider le brief")),
       !(fields.what || "").trim() && h("p", { className: "small muted", role: "status" }, "Il manque : ce qu'elle est."),
@@ -517,7 +519,7 @@
           iv.questions.map((q, i) => h("div", { key: i, className: "field" }, h("label", { htmlFor: "iv-" + i, className: "small" }, q),
             h("input", { id: "iv-" + i, type: "text", value: answers[i] || "", onChange: (e) => setAnswers(iv.questions.map((x, k) => (k === i ? e.target.value : answers[k] || ""))) }))),
           h("p", { className: "small muted" }, "Laisse vide ce que tu ne sais pas encore : le studio ne le devine pas."),
-          h("div", { className: "row" },
+          h("div", { className: "actions" },
             h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || !said, onClick: send, "aria-label": "Écrire le brief à partir de mes réponses" }, "Écrire le brief"),
             h(Button, { variant: "ghost", size: "sm", onClick: () => setOpen(false), "aria-label": "Fermer les questions" }, "Fermer"))));
   }
@@ -585,11 +587,11 @@
         h("label", { htmlFor: "ed", className: "small" }, "Corriger " + cur.label),
         cur.k === "format" ? h("div", { className: "sec" },
           h("input", { id: "ed", type: "text", autoFocus: true, value: fields.format || "", onChange: (e) => set("format", e.target.value), "aria-describedby": "ed-hint" }),
-          h("div", { className: "row", role: "group", "aria-label": "Formats que le studio sait faire" }, data.formats.map((f) => h("button", { key: f, type: "button", className: "chip", "aria-pressed": tokens.some((t) => fmtKey(t) === f), onClick: () => toggleFormat(f) }, fmtWord(f)))),
+          h("div", { className: "actions", role: "group", "aria-label": "Formats que le studio sait faire" }, data.formats.map((f) => h("button", { key: f, type: "button", className: "chip", "aria-pressed": tokens.some((t) => fmtKey(t) === f), onClick: () => toggleFormat(f) }, fmtWord(f)))),
           h("p", { id: "ed-hint", className: "small muted" }, "Sépare par des virgules. Un format que le studio ne sait pas faire est mis de côté, pas oublié."))
           : cur.area ? h("textarea", { id: "ed", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value) })
           : h("input", { id: "ed", type: "text", autoFocus: true, value: fields[cur.k] || "", onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
-        h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
+        h("div", { className: "actions" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer la correction de " + cur.label }, "Fait"))),
       h(BriefPersonas, { list: fields.personas || [], set: (v) => set("personas", v), id: "pe" }),
       away.length > 0 && h("div", { className: "aside" },
         h("p", null, "Le studio ne sait pas faire « " + away.join(", ") + " ». On le met de côté, il reste dans le brief."),
@@ -1063,20 +1065,20 @@
           a.colours.length < 2 && !reading && !unsorted && h("span", { className: "small muted" }, "Il en faut deux, une pour le fond et une pour le texte.")),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Visuels gardés" + (a.visuals.length ? " · " + a.visuals.length : "")),
           a.visuals.length ? h("ul", { className: "thumbs", "aria-label": "Visuels gardés" }, a.visuals.map((v) => h("li", { key: v.id }, h("img", { src: v.preview, alt: v.note, title: v.note }))))
-            : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire.")))),
+            : h("p", { className: "small muted" }, reading ? "Le studio lit le site." : b.can_discover ? "Aucun pour l'instant." : "Aucun : la marque n'a pas de site à lire."))),
       h(Names, { ctx, bid }),
       h(Personas, { ctx, bid }),
       h(Competitors, { ctx, bid }),
       h(BrandFiles, { ctx, bid }),
       h(Research, { ctx, bid }),
       h(Logos, { ctx, bid }),
-      h(ExportBrand, { ctx, bid }));
+      h(ExportBrand, { ctx, bid })));
   }
 
   /* ---------- export: the brand folder, one zip ---------- */
   function ExportBrand({ ctx, bid }) {
     const take = () => ctx.act(async () => { const f = await api.exportBrand(bid); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le dossier de marque.");
-    return h("section", { className: "export" },
+    return h("section", { className: "export bloc" },
       h(Where, null, "Le dossier de marque"),
       h("p", { className: "small muted" }, "Une archive avec la fiche de la marque, son logo et, pour chaque valeur, d'où elle vient et si elle est confirmée. Ce qui manque est écrit comme manquant."),
       h(Button, { variant: "secondary", onClick: take, "aria-label": "Télécharger le dossier de marque" }, "Télécharger le dossier de marque"));
@@ -1103,7 +1105,7 @@
       setEd(null); ctx.touch(); await ctx.refresh();
       ctx.notify(chosen ? "La marque s'appelle maintenant " + chosen + "." : plural(names.length, "nom est gardé", "noms sont gardés") + " dans la marque.");
     });
-    return h("div", { id: "names" }, h(Where, null, "Ses noms"),
+    return h("div", { id: "names", className: "bloc" }, h(Where, null, "Ses noms"),
       h("p", { className: "small muted" }, "Son nom aujourd'hui : " + data.name),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche des noms à partir du brief de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun nom proposé. Le studio peut en proposer jusqu'à huit, ou tu en écris un toi-même."
@@ -1114,7 +1116,7 @@
         h("label", { htmlFor: "name-" + i, className: "small cap" }, (x.kept ? "Nom gardé " : "Proposition ") + (i + 1)),
         h("input", { id: "name-" + i, type: "text", value: x.name, readOnly: !!data.job, onChange: (e) => change(i, { name: e.target.value }) }),
         x.why && h("p", { className: "small muted" }, x.why),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= NAMES_MAX || !x.name.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           x.kept && x.name.trim() === data.name ? h("span", { className: "small muted" }, "C'est son nom.")
             : x.kept && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0 || !x.name.trim(), onClick: () => save(x.name.trim()), "aria-label": "Choisir " + x.name.trim() + " comme nom de la marque" }, "Choisir"),
@@ -1147,7 +1149,7 @@
       ctx.log("@" + bid, "toi", "Personas enregistrés", plural(texts.length, "persona gardé", "personas gardés"));
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "persona est enregistré", "personas sont enregistrés") + " dans la marque." : "La marque n'a plus de persona.");
     });
-    return h("div", { id: "personas" }, h(Where, null, "Ses personas"),
+    return h("div", { id: "personas", className: "bloc" }, h(Where, null, "Ses personas"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio imagine les personas à partir de ce qu'il sait de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun persona. Le studio peut en proposer jusqu'à quatre, ou tu les écris toi-même."
           : "Aucun persona. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
@@ -1156,7 +1158,7 @@
       list.map((x, i) => h("div", { key: i, className: "editor", "data-persona": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "persona-" + i, className: "small cap" }, (x.kept ? "Persona gardé " : "Proposition ") + (i + 1)),
         h("textarea", { id: "persona-" + i, rows: 7, value: x.text, readOnly: !!data.job, onChange: (e) => change(i, { text: e.target.value }) }),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= PERSONAS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le persona " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
       h("div", { className: "gestures" },
@@ -1187,7 +1189,7 @@
       ctx.log("@" + bid, "toi", "Concurrents enregistrés", plural(texts.length, "concurrent gardé", "concurrents gardés"));
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "concurrent est enregistré", "concurrents sont enregistrés") + " dans la marque." : "La marque n'a plus de concurrent.");
     });
-    return h("div", { id: "concurrents" }, h(Where, null, "Ses concurrents"),
+    return h("div", { id: "concurrents", className: "bloc" }, h(Where, null, "Ses concurrents"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche les concurrents à partir de ce qu'il sait de la marque et du marché.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun concurrent. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
           : "Aucun concurrent. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
@@ -1196,7 +1198,7 @@
       list.map((x, i) => h("div", { key: i, className: "editor", "data-competitor": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "concurrent-" + i, className: "small cap" }, (x.kept ? "Concurrent gardé " : "Proposition ") + (i + 1)),
         h("textarea", { id: "concurrent-" + i, rows: 4, value: x.text, readOnly: !!data.job, onChange: (e) => change(i, { text: e.target.value }) }),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= COMPETITORS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le concurrent " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
       h("div", { className: "gestures" },
@@ -1243,7 +1245,7 @@
       setEd(null); setReplace(false); ctx.touch(); ctx.notify(values.length ? plural(values.length, "valeur est enregistrée", "valeurs sont enregistrées") + " dans la marque." : "Rien n'est entré dans la marque.");
     });
     const dirty = ed !== null || data.proposed.length > 0;
-    return h("div", { id: "fichiers" }, h(Where, null, "Ses fichiers"),
+    return h("div", { id: "fichiers", className: "bloc" }, h(Where, null, "Ses fichiers"),
       data.files.length === 0 && h("p", { className: "vide" }, "Aucun fichier. Dépose ta charte (pdf) et tes visuels (png, jpg, webp ou gif), vingt au plus : le studio les lit et te propose ce qu'il apprend de la marque."),
       data.files.length > 0 && h("ul", { className: "small", "aria-label": "Fichiers de la marque" }, data.files.map((f) => h("li", { key: f.name }, f.name, h("span", { className: "muted" }, " · " + Math.max(1, Math.round(f.size / 1024)) + " Ko")))),
       data.fonts.length > 0 && h("p", { className: "small" }, "Polices gardées : " + data.fonts.map((f) => f.family + " (" + FILE_ROLE[f.role] + ")").join(", ") + "."),
@@ -1253,11 +1255,11 @@
       list.map((x, i) => h("div", { key: i, className: "editor", "data-value": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "valeur-" + i, className: "small cap" }, fileLabel(x) + (x.file ? " · lu dans " + x.file : "") + (x.kept ? " · gardée" : " · à confirmer")),
         h("input", { id: "valeur-" + i, type: "text", value: x.value, onChange: (e) => change(i, { value: e.target.value }) }),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: !x.value.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder " + fileLabel(x) + " " + x.value }, "Garder"),
           h(Button, { variant: "ghost", size: "sm", onClick: () => drop(i), "aria-label": "Écarter " + fileLabel(x) + " " + x.value }, "Écarter")))),
       replace && h(Callout, { tone: "risk", label: "Les couleurs de la marque sont déjà confirmées" },
-        "Celles que tu gardes sont différentes. Les remplacer ?", h("div", { className: "row" }, h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: () => save(true) }, "Remplacer les couleurs"),
+        "Celles que tu gardes sont différentes. Les remplacer ?", h("div", { className: "actions" }, h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: () => save(true) }, "Remplacer les couleurs"),
           h(Button, { variant: "ghost", size: "sm", onClick: () => setReplace(false) }, "Garder les anciennes (écarte les couleurs proposées)"))),
       h("div", { className: "gestures" },
         h("input", { ref: input, type: "file", className: "sr", multiple: true, accept: "application/pdf,image/png,image/jpeg,image/webp,image/gif", onChange: pick, tabIndex: -1, "aria-hidden": "true", "data-files-input": "1" }),
@@ -1297,7 +1299,7 @@
         list && list.map((x, i) => h("div", { key: i, className: "editor", "data-competitor": x.kept ? "kept" : "proposed" },
           h("label", { htmlFor: "acteur-" + i, className: "small cap" }, (x.kept ? "Acteur gardé " : "Acteur proposé ") + (i + 1)),
           h("textarea", { id: "acteur-" + i, rows: 4, value: x.text, onChange: (e) => change(i, { text: e.target.value }) }),
-          h("div", { className: "row" },
+          h("div", { className: "actions" },
             !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder l'acteur " + (i + 1) }, "Garder"),
             h(Button, { variant: "ghost", size: "sm", onClick: () => setList(list.filter((y, k) => k !== i)), "aria-label": "Écarter l'acteur " + (i + 1) }, "Écarter")))),
         list && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque acteur avant de le rattacher."),
@@ -1324,7 +1326,7 @@
       ctx.log("@" + bid, "toi", "Résultats du web enregistrés", plural(found.length, "résultat gardé", "résultats gardés"));
       setEd(null); ctx.touch(); ctx.notify(found.length ? plural(found.length, "résultat est enregistré", "résultats sont enregistrés") + " dans la marque." : "La marque n'a plus de résultat du web.");
     });
-    return h("div", { id: "sur-le-web" }, h(Where, null, "Sur le web"),
+    return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Sur le web"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche sur le web ce qui parle de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, "Rien pour l'instant. Le studio peut chercher sur le web le site de la marque, ses campagnes et ce que la presse en dit."),
       data.error && !data.job && h(Callout, { tone: "risk", label: "La recherche n'a pas marché" }, data.error),
@@ -1333,7 +1335,7 @@
         h("p", { className: "small cap" }, (BELONGING[x.belonging] || x.belonging) + (x.kept ? " · gardé" : " · proposition")),
         h("p", null, h("a", { href: x.url, target: "_blank", rel: "noopener noreferrer" }, x.url)),
         h("p", { className: "small" }, x.brings),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", onClick: () => setEd(list.map((y, k) => (k === i ? { ...y, kept: true } : y))), "aria-label": "Garder le résultat " + (i + 1) }, "Garder"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y, k) => k !== i)), "aria-label": "Écarter le résultat " + (i + 1) }, "Écarter")))),
       h("div", { className: "gestures" },
@@ -1365,7 +1367,7 @@
       ctx.log("@" + bid, "toi", "Logo choisi", x.idea);
       ctx.touch(); ctx.notify("Cette piste est le logo de la marque.");
     });
-    return h("div", { id: "logos" }, h(Where, null, "Ses logos"),
+    return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Ses logos"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio dessine des pistes de logo avec le nom et les couleurs de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, "Aucune piste. Le studio peut en dessiner jusqu'à quatre."),
       data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
@@ -1374,7 +1376,7 @@
         h("span", { className: "small cap" }, (x.kept ? "Piste gardée " : "Proposition ") + (i + 1)),
         h("div", { className: "logobox" }, h("img", { src: svgSrc(x.svg), alt: "Piste de logo " + (i + 1) + " : " + x.idea })),
         h("p", { className: "small" }, x.idea),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= LOGOS_MAX, onClick: () => change(x.id, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           x.kept && !dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => choose(x), "aria-label": "Prendre la piste " + (i + 1) + " comme logo de la marque" }, "Prendre comme logo"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y) => y.id !== x.id)), "aria-label": (x.kept ? "Écarter la piste " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
@@ -1405,8 +1407,8 @@
       ctx.log(pid, "toi", "Textes enregistrés", plural(texts.length, "texte gardé", "textes gardés"));
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "texte est enregistré", "textes sont enregistrés") + " dans le projet." : "Le projet n'a plus de texte.");
     });
-    const copy = (text) => navigator.clipboard.writeText(text).then(() => ctx.notify("Texte copié."), () => ctx.notify("La copie n'a pas marché : sélectionne le texte et copie-le."));
-    return h("div", { id: "textes" }, h(Where, null, "Ses textes"),
+    const copy = (text) => navigator.clipboard.writeText(text).then(() => ctx.notify("Texte copié."), () => ctx.fail(new Error("La copie n'a pas marché : sélectionne le texte et copie-le.")));
+    return h("div", { id: "textes", className: "bloc" }, h(Where, null, "Ses textes"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit les textes à partir du brief et de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun texte. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
           : "Aucun texte. Le studio en propose une fois le brief validé ; tu peux aussi les écrire toi-même."),
@@ -1415,7 +1417,7 @@
       list.map((x, i) => h("div", { key: i, className: "editor", "data-text": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "texte-" + i, className: "small cap" }, (x.kept ? "Texte gardé " : "Proposition ") + (i + 1)),
         h("textarea", { id: "texte-" + i, rows: 3, value: x.text, readOnly: !!data.job, onChange: (e) => change(i, { text: e.target.value }) }),
-        h("div", { className: "row" },
+        h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= TEXTS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           x.kept && !dirty && h(Button, { variant: "secondary", size: "sm", onClick: () => copy(x.text), "aria-label": "Copier le texte " + (i + 1) }, "Copier"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le texte " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
@@ -1447,7 +1449,7 @@
     });
     const render = () => ctx.act(async () => { await api.renderFilm(pid); ctx.log(pid, "toi", "Rendu du film demandé", ""); await ctx.refresh(); ctx.touch(); });
     const download = () => ctx.act(async () => saveFile(await api.downloadFilm(pid)));
-    return h("div", { id: "film" }, h(Where, null, "Son film"),
+    return h("div", { id: "film", className: "bloc" }, h(Where, null, "Son film"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit le script et le découpage à partir du brief.")
         : shots.length === 0 && h("p", { className: "vide" }, "Pas encore de film. Le studio peut écrire un script et un découpage en plans, que tu corriges avant le rendu."),
       data.error && !data.job && h(Callout, { tone: "risk", label: "Le découpage n'a pas marché" }, data.error),
@@ -1457,7 +1459,7 @@
         h("textarea", { id: "sb-script", rows: 3, value: script, readOnly: !!data.job, onChange: (e) => setEd({ script: e.target.value, shots }) }),
         shots.map((x, i) => h("div", { key: i, className: "editor", "data-shot": i + 1 },
           h("span", { className: "small cap" }, "Plan " + (i + 1) + " sur " + shots.length + (x.visual === "logo" ? " : le logo de la marque" : "")),
-          h("div", { className: "row" },
+          h("div", { className: "actions" },
             h("label", { htmlFor: "sb-s-" + i, className: "small" }, "Secondes"),
             h("input", { id: "sb-s-" + i, type: "number", min: 1, max: 8, step: 0.5, value: x.seconds, onChange: (e) => change(i, { seconds: e.target.value }) }),
             h("label", { htmlFor: "sb-c-" + i, className: "small" }, "Couleur"),
@@ -1753,7 +1755,7 @@
           h("label", { htmlFor: "jed", className: "small" }, "Écrire " + cur.label),
           cur.area ? h("textarea", { id: "jed", autoFocus: true, value: fields[cur.k], onChange: (e) => set(cur.k, e.target.value) })
             : h("input", { id: "jed", type: "text", autoFocus: true, value: fields[cur.k], onChange: (e) => set(cur.k, e.target.value), onKeyDown: (e) => { if (e.key === "Enter") setOpen(null); } }),
-          h("div", { className: "row" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer : " + cur.label }, "Fait"))),
+          h("div", { className: "actions" }, h(Button, { variant: "secondary", size: "sm", onClick: () => setOpen(null), "aria-label": "Terminer : " + cur.label }, "Fait"))),
         h(BriefPersonas, { list: fields.personas, set: (v) => set("personas", v), id: "jpe" }),
         h("div", { className: "field" }, h("label", { htmlFor: "jb" }, "Sa marque (facultatif)"),
           h("select", { id: "jb", value: brand, onChange: (e) => setBrand(e.target.value), "aria-describedby": "jb-hint" }, h("option", { value: "" }, "Sans marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
@@ -1797,7 +1799,7 @@
       h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("h2", { className: "titre" }, jg.name),
         h("p", { className: "sub" }, [jg.brand_name || "Sans marque", day(jg.at)].filter(Boolean).join(" · "))),
       h("div", { className: "bodyc" },
-        jg.image && h("figure", { className: "frame wide" }, h("img", { src: jg.image, alt: "La pièce jugée : " + jg.name })),
+        jg.image && h(Frame, { src: jg.image, alt: "La pièce jugée : " + jg.name }),
         said.length > 0 && h("p", { className: "small muted" }, said.join(". ") + "."),
         jg.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce.")
           : jg.status === "failed" ? h(React.Fragment, null, h(Callout, { tone: "risk", label: "Le juge n'a pas pu la relire" }, jg.error || "raison inconnue"),
@@ -1879,13 +1881,15 @@
     useEffect(() => { const f = () => setW(window.innerWidth); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
     return w;
   }
-  /* what each column asks for (the last one takes what is left, down to LAST_MIN) and what a folded one costs */
-  const COL_W = [300, 360, 360, 420], LAST_MIN = 360, STRIP_W = 44;
+  /* the width of a column comes from what it shows, never from its place: opening a deeper column does not reflow those already open
+     (the last one takes what is left, its content keeping that same width); a folded one costs a strip */
+  const KIND_W = { studio: 300, brand: 420 }, COL_W = 560, STRIP_W = 44;
+  const colW = (kind) => KIND_W[kind] || COL_W;
   /* how many of the columns on the left fold into strips so that the rest fits: the least that does it (the last column is never folded) */
-  function foldCount(n, width) {
-    const need = (i) => STRIP_W * i + Array.from({ length: n - i }, (_, k) => (i + k === n - 1 ? LAST_MIN : COL_W[Math.min(i + k, 3)])).reduce((a, b) => a + b, 0);
+  function foldCount(widths, width) {
+    const need = (i) => STRIP_W * i + widths.slice(i).reduce((a, b) => a + b, 0);
     let i = 0;
-    while (i < n - 1 && need(i) > width) i++;
+    while (i < widths.length - 1 && need(i) > width) i++;
     return i;
   }
 
@@ -2128,6 +2132,8 @@
     const note = notice && typeof notice === "object" ? notice : { text: notice };
     const noticeEl = h(Notice, { text: note.text, action: note.action, busy });
     const slow = wait && h("p", { className: "working slow", role: "status" }, h("b", { "aria-hidden": "true" }), wait);
+    /* what the studio says in passing (done, working) floats at the bottom: it never pushes the content, which does not jump when it comes or goes */
+    const toasts = (note.text || slow) && h("div", { className: "toasts" }, slow, noticeEl);
     const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
     const pal = palette && h(Palette, { cmds, onClose: () => setPalette(false) });
@@ -2140,7 +2146,7 @@
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
-        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, noticeEl, h("p", { className: "ou small muted" }, whereLine(t)), slow, err, h(Core, { ctx, t, key: t._k }))), pal);
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h("p", { className: "ou small muted" }, whereLine(t)), err, h(Core, { ctx, t, key: t._k }))), toasts, pal);
     }
 
     /* ----- the columns ----- */
@@ -2154,21 +2160,21 @@
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
     const shell = (kind, i) => {
       const last = i === cols.length - 1;
-      return h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), "data-col": i, "aria-label": labels[kind] },
-        last && slow, last && err, last && noticeEl, node(kind));
+      return h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
+        last && err, node(kind));
     };
     if (narrow) {
       const i = cols.length - 1;
       return h("div", { className: "app narrow" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
         i > 0 && h("button", { type: "button", className: "retour", onClick: () => popTo(i), "aria-label": "Retour : " + labels[cols[i - 1]] }, "‹ " + labels[cols[i - 1]]),
-        h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i)), pal);
+        h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i)), toasts, pal);
     }
-    const fold = foldCount(cols.length, width); // when the columns do not fit, those on the left fold into strips that keep their names, as they do in a task
+    const fold = foldCount(cols.map(colW), width); // when the columns do not fit, those on the left fold into strips that keep their names, as they do in a task
     const strip = (kind, i) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => popTo(i + 1), "aria-label": "Revenir à : " + labels[kind] }, h("span", null, labels[kind]));
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
       h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => i < fold ? strip(kind, i) : shell(kind, i)),
-        cols.length === 1 && h("div", { className: "rest" }, slow, err, noticeEl, h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
-      pal);
+        cols.length === 1 && h("div", { className: "rest" }, err, h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
+      toasts, pal);
   }
 
   ReactDOM.createRoot(document.getElementById("root")).render(h(App));
