@@ -75,9 +75,6 @@ class Film(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class Typography(unittest.TestCase):
     """A question mark never starts a line alone: French marks are tied to their word by a narrow no-break space."""
@@ -98,3 +95,7 @@ class Typography(unittest.TestCase):
         brand = {"logo": None, "name": "Cabane", "hfont": "", "bfont": "", "background": "#f4efe6", "text": "#1e2a24", "accent": None, "extras": []}
         page = self.film.shot_page({"visual": "texte", "text": "Par où commencer ?", "colour": "#1e2a24", "seconds": 2}, brand, Path("."), ["#f4efe6"])
         self.assertIn("commencer ?", page)
+
+
+if __name__ == "__main__":
+    unittest.main()

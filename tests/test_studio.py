@@ -706,9 +706,6 @@ class Round3(unittest.TestCase):
         self.assertNotIn("round-", run("decide", h, "again", "no").stdout)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 SLOGAN = "Brewed slowly. Drunk quickly."
 DOSSIER = ROOT / "examples" / "marrowbay" / "brand"
@@ -878,3 +875,7 @@ class CodexWithoutImageTool(unittest.TestCase):
             self.assertIn("OPENAI_API_KEY or OpenRouter", why)
         finally:
             shutil.rmtree(d, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    unittest.main()
