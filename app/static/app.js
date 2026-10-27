@@ -1208,7 +1208,7 @@
     /* the landscape of a market: its players, drawn at once and without the brief, come as proposals to keep or drop like the others */
     const landscape = () => ctx.act(async () => {
       const r = await api.landscape(market.trim());
-      setEd(list.concat(r.competitors.map((text) => ({ text, kept: false })))); setMarket(null);
+      setEd((e) => (e || list).concat(r.competitors.map((text) => ({ text, kept: false })))); setMarket(null);
       ctx.log("@" + bid, "toi", "Paysage d'un marché demandé au studio", market.trim());
     }, "Le studio dessine le paysage de ce marché.");
     const save = () => ctx.act(async () => {
@@ -1886,7 +1886,7 @@
      last one at the end. When what is open does not fit in `room`, more fold of themselves: first those nobody unfolded, from the left,
      then those unfolded by hand, the oldest first. `keep` never folds (the deepest column; -1 beside a task, whose core is not a column) */
   function foldPlan(kinds, room, hand, keep) {
-    const shut = kinds.map((k) => hand.shut.includes(k));
+    const shut = kinds.map((k, i) => i !== keep && hand.shut.includes(k));
     const need = () => kinds.reduce((n, k, i) => n + (shut[i] ? STRIP_W : colW(k)), 0);
     const turn = kinds.map((k, i) => i).filter((i) => i !== keep && !shut[i]).sort((x, y) => hand.open.indexOf(kinds[x]) - hand.open.indexOf(kinds[y]) || x - y);
     for (const i of turn) { if (need() <= room) break; shut[i] = true; }
@@ -1894,7 +1894,10 @@
   }
   /* what the person folded and unfolded is kept on this side, per browser: a convenience, the studio works the same without it */
   const FOLDS = "studio-folds";
-  const loadFolds = () => { try { const x = JSON.parse(localStorage.getItem(FOLDS) || "{}"); return { shut: x.shut || [], open: x.open || [], beside: x.beside || [] }; } catch (e) { return { shut: [], open: [], beside: [] }; } };
+  const loadFolds = () => {
+    const list = (v) => Array.isArray(v) ? v.filter((k) => typeof k === "string") : [];
+    try { const x = JSON.parse(localStorage.getItem(FOLDS) || "{}") || {}; return { shut: list(x.shut), open: list(x.open), beside: list(x.beside) }; } catch (e) { return { shut: [], open: [], beside: [] }; }
+  };
   const saveFolds = (x) => { try { localStorage.setItem(FOLDS, JSON.stringify(x)); } catch (e) { /* private window: nothing kept */ } };
 
   function useNarrow() {
@@ -2180,10 +2183,14 @@
     if (dive) {
       const t = dive;
       const last = labels[cols[cols.length - 1]];
-      const shut = foldPlan(cols, width - CORE_MIN, { shut: cols.filter((k) => !folds.beside.includes(k)), open: folds.beside }, -1);
+      const besideOf = (open) => ({ shut: cols.filter((k) => !open.includes(k)), open });
+      const shut = foldPlan(cols, width - CORE_MIN, besideOf(folds.beside), -1);
+      /* a column that does not fit beside the task even alone: the columns come back, at that level */
+      const beside = (kind) => { const i = cols.indexOf(kind), open = folds.beside.filter((k) => k !== kind).concat(kind);
+        if (foldPlan(cols, width - CORE_MIN, besideOf(open), -1)[i]) { back(); popTo(i + 1); } else openBeside(kind); };
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
-          : cols.map((kind, i) => shut[i] ? strip(kind, i, openBeside, "Ouvrir à côté de la tâche : ") : shell(kind, i, false, shutBeside)),
+          : cols.map((kind, i) => shut[i] ? strip(kind, i, beside, "Ouvrir à côté de la tâche : ") : shell(kind, i, false, shutBeside)),
         h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" },
           h("div", { className: "ou" }, h("p", { className: "small muted" }, whereLine(t)), !narrow && h("button", { type: "button", className: "linkbtn small", onClick: back, "aria-label": "Fermer la tâche et revenir aux colonnes (Échap)" }, "Revenir aux colonnes")),
           err, h(Core, { ctx, t, key: t._k }))), toasts, pal);
@@ -2196,8 +2203,12 @@
         h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i, true)), toasts, pal);
     }
     const shut = foldPlan(cols, width, folds, cols.length - 1); // by hand, or when the columns do not fit: those on the left fold into strips that keep their names
+    /* a strip unfolds its column alone; when even then it does not fit, the columns on its right close, as a strip did before */
+    const open = (kind) => { const i = cols.indexOf(kind);
+      unfold(kind);
+      if (foldPlan(cols, width, { shut: folds.shut.filter((k) => k !== kind), open: folds.open.filter((k) => k !== kind).concat(kind) }, cols.length - 1)[i]) popTo(i + 1); };
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
-      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => shut[i] ? strip(kind, i, unfold, "Déplier la colonne : ") : shell(kind, i, i === cols.length - 1, i < cols.length - 1 && cols.length > 1 ? fold : null)),
+      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => shut[i] ? strip(kind, i, open, "Déplier la colonne : ") : shell(kind, i, i === cols.length - 1, i < cols.length - 1 && cols.length > 1 ? fold : null)),
         cols.length === 1 && h("div", { className: "rest" }, err, h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
       toasts, pal);
   }

@@ -154,7 +154,7 @@ def authenticate(headers) -> bool:
 def static_build():
     """The version of the interface on disk (its newest file): a page opened before it changed offers to reload, an open tab never
     fetches its css or its scripts again by itself."""
-    return max((int(f.stat().st_mtime) for f in STATIC.iterdir() if f.is_file()), default=0)
+    return max((int(f.stat().st_mtime) for f in STATIC.rglob("*") if f.is_file()), default=0)
 
 
 def make_handler(backend):
