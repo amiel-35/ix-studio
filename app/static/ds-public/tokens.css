@@ -1,0 +1,21 @@
+/* ds-public: the neutral look the studio takes when the brand design system is not installed (app/static/ds/ missing).
+   The same variables as that system, with plain values: system fonts, greys and one blue. Nothing in it is a brand. */
+:root {
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-body);
+  --fs-h2: 26px; --fs-h3: 20px; --fs-body-lg: 17px; --fs-body: 15px; --fs-small: 13px; --fs-caption: 11px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600;
+  --lh-body: 1.55; --lh-heading: 1.2; --ls-heading: -0.01em; --ls-label: 0.08em;
+  --space-0: 0; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 40px; --space-8: 48px; --space-9: 56px; --space-10: 64px;
+  --radius-sm: 3px; --radius-md: 6px; --radius-lg: 10px; --radius-pill: 999px;
+  --border-width-accent: 3px;
+  --transition-fast: 120ms ease;
+  --shadow-md: 0 8px 24px rgb(15 23 42 / 0.12);
+
+  --neutral-100: #f4f5f7; --neutral-200: #e8eaee; --neutral-300: #d3d7de; --neutral-400: #a9b0bc;
+  --surface-page: #ffffff; --surface-light: #f8f9fa; --surface-sunken: #f1f3f5; --surface-card: #ffffff;
+  --border-subtle: #e6e8ec; --border-default: #d3d7de; --border-strong: #aeb5c0;
+  --text-heading: #111827; --text-strong: #1f2937; --text-body: #374151; --text-muted: #6b7280; --text-faint: #9ca3af;
+  --blue-medium: #2f5fd0; --text-link: #2f5fd0; --action-hover: #1f47a8; --action-subtle-bg: #eaf0fd; --focus-ring: #2f5fd0;
+  --teal: #2f8f83; --gold: #c9962b; --status-danger: #b42318;
+}

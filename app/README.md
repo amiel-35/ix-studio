@@ -60,7 +60,9 @@ When Chrome, Claude Code or an image engine is missing, the studio's column says
 
 The interface uses a brand design system that is not published with this repository: put its files in
 `app/static/ds/` (`tokens.css`, `components/bundle.css`, `components/bundle.js`, `components/lib/react*.js`,
-`fonts/`). Without them the page has no style and no components.
+`fonts/`). Without them the server answers `ds/...` with `static/ds-public/`, a neutral look (system fonts, greys, one
+blue, the four components the interface uses and React 18.3.1): the studio works on a new machine, it is just not dressed
+in the brand.
 
 ## How it is built
 

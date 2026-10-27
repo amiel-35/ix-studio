@@ -11,6 +11,7 @@ It gives {"video", "seconds", "frames"} as JSON on the output. A failure is its 
 import argparse
 import html
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -49,6 +50,12 @@ def ink_on(colour, palette):
     return max([*palette, "#ffffff", "#111111"], key=lambda c: contrast(c, colour))
 
 
+def tie_marks(text: str) -> str:
+    """French typography: a narrow no-break space before ? ! : ; and » and after «, so that a mark never starts a line on its own."""
+    text = re.sub(r"\s+([?!:;»])", "\u202f\\1", text)
+    return re.sub(r"«\s+", "«\u202f", text)
+
+
 def shot_page(shot, brand, piece, palette) -> str:
     colour = shot["colour"]
     ink = ink_on(colour, palette)
@@ -57,7 +64,7 @@ def shot_page(shot, brand, piece, palette) -> str:
         body = f'<img id="l" src="{logo.resolve().as_uri()}" alt="">' if logo else f'<p id="n">{html.escape(brand["name"])}</p>'
         size = 120
     else:
-        body = f'<p id="t">{html.escape(shot["text"])}</p>'
+        body = f'<p id="t">{html.escape(tie_marks(shot["text"]))}</p>'
         size = 150 if len(shot["text"]) <= 24 else 112 if len(shot["text"]) <= 50 else 84
     return PAGE.format(fonts=compose.fonts_link(brand), w=SIZE[0], h=SIZE[1], colour=colour, hf=font_css(brand["hfont"], "Georgia,serif"), size=size, ink=ink,
                        body=body, dur=shot["seconds"], fin=FADE_IN, fout=FADE_OUT)

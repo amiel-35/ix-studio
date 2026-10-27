@@ -77,3 +77,24 @@ class Film(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Typography(unittest.TestCase):
+    """A question mark never starts a line alone: French marks are tied to their word by a narrow no-break space."""
+
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("film_main", FILM / "__main__.py")
+        self.film = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.film)
+
+    def test_french_marks_are_tied_to_their_word(self):
+        tie = self.film.tie_marks
+        self.assertEqual(tie("Mais par où commencer ?"), "Mais par où commencer ?")
+        self.assertEqual(tie("Oui ! Non : « peut-être » ; bon"), "Oui ! Non : « peut-être » ; bon")
+        self.assertEqual(tie("What? Now: go"), "What? Now: go")  # no space before the mark: nothing to tie
+
+    def test_the_shot_page_carries_the_tied_text(self):
+        brand = {"logo": None, "name": "Cabane", "hfont": "", "bfont": "", "background": "#f4efe6", "text": "#1e2a24", "accent": None, "extras": []}
+        page = self.film.shot_page({"visual": "texte", "text": "Par où commencer ?", "colour": "#1e2a24", "seconds": 2}, brand, Path("."), ["#f4efe6"])
+        self.assertIn("commencer ?", page)

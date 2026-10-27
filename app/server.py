@@ -214,6 +214,8 @@ def make_handler(backend):
         def static(self):
             rel = urllib.parse.unquote(self.path.split("?", 1)[0]).lstrip("/") or "index.html"
             f = (STATIC / rel).resolve()
+            if rel.startswith("ds/") and not f.is_file():  # no brand design system installed: the neutral one, ds-public, at the same address
+                f = (STATIC / "ds-public" / rel[3:]).resolve()
             if not f.is_relative_to(STATIC) or not f.is_file():
                 return self.send(404, b"not found", "text/plain; charset=utf-8")
             ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"

@@ -853,3 +853,28 @@ class FromDossier(unittest.TestCase):
             self.assertNotIn("ev-", t)
             self.assertNotIn("reference", t.lower())
             self.assertNotIn("summer-2026", t.split("# missing")[0])
+
+
+class CodexWithoutImageTool(unittest.TestCase):
+    """When Codex has no image tool on the plan (its model cannot draw), the error says what Codex said, not the tokens it used."""
+
+    def test_the_error_quotes_codex_not_its_token_count(self):
+        sys.path.insert(0, str(ST))
+        import images
+        d = Path(tempfile.mkdtemp(prefix="ixs-codex-"))
+        try:
+            fake = d / "codex"
+            fake.write_text("#!/bin/sh\necho \"I couldn't generate the image: no image tool is available.\"\necho 'tokens used' >&2\necho '20 680' >&2\n")
+            fake.chmod(0o755)
+            old = os.environ["PATH"]
+            os.environ["PATH"] = str(d) + os.pathsep + old
+            try:
+                ok, why = images.codex("a brief", (1080, 1350), d / "image.png")
+            finally:
+                os.environ["PATH"] = old
+            self.assertFalse(ok)
+            self.assertIn("no image tool is available", why)
+            self.assertNotIn("20 680", why)
+            self.assertIn("OPENAI_API_KEY or OpenRouter", why)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
