@@ -525,7 +525,7 @@
     const send = () => ctx.act(async () => {
       await api.interview(pid, iv.questions.map((q, i) => answers[i] || ""));
       ctx.log(pid, "toi", "Questions pour le brief répondues", plural(answers.filter((a) => (a || "").trim()).length, "réponse donnée", "réponses données"));
-      setOpen(false); onAsked(); ctx.touch();
+      setOpen(false); setAnswers([]); onAsked(); ctx.touch(); // sent: nothing of them is left to lose
     });
     if (iv.job) return h("p", { className: "small muted", role: "status" }, "Le studio écrit le brief à partir de tes réponses.");
     return h("div", { className: "sec", id: "interview" },
@@ -1718,7 +1718,7 @@
   const IMAGE_WORD = { auto: "Au choix du studio", openai: "OpenAI", openrouter: "OpenRouter", codex: "Codex", none: "Aucun" };
   function Settings({ ctx }) {
     const [cfg, setCfg] = useState(null), [image, setImage] = useState(""), [text, setText] = useState(""), [model, setModel] = useState(""), [key, setKey] = useState("");
-    const show = (c) => { setCfg(c); setImage(c.image_engine); setText(c.text_engine); setModel(c.openrouter_model); setKey(""); };
+    const show = (c) => { setCfg(c); setImage(c.image_engine); setText(c.text_engine); setModel(c.openrouter_model || ""); setKey(""); };
     useDirty(ctx, "settings", null, "les réglages", cfg && (image !== cfg.image_engine || text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()));
     useEffect(() => { api.engines().then(show).catch(ctx.fail); }, []);
     const saveImage = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveEngine(image)); ctx.notify("Le moteur d'image est enregistré."); }); };
@@ -2112,8 +2112,8 @@
       const next = (o.prefer && mine.find((t) => isNew(t) && o.prefer(t))) || (o.any !== false && mine.find(isNew)) || (o.sibling && mine.find(o.sibling)) || null;
       const answeredCore = (d) => d.kind === "core"; // what the task held is what was just answered
       if (next) openTask(next, true, undefined, answeredCore);
-      else guard({ sel: { ...selRef.current, task: null }, dive: null }, () => { setNotice(text); setSel((s) => ({ ...s, task: null })); setDive(null); }, answeredCore);
-      if (next) setNotice(text);
+      setNotice(text); // the answer is taken, whether the person leaves at once or stays for what a neighbour column holds
+      if (!next) guard({ sel: { ...selRef.current, task: null }, dive: null }, () => { setSel((s) => ({ ...s, task: null })); setDive(null); }, answeredCore);
     }, [refresh, openTask, snap, guard]);
 
     /* acting on the whole series: every missing image, every piece ready to compose. Inside a task (`core`), the next one opens; from a column, a line says it */
