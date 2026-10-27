@@ -2,9 +2,10 @@
    It talks to the studio only through window.studioApi (api.js, see app/API.md): no simulated data lives here.
 
    The idea: the levels of the studio are side by side, from the widest to the most precise, and the position is read by following what is
-   selected from left to right. The studio (what waits everywhere, then the brands) / a brand (its brief, its assets, its projects) / a project
-   (its seven steps, what waits) / the detail of a step already done. One rule everywhere: a row opens a column on its right, nothing unfolds
-   under it (a brand's identity, the judge and its pieces are columns like a project). Any column but the deepest folds into a thin vertical
+   selected from left to right. The studio (what waits everywhere, then the brands) / a brand (what waits, its identity, its projects) / a
+   project (what waits, its seven steps, what it made) / the detail of a step, or the page of its pieces. The ten rules of app/README.md hold
+   everywhere; the first: a row opens a column on its right, nothing unfolds under it (a brand's identity, a project's pieces, the judge
+   and its pieces are columns like a project). Any column but the deepest folds into a thin vertical
    strip that keeps its name, by hand or when the window is too narrow, and a click on the strip unfolds it alone. A task opens on one thing
    and two gestures, the columns folded beside it; a strip opens its column next to the task, Escape or the left arrow brings the columns back.
    Every column has its "+" to make what it holds (a brand, a project, a piece to judge). The command palette (Cmd/Ctrl+K) reaches everything. The journal is kept on this side
@@ -17,6 +18,24 @@
   const h = React.createElement;
   /* the system's Callout, in a frame that darkens its red where it writes on its own tint (WCAG AA, see app.css .alerte) */
   const Callout = (props) => h("div", { className: "alerte" }, h(DS.Callout, props));
+  /* a failure said to the person (rule 9 of the grammar): what happened and what to do, in French; what the machine said, when it is not
+     that, unfolds on demand. A known cause is explained; otherwise the shape of the text decides: a short French sentence written by the
+     studio shows as it is, what looks like a program's output (English, paths, traces) folds under "Le détail technique" */
+  const KNOWN = [
+    [/no image tool|image tool/i, "Aucun moteur d'image n'est réglé sur ce poste. Choisis-en un dans les Réglages, en bas de la colonne du studio."],
+    [/OPENAI_API_KEY|OPENROUTER_API_KEY|image generator/i, "Aucun moteur d'image ne marche sur ce poste. Il lui faut une clé OpenAI ou OpenRouter, ou Codex connecté ; les Réglages disent lequel est choisi."],
+    [/timed? ?out|timeout/i, "Le moteur a mis trop de temps à répondre. Relance : ça passe souvent au deuxième essai."],
+  ];
+  const explain = (raw) => { const k = KNOWN.find(([re]) => re.test(raw)); return k ? k[1] : "Le studio n'a pas pu finir. Relance, et si ça recommence, le détail dit pourquoi."; };
+  /* what a program wrote, not the studio: a known cause, several lines, a trace, a path or a file, an English word of the machine, or too long for a sentence */
+  const MACHINE = /\n|Traceback|\w+(Error|Exception)\b|\bat \S+:\d+|\/\S+\/|\S\.(py|js|json|png|jpg|log)\b|\bHTTP\b|[{}]|\b(the|is|not|no|to|of|with|for|was|failed|error|invalid|cannot|unable|missing)\b/i;
+  const machine = (raw) => raw.length >= 240 || MACHINE.test(raw) || KNOWN.some(([re]) => re.test(raw));
+  function Failure({ label, error, children }) {
+    const raw = String(error || "").trim();
+    if (!raw) return h(Callout, { tone: "risk", label }, "Le studio ne dit pas pourquoi.", children);
+    if (!machine(raw)) return h(Callout, { tone: "risk", label }, raw, children);
+    return h(Callout, { tone: "risk", label }, explain(raw), children, h("details", { className: "detail" }, h("summary", null, "Le détail technique"), h("pre", null, raw)));
+  }
   const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
   /* what a part holds and has not saved yet: it says so at each render, under the column it lives in (`kind`, or "core" for the task
@@ -77,6 +96,9 @@
   const FORMAT_WORDS = { "post-4x5": "post 4×5", "post-1x1": "post carré", story: "story", "poster-a3": "affiche A3", "poster-3x2": "affiche 3×2", linkedin: "bandeau 1200×627" };
   const fmtKey = (t) => t.trim().toLowerCase().replace(/ /g, "-");
   const fmtWord = (t) => FORMAT_WORDS[fmtKey(t)] || t.trim();
+  /* a title or a label the studio wrote with a format's key in it ("v3 en post-4x5") says the format in words (rule 9: no technical word in a title) */
+  const humane = (s) => String(s || "").replace(/\b(post-4x5|post-1x1|poster-a3|poster-3x2)\b/g, (k) => FORMAT_WORDS[k]);
+  const pl = (pc) => humane(pc.label);
   /* the seven steps of a project, in plain words: the project column lists them, and `rankOf` places a task among them */
   const SEVEN = [
     { key: "brand", label: "La marque" },
@@ -108,9 +130,9 @@
   const BRIEF_SHOW = { objective: (v) => lowerVerb(dot(v)), audience: (v) => lowerFirst(dot(v)) };
   /* the titles the studio gives to a brand's tasks say "la marque": the interface says which one */
   function taskTitle(t) {
-    if (t.scope !== "brand" || !t.brand_name) return t.title;
+    if (t.scope !== "brand" || !t.brand_name) return humane(t.title);
     const n = t.brand_name;
-    return t.title.replace("de la marque", deName(n)).replace(/la marque\b/, n);
+    return humane(t.title).replace("de la marque", deName(n)).replace(/la marque\b/, n);
   }
   /* what a task waits on, for a list: where it belongs, and how long it has waited */
   const taskPlace = (t) => t.scope === "brand" ? t.brand_name : t.brand_name + " · " + t.project_name;
@@ -201,7 +223,7 @@
       await ctx.answered(owner(t), "C'est relancé.", { before: snap, any: false });
     }, "Le studio relance.");
     return h("div", { className: "task" }, h(Head, null, taskTitle(t)),
-      h(Callout, { tone: "risk", label: "Ça n'a pas marché" }, reason),
+      h(Failure, { label: "Ça n'a pas marché", error: reason }),
       h("div", { className: "gestures" },
         h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: retry, "aria-label": "Relancer : " + taskTitle(t) }, "Relancer")));
   }
@@ -339,7 +361,7 @@
           h("img", { src: l.preview, alt: "" }), h("span", { className: "small" }, l.note)))),
         h("div", { className: "gestures" },
           h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !logo, onClick: submit, "aria-label": "Valider le tri de la marque" }, "Valider le tri"),
-          h(LogoDrop, { ctx, bid, label: logos.length ? "Déposer un autre logo" : "Déposer un logo", size: "lg", variant: logos.length ? "secondary" : "primary", onDone: dropped_ }),
+          h(LogoDrop, { ctx, bid, label: logos.length ? "Déposer un autre logo" : "Déposer un logo", size: "lg", variant: "secondary", onDone: dropped_ }),
           evidence.length > 0 && h(Button, { variant: "ghost", size: "lg", onClick: () => { setStage("visuals"); setCur(evidence.length - 1); }, "aria-label": "Revoir les visuels" }, "Revoir les visuels")),
         !logo && h("p", { className: "small muted" }, "Choisis un logo, ou dépose le tien, pour continuer."),
         h("span", { className: "sr", role: "status", "aria-live": "polite" }, said));
@@ -529,7 +551,7 @@
     });
     if (iv.job) return h("p", { className: "small muted", role: "status" }, "Le studio écrit le brief à partir de tes réponses.");
     return h("div", { className: "sec", id: "interview" },
-      iv.error && h(Callout, { tone: "risk", label: "Le brief n'a pas pu être écrit" }, iv.error),
+      iv.error && h(Failure, { label: "Le brief n'a pas pu être écrit", error: iv.error }),
       !open ? h("p", { className: "small muted" }, "Pas envie de tout écrire ? ",
         h("button", { type: "button", className: "linkbtn", onClick: () => setOpen(true), "aria-label": "Répondre à quelques questions pour pré-remplir le brief" }, "Réponds à quelques questions"), ".")
         : h("div", { className: "sec" },
@@ -537,7 +559,7 @@
             h("input", { id: "iv-" + i, type: "text", value: answers[i] || "", onChange: (e) => setAnswers(iv.questions.map((x, k) => (k === i ? e.target.value : answers[k] || ""))) }))),
           h("p", { className: "small muted" }, "Laisse vide ce que tu ne sais pas encore : le studio ne le devine pas."),
           h("div", { className: "actions" },
-            h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || !said, onClick: send, "aria-label": "Écrire le brief à partir de mes réponses" }, "Écrire le brief"),
+            h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || !said, onClick: send, "aria-label": "Écrire le brief à partir de mes réponses" }, "Écrire le brief"), // the task's filled button is "Valider le brief" (rule 8)
             h(Button, { variant: "ghost", size: "sm", onClick: () => setOpen(false), "aria-label": "Fermer les questions" }, "Fermer"))));
   }
 
@@ -736,8 +758,8 @@
         r.status === "done" ? h(React.Fragment, null, h("p", null, h("strong", null, "Elle me vise : " + AIMED[r.reading.aimed] + ". "), r.reading.why),
           READ_HEADS.filter(([k]) => r.reading[k]).map(([k, label]) => h("div", { key: k }, h("h3", { className: "cap" }, label), h("p", null, r.reading[k]))))
           : r.status === "running" ? h("p", { className: "small muted" }, "Ce lecteur lit la pièce.")
-          : h("p", { className: "small" }, r.status === "failed" ? "Ce lecteur n'a pas pu la lire : " + dot(r.error) + ". " : "Pas encore lue. ",
-            h("button", { type: "button", className: "linkbtn", disabled: busy, onClick: () => run(r.n), "aria-label": "Relancer le lecteur " + (r.n + 1) }, "Relancer"))))));
+          : h(React.Fragment, null, r.status === "failed" ? h(Failure, { label: "Ce lecteur n'a pas pu la lire", error: r.error }) : h("p", { className: "small" }, "Pas encore lue."),
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: busy, onClick: () => run(r.n), "aria-label": "Relancer le lecteur " + (r.n + 1) }, "Relancer")))))));
   }
 
   /* ================= 6. a piece: prompt, composition, decision ================= */
@@ -758,7 +780,7 @@
   /* the series in a column: the pieces as thumbnails, each with where it stands; a click opens it */
   function Series({ ctx, p, col }) {
     const jobs = p.jobs, n = seriesCount(p.pieces);
-    const open = (pc) => ctx.openTask(synth(p, "piece-any", { piece: pc.id, title: pc.label }));
+    const open = (pc) => ctx.openTask(synth(p, "piece-any", { piece: pc.id, title: pl(pc) }));
     const toDraw = p.pieces.filter((x) => !x.image && !jobs.some((j) => j.kind === "image" && j.piece === x.id)).length, toCompose = p.pieces.filter((x) => x.image && !x.composed).length;
     const hasPrompt = ctx.data.tasks.some((t) => t.scope === "project" && t.project === p.id && t.kind === "prompt"); // an image that failed is a task of its own, not a prompt to read
     const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(p.id); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(n.decide, "pièce", "pièces") + "."); }, "Le studio prépare le zip.");
@@ -770,9 +792,9 @@
         n.decide > 0 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: takeKept, "aria-label": n.decide === 1 ? "Télécharger en zip la pièce gardée" : "Télécharger en zip les " + plural(n.decide, "pièce gardée", "pièces gardées") }, n.decide === 1 ? "Télécharger la pièce gardée" : "Télécharger les " + plural(n.decide, "pièce gardée", "pièces gardées"))),
       h("ul", { className: "serie", "aria-label": "Les pièces de la série" }, p.pieces.map((pc) => {
         const w = STAGE_WORDS[stageOf(pc, jobs)], src = pieceSrc(pc);
-        return h("li", { key: pc.id }, h("button", { type: "button", className: "vign", "data-col": col, "data-piece": pc.id, onClick: () => open(pc), "aria-label": pc.label + " : " + w.toLowerCase() },
+        return h("li", { key: pc.id }, h("button", { type: "button", className: "vign", "data-col": col, "data-piece": pc.id, onClick: () => open(pc), "aria-label": pl(pc) + " : " + w.toLowerCase() },
           h("span", { className: "vf", style: { "--ratio": pc.size[0] / pc.size[1] } }, src ? h("img", { src, alt: "" }) : null),
-          h("span", { className: "nom small" }, pc.label), h("span", { className: "meta" }, w)));
+          h("span", { className: "nom small" }, pl(pc)), h("span", { className: "meta" }, w)));
       })));
   }
 
@@ -782,7 +804,7 @@
     return [pc, setPc];
   }
   const PieceHead = ({ pc }) => h(React.Fragment, null,
-    h(Eyebrow, null, pc.label + " · " + pc.size[0] + " × " + pc.size[1]),
+    h(Eyebrow, null, pl(pc) + " · " + pc.size[0] + " × " + pc.size[1]),
     h(Head, null, pc.headline));
 
   /* the prompt of a variant: its formats share it, and the image of each is drawn from it */
@@ -810,7 +832,7 @@
         { before: snap, any: false, sibling: all ? undefined : (t) => t.kind === "prompt" && t.variant !== pc.variant });
     }, "Le studio lance les images.");
     return h("div", { className: "task" },
-      h(Eyebrow, null, several ? pc.variant + " · " + formats : pc.label + " · " + pc.size[0] + " × " + pc.size[1]), h(Head, null, words.headline || pc.headline),
+      h(Eyebrow, null, several ? pc.variant + " · " + formats : pl(pc) + " · " + pc.size[0] + " × " + pc.size[1]), h(Head, null, words.headline || pc.headline),
       !edit && words.subline && h("p", { className: "lead muted" }, words.subline),
       h("p", { className: "small" }, h("button", { type: "button", className: "linkbtn", "aria-expanded": edit, onClick: () => setEdit(!edit), "aria-label": edit ? "Fermer la correction du titre" : "Corriger le titre et la sous-ligne" }, edit ? "Fermer" : "Corriger le titre")),
       edit && h("div", { className: "sec" },
@@ -820,7 +842,7 @@
       h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image" + (several ? ", le même pour " + formats : "")),
         h("textarea", { id: "prompt", className: "prompt", value: prompt, onChange: (e) => setPrompt(e.target.value) })),
       h("div", { className: "gestures" },
-        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(false), "aria-label": "Lancer " + (several ? "les images de " + pc.variant : "l'image de " + pc.label) }, several ? "Dessiner les " + mine.length + " images" : "Dessiner l'image"),
+        h(Button, { variant: "primary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(false), "aria-label": "Lancer " + (several ? "les images de " + pc.variant : "l'image de " + pl(pc)) }, several ? "Dessiner les " + mine.length + " images" : "Dessiner l'image"),
         more > 0 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy || !prompt.trim() || !words.headline.trim(), onClick: () => draw(true), "aria-label": "Lancer les " + (mine.length + more) + " images du projet, sans relire les autres prompts" }, "Dessiner toutes les images")),
       more > 0 && h("p", { className: "small muted" }, "« Toutes » lance aussi les " + plural(more, "pièce", "pièces") + " des autres variantes, avec leur prompt tel qu'il est."));
   }
@@ -831,23 +853,23 @@
     const [prompt, setPrompt] = useState("");
     useEffect(() => { if (pc) setPrompt(pc.prompt); }, [pc && pc.id]);
     useDirty(ctx, "core", null, "le nouveau prompt", redo && pc && prompt !== pc.prompt);
-    useCmds(ctx, pc ? [{ id: "redo", label: "Refaire l'image de " + pc.label, run: () => setRedo(true) }] : []);
+    useCmds(ctx, pc ? [{ id: "redo", label: "Refaire l'image de " + pl(pc), run: () => setRedo(true) }] : []);
     if (!pc) return h("div", { className: "task" }, h(Wait, null));
     const compose = () => ctx.act(async (snap) => {
       const r = await api.compose(pid, id);
-      ctx.log(pid, "studio", "Pièce composée : " + pc.label, r.check.pass + " réussis, " + r.check.warn + " alertes, " + r.check.fail + " échecs");
+      ctx.log(pid, "studio", "Pièce composée : " + pl(pc), r.check.pass + " réussis, " + r.check.warn + " alertes, " + r.check.fail + " échecs");
       await ctx.answered(pid, "Pièce composée et vérifiée : " + r.check.pass + " contrôles réussis, " + plural(r.check.warn, "alerte", "alertes") + ".", { before: snap, prefer: (t) => t.piece === id, any: false });
     }, "Le studio compose la pièce et la vérifie.");
     const again = () => ctx.act(async (snap) => {
       await api.savePrompt(pid, id, prompt);
       await api.drawImage(pid, id);
-      ctx.log(pid, "toi", "Image refaite pour " + pc.label, "Prompt : " + prompt);
-      await ctx.answered(pid, "Nouvelle image lancée pour " + pc.label + ".", { before: snap, any: false, sibling: (t) => t.kind === "compose" && t.piece !== id });
+      ctx.log(pid, "toi", "Image refaite pour " + pl(pc), "Prompt : " + prompt);
+      await ctx.answered(pid, "Nouvelle image lancée pour " + pl(pc) + ".", { before: snap, any: false, sibling: (t) => t.kind === "compose" && t.piece !== id });
     }, "Le studio relance l'image.");
     const ready = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid && t.kind === "compose").length; // the pieces that have their image and wait to be composed
     const all = () => ctx.act(async (snap) => { await ctx.composeAll(pid, snap, true); }, "Le studio compose les pièces, une par une.");
     return h("div", { className: "task" }, h(PieceHead, { pc }),
-      h("div", { className: "pair" }, h(Frame, { src: pc.image, alt: "Image de " + pc.label, size: pc.size }),
+      h("div", { className: "pair" }, h(Frame, { src: pc.image, alt: "Image de " + pl(pc), size: pc.size }),
       redo ? h("div", { className: "sec" },
         h("div", { className: "field" }, h("label", { htmlFor: "prompt" }, "Le prompt de l'image"), h("textarea", { id: "prompt", className: "prompt", autoFocus: true, value: prompt, onChange: (e) => setPrompt(e.target.value) })),
         h("div", { className: "gestures" },
@@ -856,8 +878,9 @@
         : h("div", { className: "sec" },
           h("div", { className: "gestures" },
             h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: compose, "aria-label": "Composer la pièce et la vérifier" }, "Composer et vérifier"),
-            h(Button, { variant: "secondary", size: "lg", onClick: () => setRedo(true), "aria-label": "Refaire l'image de " + pc.label }, "Refaire l'image")),
-          ready > 1 && h("p", { className: "small muted" }, h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: all, "aria-label": "Composer et vérifier les " + ready + " pièces qui ont leur image" }, "Composer tout"), " : les " + ready + " pièces qui ont leur image."))));
+            h(Button, { variant: "secondary", size: "lg", onClick: () => setRedo(true), "aria-label": "Refaire l'image de " + pl(pc) }, "Refaire l'image"),
+            ready > 1 && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: all, "aria-label": "Composer et vérifier les " + ready + " pièces qui ont leur image" }, "Composer tout")),
+          ready > 1 && h("p", { className: "small muted" }, "« Composer tout » compose et vérifie les " + ready + " pièces qui ont leur image, une par une."))));
   }
 
   function Decide({ ctx, pid, id }) {
@@ -869,17 +892,17 @@
     useDirty(ctx, "core", null, "ton commentaire", words.trim());
     const send = (verdict) => ctx.act(async (snap) => {
       await api.decide(pid, id, verdict, words);
-      ctx.log(pid, "toi", (verdict === "keep" ? "Gardée : " : "Renvoyée : ") + pc.label, words.trim() || "Sans commentaire");
-      await ctx.answered(pid, verdict === "keep" ? pc.label + " : gardée." : pc.label + " : renvoyée, le studio retient « " + dot(words) + " ».",
+      ctx.log(pid, "toi", (verdict === "keep" ? "Gardée : " : "Renvoyée : ") + pl(pc), words.trim() || "Sans commentaire");
+      await ctx.answered(pid, verdict === "keep" ? pl(pc) + " : gardée." : pl(pc) + " : renvoyée, le studio retient « " + dot(words) + " ».",
         { before: snap, prefer: (t) => t.piece === id, any: false, sibling: verdict === "keep" ? (t) => t.kind === "decide" && t.piece !== id : undefined });
     });
     const take = () => ctx.act(async () => { const f = await api.downloadPiece(pid, id); saveFile(f); ctx.notify(f.name + " est téléchargé."); }, "Le studio prépare le png.");
     const rejudge = () => ctx.act(async () => { await api.judgePiece(pid, id); setPc(await api.piece(pid, id)); await ctx.refresh(); }, "Le studio relance le juge.");
     const reread = (n) => ctx.act(async () => { await api.runReader(pid, id, n); setPc(await api.piece(pid, id)); await ctx.refresh(); }, "Le studio relance ce lecteur.");
     useCmds(ctx, pc ? [
-      !pc.decision && { id: "keep", label: "Garder " + pc.label, run: () => send("keep") },
-      { id: "take", label: "Télécharger " + pc.label + " en png", run: take },
-      { id: "back", label: "Renvoyer " + pc.label + " avec une raison", run: () => setBack(true) },
+      !pc.decision && { id: "keep", label: "Garder " + pl(pc), run: () => send("keep") },
+      { id: "take", label: "Télécharger " + pl(pc) + " en png", run: take },
+      { id: "back", label: "Renvoyer " + pl(pc) + " avec une raison", run: () => setBack(true) },
       { id: "notes", label: notes ? "Cacher les alertes" : "Voir les alertes de la vérification", run: () => setNotes(!notes) },
     ].filter(Boolean) : []);
     if (!pc) return h("div", { className: "task" }, h(Wait, null));
@@ -887,15 +910,15 @@
     const alerts = c.notes.filter((n) => n.status !== "pass");
     const line = c.pass + " contrôles réussis" + (c.warn ? ", " + plural(c.warn, "alerte", "alertes") : "") + (c.fail ? ", " + plural(c.fail, "échec", "échecs") : "");
     return h("div", { className: "task" }, h(PieceHead, { pc }),
-      h("div", { className: "pair" }, h(Frame, { src: pc.composed, alt: "Pièce composée : " + pc.label, size: pc.size }),
+      h("div", { className: "pair" }, h(Frame, { src: pc.composed, alt: "Pièce composée : " + pl(pc), size: pc.size }),
       h("div", { className: "side" },
       h("p", { className: "check" }, line, alerts.length > 0 && h(React.Fragment, null, " ",
         h("button", { type: "button", className: "linkbtn", "aria-expanded": notes, onClick: () => setNotes(!notes), "aria-label": notes ? "Cacher les alertes" : "Voir les " + plural(alerts.length, "alerte", "alertes") }, notes ? "Cacher" : "Voir les alertes"))),
       notes && h("ul", { className: "notes" }, alerts.map((n, i) => h("li", { key: i }, n.say))),
       pc.judge && h("div", { className: "juge", "aria-live": "polite" }, h("p", { className: "cap" }, "Le juge"),
         pc.judge.status === "running" ? h("p", { className: "small muted" }, "Le juge relit la pièce. Tu peux trancher sans l'attendre.")
-          : pc.judge.status === "failed" ? h("p", { className: "small" }, "Le juge n'a pas pu la relire : " + dot(pc.judge.error) + ". ",
-            h("button", { type: "button", className: "linkbtn", disabled: ctx.busy, onClick: rejudge, "aria-label": "Relancer le juge sur " + pc.label }, "Relancer"))
+          : pc.judge.status === "failed" ? h(React.Fragment, null, h(Failure, { label: "Le juge n'a pas pu la relire", error: pc.judge.error }),
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: rejudge, "aria-label": "Relancer le juge sur " + pl(pc) }, "Relancer")))
           : h(Verdict, { v: pc.judge.verdict })),
       h(Readers, { readers: pc.readers, busy: ctx.busy, run: reread }),
       pc.decision && h("p", { className: "small" }, h(Badge, { tone: "success" }, "Gardée"), " ", pc.decision.words || "Sans commentaire."),
@@ -908,8 +931,9 @@
           h(Button, { variant: "ghost", size: "lg", onClick: () => setBack(false), "aria-label": "Ne pas renvoyer" }, "Annuler")))
         : h("div", { className: "gestures" },
           !pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: () => send("keep"), "aria-label": "Garder cette pièce" }, "Garder"),
-          // a piece already kept comes back to be taken out: "Télécharger" leads, "Renvoyer" (going back on the decision) is the second gesture
-          pc.decision && h(Button, { variant: "primary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger"),
+          // a piece already kept comes back to be taken out: "Télécharger" leads, "Renvoyer" (going back on the decision) is the second gesture;
+          // nothing is filled, the piece is decided, and "Télécharger" is secondary everywhere (rule 5)
+          pc.decision && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger"),
           h(Button, { variant: "secondary", size: "lg", onClick: () => setBack(true), "aria-label": pc.decision ? "Revenir sur cette décision et renvoyer la pièce" : "Renvoyer la pièce en disant pourquoi" }, "Renvoyer"),
           !pc.decision && h(Button, { variant: "secondary", size: "lg", disabled: ctx.busy, onClick: take, "aria-label": "Télécharger la pièce en png, à sa taille : " + pc.size[0] + " par " + pc.size[1] }, "Télécharger")))));
   }
@@ -980,13 +1004,29 @@
     return t ? h("p", { className: "working", role: "status" }, h("b", { "aria-hidden": "true" }), t) : null;
   }
 
-  function TaskRow({ ctx, col, t, place }) {
+  /* the one head of a column (rule 3 of the grammar): the sort of thing, its name, where it stands, "Modifier" always in the same place.
+     The name is the one its row gives it and its strip keeps; it is there at once, before the column's data comes (rule 10) */
+  function ColHead({ sort, title, sub, desc, edit }) {
+    return h("div", { className: "colhead" }, h(Eyebrow, null, sort), h("h2", { className: "titre" }, title || "\u00a0"),
+      sub && h("p", { className: "sub" }, sub), desc && h("p", { className: "desc" }, desc),
+      edit && h("button", { type: "button", className: "linkbtn modif", onClick: edit.run, "aria-label": edit.label }, "Modifier"));
+  }
+  const Loading = () => h("p", { className: "vide" }, "Un instant.");
+
+  /* a task, wherever it is said (rule 5): a line in the box of what waits, never a row of a list */
+  function TaskLine({ ctx, col, t, place }) {
     const r = t.scope === "project" ? rankOf(t.step) : null;
     const when = (r ? "Étape " + r + " sur 7" : "") + (r && t.since ? " · " : "") + (t.since ? ago(t.since, ctx.now()) : "");
     const meta = place ? taskPlace(t) + (when ? " · " + when : "") : when || (t.scope === "brand" && t.since ? ago(t.since, ctx.now()) : "");
-    return h(Row, { col, task: t.id, sel: ctx.sel.task === t.id ? "strong" : null, onClick: () => ctx.openTask(t, false, col),
-      label: taskTitle(t) + (place ? ", " + taskPlace(t) : "") + (when ? ", " + when : "") },
-      h("span", { className: "main" }, h("span", { className: "nom" }, taskTitle(t)), meta && h("span", { className: "meta" }, meta)));
+    return h("button", { type: "button", className: "tache", "data-col": col, "data-task": t.id, "aria-current": ctx.sel.task === t.id ? "true" : undefined,
+      onClick: () => ctx.openTask(t, false, col), "aria-label": taskTitle(t) + (place ? ", " + taskPlace(t) : "") + (when ? ", " + when : "") },
+      h("span", { className: "t" }, taskTitle(t)), meta && h("span", { className: "m" }, meta));
+  }
+  /* what waits here: a box right under the head of the column (rule 4), the same everywhere; `children` say the tasks another way */
+  function Waiting({ ctx, col, tasks, children }) {
+    if (!tasks.length) return null;
+    return h("section", { className: "attend", "aria-label": "Ce qui t'attend" }, h("p", { className: "cap" }, "Ce qui t'attend · " + tasks.length),
+      h("div", { className: "liste" }, children || tasks.map((t) => h(TaskLine, { key: t.id, ctx, col, t, place: false }))));
   }
 
   /* what waits across the studio, without the wall: the next task of each project and of each brand (the oldest), the others behind "et n autres" */
@@ -1005,30 +1045,30 @@
     const judgements = useLive(ctx, () => api.judgements(), "judgements");
     const level = ctx.level(0);
     const total = (b) => b.waiting + b.projects.reduce((n, p) => n + p.waiting, 0);
+    const jn = judgements ? judgements.length : 0;
+    /* rule 6: what waits and what the machine lacks stay at the top, the settings at the bottom; only the middle scrolls */
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h("h2", { className: "sr" }, "Le studio")),
-      h(Row, { col: 0, select: true, sel: !sel.brand && !sel.panel && !sel.judges ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, "Le studio")), h(Count, { n: tasks.length })),
-      h(JobLine, { jobs }),
-      ctx.machine.missing.length > 0 && h("div", { className: "machine", role: "status", "data-machine": "missing" },
-        h("p", { className: "cap" }, "Il manque à ce poste"),
-        h("ul", null, ctx.machine.missing.map((m) => h("li", { key: m.key, className: "small" }, h("strong", null, m.label), " : ", m.say)))),
-      h(Where, null, "Ce qui t'attend"),
-      !loaded ? h("p", { className: "vide" }, "Un instant.") : tasks.length === 0 ? h("p", { className: "vide" }, jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend.")
-        : nextPerOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(TaskRow, { ctx, col: 0, t: g.first, place: true }),
+      h("div", { className: "haut" },
+        h(ColHead, { sort: "Studio créatif", title: "Le studio", sub: !loaded ? "" : tasks.length ? plural(tasks.length, "chose t'attend", "choses t'attendent") : jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend." }),
+        h(JobLine, { jobs }),
+        ctx.machine.missing.length > 0 && h("section", { className: "attend", "data-tone": "risk", role: "status", "data-machine": "missing", "aria-label": "Il manque à ce poste" },
+          h("p", { className: "cap" }, "Il manque à ce poste"),
+          h("ul", null, ctx.machine.missing.map((m) => h("li", { key: m.key, className: "small" }, h("strong", null, m.label), " : ", m.say)))),
+        h(Waiting, { ctx, col: 0, tasks }, nextPerOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(TaskLine, { ctx, col: 0, t: g.first, place: true }),
           g.rest.length > 0 && h("button", { type: "button", className: "linkbtn small autres", onClick: () => (g.first.scope === "brand" ? ctx.selectBrand(g.first.brand) : ctx.selectProject(g.first.project, null, g.first.brand)),
-            "aria-label": plural(g.rest.length, "autre tâche", "autres tâches") + " pour " + (g.first.scope === "brand" ? g.first.brand_name : g.first.project_name) + " : ouvrir" }, "et " + plural(g.rest.length, "autre", "autres")))),
-      h("div", { className: "groupe split" }, h("span", null, "Marques"), h(Plus, { label: "Nouvelle marque", onClick: ctx.newBrand })),
-      loaded && brands.length === 0 && h("p", { className: "vide" }, "Aucune marque. Le « + » en crée une."),
-      brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
-        label: b.name + ", " + (BRAND_STAGE[b.stage] || b.stage).toLowerCase() + (total(b) ? ", " + plural(total(b), "tâche", "tâches") : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))),
-      h(Where, null, "Le juge"),
-      h(Row, { col: 0, select: true, sel: sel.judges ? level : null, onClick: ctx.selectJudges, label: "Le juge : " + (judgements && judgements.length ? plural(judgements.length, "pièce jugée", "pièces jugées") : "juger une pièce") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, judgements && judgements.length ? plural(judgements.length, "pièce jugée", "pièces jugées") : "Une image, son brief, un verdict"))),
-      h(Where, null, "Réglages"), // engines
-      h(Row, { col: 0, select: true, sel: sel.panel === "settings" ? level : null, onClick: ctx.openSettings, label: "Réglages : choisir les moteurs d'image et de texte" },
-        h("span", { className: "main" }, h("span", { className: "nom" }, "Réglages"), h("span", { className: "meta" }, "Les moteurs d'image et de texte"))));
+            "aria-label": plural(g.rest.length, "autre tâche", "autres tâches") + " pour " + (g.first.scope === "brand" ? g.first.brand_name : g.first.project_name) + " : ouvrir" }, "et " + plural(g.rest.length, "autre", "autres")))))),
+      h("div", { className: "milieu" },
+        h("div", { className: "groupe split" }, h("span", null, "Marques"), h(Plus, { label: "Nouvelle marque", onClick: ctx.newBrand })),
+        !loaded ? h(Loading) : brands.length === 0 && h("p", { className: "vide" }, "Aucune marque. Le « + » en crée une."),
+        brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
+          label: b.name + ", " + (BRAND_STAGE[b.stage] || b.stage).toLowerCase() + (total(b) ? ", " + plural(total(b), "tâche", "tâches") : "") },
+          h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))),
+        h(Where, null, "Le juge"),
+        h(Row, { col: 0, select: true, sel: sel.judges ? level : null, onClick: ctx.selectJudges, label: "Pièces jugées : " + (jn ? plural(jn, "pièce", "pièces") : "aucune pour l'instant") },
+          h("span", { className: "main" }, h("span", { className: "nom" }, "Pièces jugées"), h("span", { className: "meta" }, jn ? plural(jn, "pièce", "pièces") + " · une image, son brief, un verdict" : "Une image, son brief, un verdict")))),
+      h("div", { className: "bas" },
+        h("button", { type: "button", className: "reglages", "data-col": 0, "data-select": "1", "aria-current": sel.panel === "settings" ? "true" : undefined, onClick: ctx.openSettings, "aria-label": "Réglages : les moteurs d'image et de texte" },
+          h("span", { className: "t" }, "Réglages"), h("span", { className: "m" }, "Moteurs d'image et de texte"))));
   }
   const JUDGEMENT_WORD = { running: "Le juge relit", done: "Jugée", failed: "Le juge a échoué" };
 
@@ -1036,10 +1076,11 @@
   function JudgesCol({ ctx }) {
     const judgements = useLive(ctx, () => api.judgements(), "judgements");
     const { sel } = ctx, level = ctx.level(1);
+    (judgements || []).forEach((j) => { ctx.jnames.current[j.id] = j.name; });
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Le juge"), h("h2", { className: "titre" }, "Juger une pièce"), h("p", { className: "sub" }, "Une image, son brief, un verdict")),
-      h("div", { className: "groupe split" }, h("span", null, "Pièces jugées"), h(Plus, { label: "Juger une pièce", onClick: ctx.newJudge })),
-      judgements && judgements.length === 0 && h("p", { className: "vide" }, "Aucune pièce jugée. Le « + » en dépose une."),
+      h(ColHead, { sort: "Le juge", title: "Pièces jugées", sub: "Une image, son brief, un verdict" }),
+      h("div", { className: "groupe split" }, h("span", null, judgements && judgements.length ? plural(judgements.length, "pièce", "pièces") : "Aucune pour l'instant"), h(Plus, { label: "Juger une pièce", onClick: ctx.newJudge })),
+      !judgements ? h(Loading) : judgements.length === 0 && h("p", { className: "vide" }, "Le « + » en dépose une."),
       (judgements || []).map((j) => h(Row, { key: j.id, col: 1, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
         label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
         h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))));
@@ -1053,16 +1094,14 @@
     const b = useLive(ctx, () => api.getBrand(bid), bid);
     const jobs = ctx.data.jobs.filter((j) => j.brand === bid && !j.project);
     const level = ctx.level(1);
-    if (!b) return h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("p", { className: "vide" }, "Un instant."));
+    if (!b) return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: ctx.brandName(bid) }), h(Loading));
     const a = b.assets, known = BRIEF_BITS.filter(([k]) => b.identity[k].state !== "absent");
     const what = [known.length ? "Brief : " + known.length + " sur " + BRIEF_BITS.length : "Pas de brief", a.logo ? "logo" : "sans logo", plural(a.colours.length, "couleur", "couleurs")].join(" · ");
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, b.name),
-        h("p", { className: "sub" }, (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site")),
-        h("button", { type: "button", className: "linkbtn modif", onClick: ctx.editBrand, "aria-label": "Modifier la marque " + b.name + " : nom, site, description" }, "Modifier")),
+      h(ColHead, { sort: "Marque", title: b.name, sub: (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site"), desc: b.description,
+        edit: { run: ctx.editBrand, label: "Modifier la marque " + b.name + " : nom, site, description" } }),
       h(JobLine, { jobs }),
-      b.description && h("p", { className: "desc" }, b.description),
-      b.waiting.length > 0 && h(React.Fragment, null, h(Where, null, "Ce qui attend"), b.waiting.map((t) => h(TaskRow, { key: t.id, ctx, col: 1, t, place: false }))),
+      h(Waiting, { ctx, col: 1, tasks: b.waiting }),
       h(Where, null, "Son identité"),
       h(Row, { col: 1, select: true, sel: ctx.sel.panel === "identity" ? level : null, onClick: ctx.selectIdentity, label: "Identité et assets de " + b.name + " : " + what },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Identité et assets"), h("span", { className: "meta" }, what))),
@@ -1077,7 +1116,7 @@
   /* ---------- 2b. the identity and the assets of a brand: its brief, its logo and colours, then what the studio proposes and the person decides ---------- */
   function IdentityCol({ ctx, bid }) {
     const b = useLive(ctx, () => api.getBrand(bid), bid);
-    if (!b) return h("div", { className: "colhead" }, h(Eyebrow, null, "Identité et assets"), h("p", { className: "vide" }, "Un instant."));
+    if (!b) return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: "Identité et assets", sub: ctx.brandName(bid) }), h(Loading));
     const a = b.assets, id = b.identity;
     const known = BRIEF_BITS.filter(([k]) => id[k].state !== "absent");
     const logo = a.logo;
@@ -1087,7 +1126,7 @@
       : a.logos.length ? "Le logo reste à choisir parmi " + plural(a.logos.length, "candidat", "candidats") + "." : "Pas de logo : sans lui, la marque ne peut pas être prête.";
     const noColours = reading ? "Le studio les cherche sur le site." : unsorted ? "Elles se mesurent sur les visuels gardés, après le tri." : "Pas encore de couleur.";
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, b.name), h("h2", { className: "titre" }, "Identité et assets")),
+      h(ColHead, { sort: "Marque", title: "Identité et assets", sub: b.name }),
       h(Where, null, "Son brief"),
       known.length === 0 ? h("p", { className: "vide" }, reading ? "Le studio lit le site : le brief se pré-remplit avec ce qu'il y trouve." : "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
@@ -1098,7 +1137,7 @@
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Logo"),
           logo ? h("div", { className: "logobox" }, h("img", { src: logo.preview, alt: "Logo " + deName(b.name) }), h("span", { className: "small muted" }, logo.state === "deduced" ? "à confirmer" : "confirmé"))
             : h("p", { className: "small muted" }, noLogo),
-          h("div", null, h(LogoDrop, { ctx, bid, label: logo ? "Changer de logo" : "Déposer un logo", variant: logo ? "ghost" : "secondary", onDone: (r) => ctx.notify("Logo déposé : " + r.name + " a un logo.") }))),
+          h("div", null, h(LogoDrop, { ctx, bid, label: logo ? "Changer de logo" : "Déposer un logo", variant: "secondary", onDone: (r) => ctx.notify("Logo déposé : " + r.name + " a un logo.") }))),
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Couleurs"), a.colours.length ? h(Swatches, { colours: a.colours, mini: true }) : h("p", { className: "small muted" }, noColours),
           a.colours.some((c) => c.state === "deduced") && h("span", { className: "small muted" }, "à confirmer"),
           a.colours.length < 2 && !reading && !unsorted && h("span", { className: "small muted" }, "Il en faut deux, une pour le fond et une pour le texte.")),
@@ -1131,7 +1170,7 @@
     const [ed, setEd] = useState(null); // the list being decided, [{name, why, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [bid]);
     useDirty(ctx, "identity", bid, "ses noms", ed !== null);
-    if (!data) return null;
+    if (!data) return h("div", { id: "names", className: "bloc" }, h(Where, null, "Ses noms"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.names.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1150,7 +1189,7 @@
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche des noms à partir du brief de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun nom proposé. Le studio peut en proposer jusqu'à huit, ou tu en écris un toi-même."
           : "Aucun nom proposé. Le studio en propose une fois le brief de la marque validé ; tu peux aussi en écrire un toi-même."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La proposition n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Garde ou écarte chaque nom. Personne n'a vérifié qu'il est libre."),
       list.map((x, i) => h("div", { key: i, className: "editor", "data-name": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "name-" + i, className: "small cap" }, (x.kept ? "Nom gardé " : "Proposition ") + (i + 1)),
@@ -1159,7 +1198,7 @@
         h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= NAMES_MAX || !x.name.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           x.kept && x.name.trim() === data.name ? h("span", { className: "small muted" }, "C'est son nom.")
-            : x.kept && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0 || !x.name.trim(), onClick: () => save(x.name.trim()), "aria-label": "Choisir " + x.name.trim() + " comme nom de la marque" }, "Choisir"),
+            : x.kept && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0 || !x.name.trim(), onClick: () => save(x.name.trim()), "aria-label": "Choisir " + x.name.trim() + " comme nom de la marque" }, "Choisir"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le nom " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
       h("div", { className: "gestures" },
         h(Button, { variant: "secondary", size: "sm", disabled: kept >= NAMES_MAX || !!data.job, onClick: () => setEd(list.concat([{ name: "", why: "", kept: true }])), "aria-label": "Écrire un nom toi-même" }, "Écrire un nom"),
@@ -1177,7 +1216,7 @@
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [bid]);
     useDirty(ctx, "identity", bid, "ses personas", ed !== null);
-    if (!data) return null;
+    if (!data) return h("div", { id: "personas", className: "bloc" }, h(Where, null, "Ses personas"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.personas.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1194,7 +1233,7 @@
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio imagine les personas à partir de ce qu'il sait de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun persona. Le studio peut en proposer jusqu'à quatre, ou tu les écris toi-même."
           : "Aucun persona. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La proposition n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des hypothèses à corriger : chaque ligne dit si elle vient du dossier ou si elle est supposée. Corrige, garde ou écarte chacun."),
       list.map((x, i) => h("div", { key: i, className: "editor", "data-persona": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "persona-" + i, className: "small cap" }, (x.kept ? "Persona gardé " : "Proposition ") + (i + 1)),
@@ -1205,7 +1244,7 @@
       h("div", { className: "gestures" },
         h(Button, { variant: "secondary", size: "sm", disabled: kept >= PERSONAS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un persona toi-même" }, "Écrire un persona"),
         data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des personas" }, list.length ? "En proposer d'autres" : "Proposer des personas"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les personas gardés dans la marque" }, "Enregistrer")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les personas gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= PERSONAS_MAX && h("p", { className: "small muted" }, "Quatre personas au plus."));
   }
@@ -1219,7 +1258,7 @@
     const [market, setMarket] = useState(null); // the market described for a landscape; null: not asked
     useEffect(() => { setEd(null); setMarket(null); }, [bid]);
     useDirty(ctx, "identity", bid, "ses concurrents", ed !== null || !!(market && market.trim()));
-    if (!data) return null;
+    if (!data) return h("div", { id: "concurrents", className: "bloc" }, h(Where, null, "Ses concurrents"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.competitors.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1242,7 +1281,7 @@
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche les concurrents à partir de ce qu'il sait de la marque et du marché.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun concurrent. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
           : "Aucun concurrent. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La proposition n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des hypothèses à vérifier : chaque fiche dit si elle vient du dossier ou si elle est supposée. Corrige, garde ou écarte chacune."),
       list.map((x, i) => h("div", { key: i, className: "editor", "data-competitor": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "concurrent-" + i, className: "small cap" }, (x.kept ? "Concurrent gardé " : "Proposition ") + (i + 1)),
@@ -1255,13 +1294,13 @@
         h("textarea", { id: "marche", rows: 3, value: market, onChange: (e) => setMarket(e.target.value) }),
         h("p", { className: "small muted" }, "Le studio en dessine les acteurs sans passer par le brief. Tu gardes ceux qui sont des concurrents de la marque."),
         h("div", { className: "actions" },
-          h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || !market.trim(), onClick: landscape, "aria-label": "Demander au studio le paysage de ce marché" }, "Dessiner le paysage"),
+          h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || !market.trim(), onClick: landscape, "aria-label": "Demander au studio le paysage de ce marché" }, "Dessiner le paysage"),
           h(Button, { variant: "ghost", size: "sm", onClick: () => setMarket(null), "aria-label": "Ne pas dessiner de paysage" }, "Annuler"))),
       h("div", { className: "gestures" },
         h(Button, { variant: "secondary", size: "sm", disabled: kept >= COMPETITORS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un concurrent toi-même" }, "Écrire un concurrent"),
         data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des concurrents" }, list.length ? "En proposer d'autres" : "Proposer des concurrents"),
         !data.job && market === null && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => setMarket(""), "aria-label": "Partir du paysage d'un marché" }, "Partir d'un marché"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les concurrents gardés dans la marque" }, "Enregistrer")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les concurrents gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
   }
@@ -1279,7 +1318,7 @@
     const [replace, setReplace] = useState(false); // the colours of the brand are confirmed: the person is asked before they are replaced
     useEffect(() => { setEd(null); setReplace(false); }, [bid]);
     useDirty(ctx, "identity", bid, "ses fichiers", ed !== null);
-    if (!data) return null;
+    if (!data) return h("div", { id: "fichiers", className: "bloc" }, h(Where, null, "Ses fichiers"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.proposed.map((x) => ({ ...x, kept: false }));
     const undecided = list.filter((x) => !x.kept).length, kept = list.filter((x) => x.kept);
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1308,7 +1347,7 @@
       data.files.length > 0 && h("ul", { className: "small", "aria-label": "Fichiers de la marque" }, data.files.map((f) => h("li", { key: f.name }, f.name, h("span", { className: "muted" }, " · " + Math.max(1, Math.round(f.size / 1024)) + " Ko")))),
       data.fonts.length > 0 && h("p", { className: "small" }, "Polices gardées : " + data.fonts.map((f) => f.family + " (" + FILE_ROLE[f.role] + ")").join(", ") + "."),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio lit les fichiers.") : null,
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La lecture n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La lecture n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des propositions à confirmer : chacune dit dans quel fichier le studio l'a lue. Corrige, garde ou écarte chacune."),
       list.map((x, i) => h("div", { key: i, className: "editor", "data-value": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "valeur-" + i, className: "small cap" }, fileLabel(x) + (x.file ? " · lu dans " + x.file : "") + (x.kept ? " · gardée" : " · à confirmer")),
@@ -1317,13 +1356,13 @@
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: !x.value.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder " + fileLabel(x) + " " + x.value }, "Garder"),
           h(Button, { variant: "ghost", size: "sm", onClick: () => drop(i), "aria-label": "Écarter " + fileLabel(x) + " " + x.value }, "Écarter")))),
       replace && h(Callout, { tone: "risk", label: "Les couleurs de la marque sont déjà confirmées" },
-        "Celles que tu gardes sont différentes. Les remplacer ?", h("div", { className: "actions" }, h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: () => save(true) }, "Remplacer les couleurs"),
+        "Celles que tu gardes sont différentes. Les remplacer ?", h("div", { className: "actions" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => save(true) }, "Remplacer les couleurs"),
           h(Button, { variant: "ghost", size: "sm", onClick: () => setReplace(false) }, "Garder les anciennes (écarte les couleurs proposées)"))),
       h("div", { className: "gestures" },
         h("input", { ref: input, type: "file", className: "sr", multiple: true, accept: "application/pdf,image/png,image/jpeg,image/webp,image/gif", onChange: pick, tabIndex: -1, "aria-hidden": "true", "data-files-input": "1" }),
         h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || room <= 0, onClick: () => input.current && input.current.click(), "aria-label": "Déposer des fichiers (pdf, png, jpg, webp ou gif, vingt au plus)" }, "Déposer des fichiers"),
         data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: read, "aria-label": "Demander au studio de lire les fichiers" }, data.proposed.length ? "Relire les fichiers" : "Lire les fichiers"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: () => save(false), "aria-label": "Enregistrer les valeurs gardées dans la marque" }, "Enregistrer")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: () => save(false), "aria-label": "Enregistrer les valeurs gardées dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       room <= 0 && h("p", { className: "small muted" }, "Vingt fichiers au plus."));
   }
@@ -1336,7 +1375,7 @@
     const [ed, setEd] = useState(null); // the list being decided, [{url, brings, belonging, kept}]; null: nothing touched
     useEffect(() => setEd(null), [bid]);
     useDirty(ctx, "identity", bid, "sa recherche", ed !== null);
-    if (!data) return null;
+    if (!data) return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Sur le web"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.research.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const dirty = ed !== null || data.proposed.length > 0;
@@ -1350,7 +1389,7 @@
     return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Sur le web"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche sur le web ce qui parle de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, "Rien pour l'instant. Le studio peut chercher sur le web le site de la marque, ses campagnes et ce que la presse en dit."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La recherche n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La recherche n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Le studio garde l'adresse, il ne télécharge rien. Vérifie chaque résultat : garde-le ou écarte-le."),
       list.map((x, i) => h("div", { key: x.url, className: "editor", "data-research": x.kept ? "kept" : "proposed" },
         h("p", { className: "small cap" }, (BELONGING[x.belonging] || x.belonging) + (x.kept ? " · gardé" : " · proposition")),
@@ -1361,7 +1400,7 @@
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y, k) => k !== i)), "aria-label": "Écarter le résultat " + (i + 1) }, "Écarter")))),
       h("div", { className: "gestures" },
         !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: search, "aria-label": "Demander au studio de chercher sur le web" }, list.length ? "Chercher encore" : "Chercher sur le web"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les résultats gardés dans la marque" }, "Enregistrer")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les résultats gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque résultat avant d'enregistrer."));
   }
 
@@ -1373,7 +1412,7 @@
     const [ed, setEd] = useState(null); // the tracks being decided, [{id, idea, svg, kept}]; null: nothing touched
     useDirty(ctx, "identity", bid, "ses logos", ed !== null);
     useEffect(() => setEd(null), [bid]);
-    if (!data) return null;
+    if (!data) return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Ses logos"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.tracks.map((t) => ({ ...t, kept: true })).concat(data.proposed.map((t) => ({ ...t, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (id, o) => setEd(list.map((x) => (x.id === id ? { ...x, ...o } : x)));
@@ -1392,7 +1431,7 @@
     return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Ses logos"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio dessine des pistes de logo avec le nom et les couleurs de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, "Aucune piste. Le studio peut en dessiner jusqu'à quatre."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La proposition n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Ce sont des dessins du studio, personne n'a vérifié que le logo est libre. Garde ou écarte chacun."),
       list.map((x, i) => h("div", { key: x.id, className: "editor", "data-logo": x.kept ? "kept" : "proposed" },
         h("span", { className: "small cap" }, (x.kept ? "Piste gardée " : "Proposition ") + (i + 1)),
@@ -1404,7 +1443,7 @@
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => setEd(list.filter((y) => y.id !== x.id)), "aria-label": (x.kept ? "Écarter la piste " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
       h("div", { className: "gestures" },
         !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de dessiner des pistes de logo" }, list.length ? "En proposer d'autres" : "Proposer des logos"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les pistes de logo gardées dans la marque" }, "Enregistrer")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les pistes de logo gardées dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= LOGOS_MAX && h("p", { className: "small muted" }, "Quatre pistes au plus."));
   }
@@ -1416,8 +1455,8 @@
     const data = useLive(ctx, () => api.texts(pid), pid);
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [pid]);
-    useDirty(ctx, "project", pid, "ses textes", ed !== null);
-    if (!data) return null;
+    useDirty(ctx, "pieces", pid, "ses textes", ed !== null);
+    if (!data) return h("div", { id: "textes", className: "bloc" }, h(Where, null, "Ses textes"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.texts.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1435,7 +1474,7 @@
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit les textes à partir du brief et de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun texte. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
           : "Aucun texte. Le studio en propose une fois le brief validé ; tu peux aussi les écrire toi-même."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "La proposition n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "La proposition n'a pas marché", error: data.error }),
       data.proposed.length > 0 && h("p", { className: "small muted" }, "Relis chaque texte : rien ne doit y être que le brief ou la marque n'a dit. Corrige, garde ou écarte chacun."),
       list.map((x, i) => h("div", { key: i, className: "editor", "data-text": x.kept ? "kept" : "proposed" },
         h("label", { htmlFor: "texte-" + i, className: "small cap" }, (x.kept ? "Texte gardé " : "Proposition ") + (i + 1)),
@@ -1447,7 +1486,7 @@
       h("div", { className: "gestures" },
         h(Button, { variant: "secondary", size: "sm", disabled: kept >= TEXTS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un texte toi-même" }, "Écrire un texte"),
         data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des textes" }, list.length ? "En proposer d'autres" : "Proposer des textes"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les textes gardés dans le projet" }, "Enregistrer")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les textes gardés dans le projet" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= TEXTS_MAX && h("p", { className: "small muted" }, "Six textes au plus."));
   }
@@ -1458,8 +1497,9 @@
     const data = useLive(ctx, () => api.storyboard(pid), pid + "|sb");
     const [ed, setEd] = useState(null); // the storyboard being corrected, { script, shots }; null: nothing touched
     useEffect(() => setEd(null), [pid]);
-    useDirty(ctx, "project", pid, "son film", ed !== null);
-    if (!data || !data.can_propose) return null;
+    useDirty(ctx, "pieces", pid, "son film", ed !== null);
+    if (!data) return h("div", { id: "film", className: "bloc" }, h(Where, null, "Son film"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data.can_propose) return null;
     const shots = ed ? ed.shots : data.shots, script = ed ? ed.script : data.script;
     const total = shots.reduce((a, x) => a + (Number(x.seconds) || 0), 0);
     const colours = [...new Set(data.shots.map((x) => x.colour))];
@@ -1476,7 +1516,7 @@
     return h("div", { id: "film", className: "bloc" }, h(Where, null, "Son film"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit le script et le découpage à partir du brief.")
         : shots.length === 0 && h("p", { className: "vide" }, "Pas encore de film. Le studio peut écrire un script et un découpage en plans, que tu corriges avant le rendu."),
-      data.error && !data.job && h(Callout, { tone: "risk", label: "Le découpage n'a pas marché" }, data.error),
+      data.error && !data.job && h(Failure, { label: "Le découpage n'a pas marché", error: data.error }),
       shots.length > 0 && h("div", { className: "sec" },
         !data.saved && !dirty && h("p", { className: "small muted" }, "Ce découpage est une proposition : relis-le, corrige-le, puis enregistre-le. Le rendu ne se lance qu'après."),
         h("label", { htmlFor: "sb-script", className: "small cap" }, "Le script"),
@@ -1497,10 +1537,10 @@
         h("p", { className: "small muted", role: "status" }, "Le film fait " + total + " s" + (total >= 15 && total <= 30 ? "." : " : il en faut entre 15 et 30."))),
       h("div", { className: "gestures" },
         !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio d'écrire le découpage du film" }, shots.length ? "En proposer un autre" : "Écrire le découpage"),
-        dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || total < 15 || total > 30, onClick: save, "aria-label": "Enregistrer le découpage corrigé" }, "Enregistrer"),
-        saved && !data.film_job && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy, onClick: render, "aria-label": "Lancer le rendu du film" }, data.film ? "Refaire le rendu" : "Lancer le rendu")),
+        dirty && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || total < 15 || total > 30, onClick: save, "aria-label": "Enregistrer le découpage corrigé" }, "Enregistrer"),
+        saved && !data.film_job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: render, "aria-label": "Lancer le rendu du film" }, data.film ? "Refaire le rendu" : "Lancer le rendu")),
       data.film_job && h("p", { className: "small muted", role: "status" }, "Le studio fait le film : chaque plan est animé, capturé image par image, puis assemblé. Compte quelques minutes."),
-      data.film_error && !data.film_job && h(Callout, { tone: "risk", label: "Le rendu n'a pas marché" }, data.film_error),
+      data.film_error && !data.film_job && h(Failure, { label: "Le rendu n'a pas marché", error: data.film_error }),
       data.film && !data.film_job && h("div", { className: "sec" },
         h("video", { src: data.film.url, controls: true, width: 270, "aria-label": "Le film du projet" }),
         h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: download, "aria-label": "Télécharger le film en mp4" }, "Télécharger le film"))));
@@ -1511,7 +1551,7 @@
     const p = useLive(ctx, () => api.project(pid), pid);
     const { sel } = ctx;
     const level = ctx.level(2);
-    if (!p) return h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("p", { className: "vide" }, "Un instant."));
+    if (!p) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: ctx.projectName(pid) }), h(Loading));
     const st = (k) => (p.steps.find((s) => s.key === k) || {}).status || "todo";
     const done = SEVEN.filter((s) => st(s.key) === "done").length;
     const nowIdx = SEVEN.findIndex((s) => st(s.key) !== "done");
@@ -1519,11 +1559,16 @@
     const brandTask = ctx.data.tasks.find((t) => t.scope === "brand" && t.brand === p.brand);
     const jobs = ctx.data.jobs.filter((j) => j.project === pid);
     const sc = seriesCount(p.pieces);
+    const made = p.pieces.length > 0 || st("brief") === "done"; // what the project has made: its series, its texts, its film
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, p.name),
-        h("p", { className: "sub" }, done === 7 ? "Terminé" : "Étape " + (nowIdx + 1) + " sur 7 · " + SEVEN[nowIdx].label),
-        h("button", { type: "button", className: "linkbtn modif", onClick: ctx.editProject, "aria-label": "Modifier le projet " + p.name + " : son nom" }, "Modifier")),
+      h(ColHead, { sort: "Projet", title: p.name, sub: done === 7 ? "Terminé" : "Étape " + (nowIdx + 1) + " sur 7 · " + SEVEN[nowIdx].label,
+        edit: { run: ctx.editProject, label: "Modifier le projet " + p.name + " : son nom" } }),
       h(JobLine, { jobs }),
+      h(Waiting, { ctx, col: 2, tasks }),
+      !tasks.length && st("brand") !== "done" && h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
+        brandTask ? h(React.Fragment, null, "Il lui faut : ", h("button", { type: "button", className: "linkbtn", onClick: () => ctx.openTask(brandTask), "aria-label": "Ouvrir la tâche de la marque : " + taskTitle(brandTask) }, lc1(taskTitle(brandTask))), ".")
+          : p.brand_stage === "discovering" ? "Le studio lit le site de la marque." : ""),
+      h(Where, null, "Ses étapes"),
       h("ol", { className: "etapes", "aria-label": "Les sept étapes" }, SEVEN.map((s, i) => {
         const status = st(s.key), cur = i === nowIdx;
         const word = STEP_WORD[status];
@@ -1539,15 +1584,23 @@
             onClick: open, "aria-label": (i + 1) + ". " + s.label + " : " + word + (count ? ", " + count : "") + (status === "done" ? ". Voir ce qui a été décidé" : serie ? ". Voir les pièces" : ". Ouvrir la tâche de la marque") }, inner)
             : h("div", { className: "etape" }, inner));
       })),
-      p.pieces.length > 0 && h(Series, { ctx, p, col: 2 }),
-      st("brief") === "done" && h(Texts, { ctx, pid }),
-      st("brief") === "done" && h(Storyboard, { ctx, pid, key: pid + "|film" }),
-      h(Where, null, "Ce qui attend"),
-      tasks.length ? tasks.map((t) => h(TaskRow, { key: t.id, ctx, col: 2, t, place: false }))
-        : st("brand") !== "done" ? h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
-          brandTask ? h(React.Fragment, null, "Il lui faut : ", h("button", { type: "button", className: "linkbtn", onClick: () => ctx.openTask(brandTask), "aria-label": "Ouvrir la tâche de la marque : " + taskTitle(brandTask) }, lc1(taskTitle(brandTask))), ".")
-            : p.brand_stage === "discovering" ? "Le studio lit le site de la marque." : "")
-        : h("p", { className: "vide" }, done === 7 ? "Rien : le projet est terminé." : "Rien n'attend sur ce projet."));
+      made && h(React.Fragment, null, h(Where, null, "Ce qu'il a fait"),
+        h(Row, { col: 2, select: true, sel: sel.detail && sel.detail.kind === "pieces" ? level : null, onClick: ctx.selectPieces,
+          label: "Ses pièces : " + (p.pieces.length ? plural(p.pieces.length, "pièce", "pièces") + ", " : "") + "ses textes, son film" },
+          h("span", { className: "main" }, h("span", { className: "nom" }, "Ses pièces"), h("span", { className: "meta" }, (p.pieces.length ? plural(p.pieces.length, "pièce", "pièces") + " · " : "") + "textes · film")))));
+  }
+
+  /* ---------- 3b. what a project has made: its series, its texts, its film. A page of its own, as a brand's identity (rules 1 and 2) ---------- */
+  function PiecesCol({ ctx, pid }) {
+    const p = useLive(ctx, () => api.project(pid), pid + "|pieces");
+    if (!p) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Ses pièces", sub: ctx.projectName(pid) }), h(Loading));
+    const briefDone = ((p.steps.find((s) => s.key === "brief") || {}).status || "todo") === "done";
+    return h(React.Fragment, null,
+      h(ColHead, { sort: "Projet", title: "Ses pièces", sub: p.name }),
+      p.pieces.length > 0 && h(Series, { ctx, p, col: 3 }),
+      briefDone && h(Texts, { ctx, pid }),
+      briefDone && h(Storyboard, { ctx, pid, key: pid + "|film" }),
+      !p.pieces.length && !briefDone && h("p", { className: "vide" }, "Rien pour l'instant : les pièces viennent après le brief."));
   }
 
   /* ---------- 4. the detail of a step already done: what was decided, and a way to reopen it ---------- */
@@ -1564,7 +1617,7 @@
       return Promise.resolve({});
     }, key);
     const label = (SEVEN.find((s) => s.key === step) || {}).label || "";
-    if (!p || !body) return h("div", { className: "colhead" }, h(Eyebrow, null, "Décidé"), h("p", { className: "vide" }, "Un instant."));
+    if (!p || !body) return h(React.Fragment, null, h(ColHead, { sort: "Étape", title: label }), h(Loading));
     const stepDone = ((p.steps.find((x) => x.key === step) || {}).status || "todo") === "done", sc = seriesCount(p.pieces);
     const reopen = (k, extra) => ctx.openTask(synth(p, k, extra));
     let main, action;
@@ -1589,22 +1642,21 @@
       action = h(Button, { variant: "secondary", size: "sm", onClick: () => reopen("diverge-pick", { readOnly: true }), "aria-label": "Rouvrir les variantes de la série" }, "Rouvrir");
     } else {
       main = p.pieces.length === 0 ? h("p", { className: "vide" }, "Pas de pièce.") : h("ul", { className: "pieces", "aria-label": "Les pièces" }, p.pieces.map((pc) => { const w = STAGE_WORDS[stageOf(pc, p.jobs)], src = pieceSrc(pc);
-        return h("li", { key: pc.id }, h("button", { type: "button", className: "row", "data-col": 3, onClick: () => reopen("piece-any", { piece: pc.id, title: pc.label }), "aria-label": (stepDone ? "Rouvrir " : "Ouvrir ") + pc.label + " : " + w.toLowerCase() },
+        return h("li", { key: pc.id }, h("button", { type: "button", className: "row", "data-col": 3, onClick: () => reopen("piece-any", { piece: pc.id, title: pl(pc) }), "aria-label": (stepDone ? "Rouvrir " : "Ouvrir ") + pl(pc) + " : " + w.toLowerCase() },
           h("span", { className: "vf mini", style: { "--ratio": pc.size[0] / pc.size[1] } }, src ? h("img", { src, alt: "" }) : null),
-          h("span", { className: "main" }, h("span", { className: "nom" }, pc.label), h("span", { className: "meta" }, w)))); }));
+          h("span", { className: "main" }, h("span", { className: "nom" }, pl(pc)), h("span", { className: "meta" }, w)))); }));
       action = null;
     }
     const serie = SERIES_STEPS.includes(step);
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, stepDone ? "Décidé" : "En cours"), h("h2", { className: "titre" }, label),
-        h("p", { className: "sub" }, serie && !stepDone ? sc[step] + " sur " + plural(sc.total, "pièce", "pièces") + SERIES_WORD[step] + "." : "Étape faite. Ce qui a été décidé, tel quel.")),
+      h(ColHead, { sort: "Étape", title: label, sub: serie && !stepDone ? "En cours · " + sc[step] + " sur " + plural(sc.total, "pièce", "pièces") + SERIES_WORD[step] + "." : "Faite · ce qui a été décidé, tel quel." }),
       h("div", { className: "bodyc" }, main, action));
   }
 
   function JournalCol({ ctx, pid }) {
     const list = useMemo(() => loadJournal(pid), [pid, ctx.rev]);
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, "Le journal des décisions")),
+      h(ColHead, { sort: "Projet", title: "Journal des décisions", sub: ctx.projectName(pid) }),
       list.length === 0 ? h("p", { className: "vide" }, "Chaque décision s'écrit ici avec son heure et sa raison.") :
         h("ol", { className: "journal" }, list.slice(0, 60).map((e, i) => h("li", { key: e.at + "-" + i },
           h("time", { dateTime: new Date(e.at).toISOString() }, clock(e.at)), h("span", null, h("strong", null, e.who === "toi" ? "Toi : " : "Studio : "), e.text), e.why && h("span", { className: "why" }, e.why)))));
@@ -1623,7 +1675,7 @@
         ctx.selectBrand(b.id, b.site ? b.name + " est créée : le studio lit son site." : b.name + " est créée. Son brief l'attend.");
       });
     };
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Studio"), h("h2", { className: "titre" }, "Nouvelle marque")),
+    return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: "Nouvelle marque" }),
       h("form", { className: "sec form", onSubmit: create },
         h("div", { className: "field" }, h("label", { htmlFor: "nb-name" }, "Nom de la marque"), h("input", { id: "nb-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off" })),
         h("div", { className: "field" }, h("label", { htmlFor: "nb-site" }, "Son site (facultatif)"), h("input", { id: "nb-site", type: "text", inputMode: "url", value: site, onChange: (e) => setSite(e.target.value), autoComplete: "off", placeholder: "ma-marque.example", "aria-describedby": "nb-hint" }),
@@ -1637,7 +1689,7 @@
     const [f, setF] = useState(null);
     useEffect(() => { if (b && !f) setF({ name: b.name, site: b.site ? host(b.site) : "", description: b.description || "" }); }, [b]);
     const clean = useDirty(ctx, "editBrand", bid, "la marque modifiée", b && f && (f.name !== b.name || f.site !== (b.site ? host(b.site) : "") || f.description !== (b.description || "")));
-    if (!b || !f) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
+    if (!b || !f) return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: "Modifier " + ctx.brandName(bid) }), h(Loading));
     const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
     const save = (e) => {
       e.preventDefault();
@@ -1655,7 +1707,7 @@
       await ctx.refresh(); ctx.touch(); ctx.notify("Le studio relit le site " + deName(name) + ".");
     }, "Le studio relit le site.");
     const reread = () => ctx.act(async () => { await api.discover(bid); await ctx.refresh(); ctx.touch(); ctx.close("Le studio relit le site " + deName(b.name) + "."); }, "Le studio relit le site.");
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, "Modifier " + b.name)),
+    return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: "Modifier " + b.name }),
       h("form", { className: "sec form", onSubmit: save },
         h("div", { className: "field" }, h("label", { htmlFor: "eb-name" }, "Nom"), h("input", { id: "eb-name", type: "text", autoFocus: true, value: f.name, onChange: set("name"), autoComplete: "off" })),
         h("div", { className: "field" }, h("label", { htmlFor: "eb-site" }, "Site"), h("input", { id: "eb-site", type: "text", inputMode: "url", value: f.site, onChange: set("site"), autoComplete: "off", placeholder: "ma-marque.example" })),
@@ -1669,7 +1721,7 @@
     const b = useLive(ctx, () => api.getBrand(bid), "np|" + bid);
     const [name, setName] = useState(""), [from, setFrom] = useState("");
     const clean = useDirty(ctx, "newProject", bid, "le nouveau projet", name.trim());
-    if (!b) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
+    if (!b) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Nouveau projet", sub: "Dans " + ctx.brandName(bid) }), h(Loading));
     const create = (e) => {
       e.preventDefault();
       ctx.act(async () => {
@@ -1679,7 +1731,7 @@
         ctx.selectProject(p.id, "Projet créé : " + p.name + (p.brand_stage !== "ready" ? ". Il attend sa marque." : "."), bid);
       });
     };
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, b.name), h("h2", { className: "titre" }, "Nouveau projet")),
+    return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Nouveau projet", sub: "Dans " + b.name }),
       h("form", { className: "sec form", onSubmit: create },
         h("div", { className: "field" }, h("label", { htmlFor: "np-name" }, "Nom du projet"), h("input", { id: "np-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off", placeholder: "Par exemple : la campagne de rentrée" })),
         b.projects.length > 0 && h("div", { className: "field" }, h("label", { htmlFor: "np-from" }, "Partir d'un projet existant"),
@@ -1694,12 +1746,12 @@
     const [name, setName] = useState(null);
     useEffect(() => { if (p && name === null) setName(p.name); }, [p]);
     const clean = useDirty(ctx, "editProject", pid, "le projet renommé", p && name !== null && name !== p.name);
-    if (!p || name === null) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
+    if (!p || name === null) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Modifier " + ctx.projectName(pid) }), h(Loading));
     const save = (e) => {
       e.preventDefault();
       ctx.act(async () => { await api.updateProject(pid, { name: name.trim() }); ctx.log(pid, "toi", "Projet renommé : " + name.trim(), ""); await ctx.refresh(); ctx.touch(); clean(); ctx.closeDetail(name.trim() + " est enregistré."); });
     };
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, "Modifier " + p.name)),
+    return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Modifier " + p.name }),
       h("form", { className: "sec form", onSubmit: save },
         h("div", { className: "field" }, h("label", { htmlFor: "ep-name" }, "Nom du projet"), h("input", { id: "ep-name", type: "text", autoFocus: true, value: name, onChange: (e) => setName(e.target.value), autoComplete: "off" })),
         h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !name.trim(), "aria-label": "Enregistrer le projet" }, "Enregistrer"),
@@ -1721,26 +1773,33 @@
     const show = (c) => { setCfg(c); setImage(c.image_engine); setText(c.text_engine); setModel(c.openrouter_model || ""); setKey(""); };
     useDirty(ctx, "settings", null, "les réglages", cfg && (image !== cfg.image_engine || text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()));
     useEffect(() => { api.engines().then(show).catch(ctx.fail); }, []);
-    const saveImage = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveEngine(image)); ctx.notify("Le moteur d'image est enregistré."); }); };
-    const saveText = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined)); ctx.notify("Le moteur de texte est enregistré."); }); };
+    const changed = cfg && (image !== cfg.image_engine || text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || !!key.trim());
+    /* one form, one filled button (rule 8): what changed is saved, the image engine and the text engine each by its own route; each route
+       that went through shows at once, so the screen tells what is saved when the next one fails */
+    const save = (e) => {
+      e.preventDefault();
+      ctx.act(async () => {
+        if (image !== cfg.image_engine) show(await api.saveEngine(image));
+        if (text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()) show(await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined));
+        ctx.notify("Les réglages sont enregistrés.");
+      });
+    };
+    const needsKey = cfg && text === "openrouter" && text !== cfg.text_engine && !key.trim() && !cfg.key_saved; // only a change of text engine waits for its key
     const forget = () => ctx.act(async () => { show(await api.saveTextEngine(text, "")); ctx.notify("La clé est oubliée."); });
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Studio"), h("h2", { className: "titre" }, "Réglages")),
-      !cfg ? h("p", { className: "vide" }, "Un instant.") : h(React.Fragment, null,
-        h("form", { className: "sec form", onSubmit: saveImage },
-          h("div", { className: "field" }, h("label", { htmlFor: "st-image" }, "Moteur d'image"),
-            h("select", { id: "st-image", value: image, onChange: (e) => setImage(e.target.value) }, cfg.image_engines.map((k) => h("option", { key: k, value: k }, IMAGE_WORD[k] || k)))),
-          h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || image === cfg.image_engine, "aria-label": "Enregistrer le moteur d'image" }, "Enregistrer"))),
-        h("form", { className: "sec form", onSubmit: saveText },
-          h("div", { className: "field" }, h("label", { htmlFor: "st-text" }, "Moteur de texte"),
-            h("select", { id: "st-text", value: text, onChange: (e) => setText(e.target.value) }, cfg.text_engines.map((k) => h("option", { key: k, value: k }, TEXT_WORD[k] || k)))),
-          text === "openrouter" && h(React.Fragment, null,
-            h("div", { className: "field" }, h("label", { htmlFor: "st-key" }, "Clé OpenRouter"),
-              h("input", { id: "st-key", type: "password", value: key, onChange: (e) => setKey(e.target.value), autoComplete: "off", placeholder: cfg.key_saved ? "Une clé est enregistrée" : "", "aria-describedby": "st-key-hint" }),
-              h("span", { id: "st-key-hint", className: "small muted", "data-key-saved": cfg.key_saved }, cfg.key_saved ? "Une clé est enregistrée. Elle reste sur ce poste et ne s'affiche jamais. Écris-en une autre pour la remplacer." : "Aucune clé enregistrée. Elle reste sur ce poste et ne s'affiche jamais.")),
-            h("div", { className: "field" }, h("label", { htmlFor: "st-model" }, "Modèle"), h("input", { id: "st-model", type: "text", value: model, onChange: (e) => setModel(e.target.value), autoComplete: "off" }))),
-          h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || (text === "openrouter" && !key.trim() && !cfg.key_saved), "aria-label": "Enregistrer le moteur de texte" }, "Enregistrer"),
-            text === "openrouter" && cfg.key_saved && h(Button, { type: "button", variant: "ghost", size: "md", onClick: forget, disabled: ctx.busy, "aria-label": "Oublier la clé" }, "Oublier la clé"),
-            h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Fermer les réglages" }, "Fermer")))));
+    return h(React.Fragment, null, h(ColHead, { sort: "Réglages", title: "Moteurs d'image et de texte" }),
+      !cfg ? h(Loading) : h("form", { className: "sec form", onSubmit: save },
+        h("div", { className: "field" }, h("label", { htmlFor: "st-image" }, "Moteur d'image"),
+          h("select", { id: "st-image", value: image, onChange: (e) => setImage(e.target.value) }, cfg.image_engines.map((k) => h("option", { key: k, value: k }, IMAGE_WORD[k] || k)))),
+        h("div", { className: "field" }, h("label", { htmlFor: "st-text" }, "Moteur de texte"),
+          h("select", { id: "st-text", value: text, onChange: (e) => setText(e.target.value) }, cfg.text_engines.map((k) => h("option", { key: k, value: k }, TEXT_WORD[k] || k)))),
+        text === "openrouter" && h(React.Fragment, null,
+          h("div", { className: "field" }, h("label", { htmlFor: "st-key" }, "Clé OpenRouter"),
+            h("input", { id: "st-key", type: "password", value: key, onChange: (e) => setKey(e.target.value), autoComplete: "off", placeholder: cfg.key_saved ? "Une clé est enregistrée" : "", "aria-describedby": "st-key-hint" }),
+            h("span", { id: "st-key-hint", className: "small muted", "data-key-saved": cfg.key_saved }, cfg.key_saved ? "Une clé est enregistrée. Elle reste sur ce poste et ne s'affiche jamais. Écris-en une autre pour la remplacer." : "Aucune clé enregistrée. Elle reste sur ce poste et ne s'affiche jamais.")),
+          h("div", { className: "field" }, h("label", { htmlFor: "st-model" }, "Modèle"), h("input", { id: "st-model", type: "text", value: model, onChange: (e) => setModel(e.target.value), autoComplete: "off" }))),
+        h("div", { className: "gestures" }, h(Button, { type: "submit", variant: "primary", size: "md", disabled: ctx.busy || !changed || needsKey, "aria-label": "Enregistrer les réglages" }, "Enregistrer"),
+          text === "openrouter" && cfg.key_saved && h(Button, { type: "button", variant: "ghost", size: "md", onClick: forget, disabled: ctx.busy, "aria-label": "Oublier la clé" }, "Oublier la clé"),
+          h(Button, { type: "button", variant: "ghost", size: "md", onClick: ctx.close, "aria-label": "Fermer les réglages" }, "Fermer"))));
   }
 
   function JudgeForm({ ctx }) {
@@ -1774,7 +1833,7 @@
       ctx.touch(); await ctx.refresh(); clean();
       ctx.selectJudgement(jg.id, "Le juge relit " + jg.name + ".");
     }, "Le studio envoie la pièce au juge.");
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Le juge"), h("h2", { className: "titre" }, "Juger une pièce")),
+    return h(React.Fragment, null, h(ColHead, { sort: "Le juge", title: "Juger une pièce" }),
       h("div", { className: "sec form" },
         h("input", { ref: input, type: "file", className: "sr", accept: "image/png,image/jpeg", onChange: pick, tabIndex: -1, "aria-hidden": "true" }),
         url && h("figure", { className: "frame wide" }, h("img", { src: url, alt: "La pièce à juger : " + file.name })),
@@ -1805,7 +1864,7 @@
     const more = r.status === "done" || r.status === "none";
     return h("div", { className: "lecteurs", "aria-live": "polite" }, h("p", { className: "cap" }, "Trois tours du juge"),
       r.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce trois fois, chaque tour seul.")
-        : r.status === "failed" ? h(Callout, { tone: "risk", label: "Les trois tours n'ont pas abouti" }, r.error || "raison inconnue")
+        : r.status === "failed" ? h(Failure, { label: "Les trois tours n'ont pas abouti", error: r.error })
         : r.status === "done" ? h("div", { className: "cote" }, ROUNDS_SHELVES.map(([k, label, sub]) => h("section", { key: k, className: "lecteur" },
           h("h3", { className: "cap" }, label), h("p", { className: "small muted" }, sub),
           r.synthesis[k].length ? h("ul", { className: "annots" }, r.synthesis[k].map((n, i) => h("li", { key: i },
@@ -1818,7 +1877,8 @@
 
   function JudgementCol({ ctx, jid }) {
     const jg = useLive(ctx, () => api.judgement(jid), jid);
-    if (!jg) return h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("p", { className: "vide" }, "Un instant."));
+    if (jg) ctx.jnames.current[jid] = jg.name;
+    if (!jg) return h(React.Fragment, null, h(ColHead, { sort: "Le juge", title: ctx.judgementName(jid) }), h(Loading));
     const b = jg.brief;
     const again = () => ctx.act(async () => { await api.runJudgement(jid); ctx.touch(); await ctx.refresh(); ctx.notify("Le juge relit " + jg.name + "."); }, "Le studio relance le juge.");
     const reread = (n) => ctx.act(async () => { await api.runJudgementReader(jid, n); ctx.touch(); await ctx.refresh(); }, "Le studio relance ce lecteur.");
@@ -1826,14 +1886,13 @@
     const said = [b.objective && "Je veux " + BRIEF_SHOW.objective(b.objective), b.audience && "Pour " + BRIEF_SHOW.audience(b.audience), b.message && "Le message : " + dot(b.message),
       b.cta && "Pour finir : « " + dot(b.cta) + " »", b.fixed && "Les assets : " + dot(b.fixed)].filter(Boolean);
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Jugement"), h("h2", { className: "titre" }, jg.name),
-        h("p", { className: "sub" }, [jg.brand_name || "Sans marque", day(jg.at)].filter(Boolean).join(" · "))),
+      h(ColHead, { sort: "Le juge", title: jg.name, sub: [jg.brand_name || "Sans marque", day(jg.at)].filter(Boolean).join(" · ") }),
       h("div", { className: "bodyc" },
         jg.image && h(Frame, { src: jg.image, alt: "La pièce jugée : " + jg.name }),
         said.length > 0 && h("p", { className: "small muted" }, said.join(". ") + "."),
         jg.status === "running" ? h("p", { className: "muted", role: "status" }, "Le juge relit la pièce.")
-          : jg.status === "failed" ? h(React.Fragment, null, h(Callout, { tone: "risk", label: "Le juge n'a pas pu la relire" }, jg.error || "raison inconnue"),
-            h("div", { className: "gestures" }, h(Button, { variant: "primary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
+          : jg.status === "failed" ? h(React.Fragment, null, h(Failure, { label: "Le juge n'a pas pu la relire", error: jg.error }),
+            h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: again, "aria-label": "Relancer le juge sur " + jg.name }, "Relancer")))
           : h(React.Fragment, null, h(Verdict, { v: jg.verdict }),
             h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "md", disabled: ctx.busy, onClick: page, "aria-label": "Télécharger la page du verdict : la pièce en haut, la liste dessous" }, "Télécharger la page"))),
         jg.status === "done" && h(Rounds, { ctx, jid, name: jg.name }),
@@ -1920,7 +1979,7 @@
     if (sel.detail) c.push(sel.detail.kind);
     return c;
   }
-  const KEY_OF = { identity: "brand", editBrand: "brand", newProject: "brand", project: "project", editProject: "project" }; // what a column shows the parts of
+  const KEY_OF = { identity: "brand", editBrand: "brand", newProject: "brand", project: "project", editProject: "project", pieces: "project" }; // what a column shows the parts of
   const popped = (s, n) => { let x = s; while (columnsOf(x).length > n) { const y = popOnce(x); if (y === x) break; x = y; } return x; };
   const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.judges ? { ...sel, judges: false } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
@@ -1985,7 +2044,8 @@
     const dirty = useRef(new Map()), leaving = useRef(false), foldsRef = useRef(folds), widthRef = useRef(width), narrowRef = useRef(narrow);
     foldsRef.current = folds; widthRef.current = width; narrowRef.current = narrow;
     const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), digest = useRef(""), cmdsRef = useRef([]), overlayRef = useRef(false), arrowsRef = useRef(false), backTo = useRef(null);
-    const selRef = useRef(sel), diveRef = useRef(dive), opened = useRef(0);
+    const selRef = useRef(sel), diveRef = useRef(dive), opened = useRef(0), jnames = useRef({});
+    const before = useRef(null); // the columns as they were when a task opened: closing it brings them back (rule 7)
     overlayRef.current = palette || !!ask;
     selRef.current = sel; diveRef.current = dive;
 
@@ -2062,7 +2122,7 @@
     useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(t); }, []);
 
     /* ----- moving about the columns ----- */
-    const move = useCallback((fn, text) => guard({ sel: typeof fn === "function" ? fn(selRef.current) : fn, dive: null }, () => { setSel(fn); setNotice(text || null); setError(null); setDive(null); }), [guard]);
+    const move = useCallback((fn, text) => guard({ sel: typeof fn === "function" ? fn(selRef.current) : fn, dive: null }, () => { before.current = null; setSel(fn); setNotice(text || null); setError(null); setDive(null); }), [guard]);
     const selectStudio = useCallback(() => move(() => EMPTY), [move]);
     const selectBrand = useCallback((id, text) => move(() => ({ ...EMPTY, brand: id }), text), [move]);
     const selectProject = useCallback((id, text, brand) => move((s) => ({ ...EMPTY, brand: brand || s.brand, project: id }), text), [move]);
@@ -2076,6 +2136,7 @@
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
     const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
+    const selectPieces = useCallback(() => move((s) => ({ ...s, detail: { kind: "pieces" }, task: null })), [move]);
     const showJournal = useCallback(() => move((s) => ({ ...s, detail: { kind: "journal" }, task: null })), [move]);
     const close = useCallback((text) => move((s) => ({ ...s, panel: null }), typeof text === "string" || (text && text.text) ? text : null), [move]);
     const closeDetail = useCallback((text) => move((s) => ({ ...s, detail: null }), typeof text === "string" ? text : null), [move]);
@@ -2086,11 +2147,13 @@
       if (!keepNotice) setNotice(null);
       setError(null);
       backTo.current = { id: t.id, col };
+      if (!diveRef.current) before.current = selRef.current; // a task that follows another keeps the columns of the first
       setSel((s) => ({ ...EMPTY, brand: t.brand || s.brand, project: t.project || null, task: t.id }));
       setDive({ ...t, _k: ++opened.current }); // a new key each time: the same task opened again (a sibling that keeps its id) starts afresh
       window.scrollTo(0, 0);
     }, spare), [guard]);
-    const back = useCallback(() => guard({ dive: null }, () => setDive(null)), [guard]);
+    const restored = () => before.current ? { ...before.current, task: null } : { ...selRef.current, task: null };
+    const back = useCallback(() => { const to = restored(); guard({ dive: null, sel: to }, () => { before.current = null; setSel(to); setDive(null); }); }, [guard]);
 
     /* an action runs under `busy`; `snap` is the set of tasks before it, to know which ones are new afterwards */
     const snap = useCallback(() => new Set(tasksRef.current.map((t) => t.id)), []);
@@ -2113,13 +2176,13 @@
       const answeredCore = (d) => d.kind === "core"; // what the task held is what was just answered
       if (next) openTask(next, true, undefined, answeredCore);
       setNotice(text); // the answer is taken, whether the person leaves at once or stays for what a neighbour column holds
-      if (!next) guard({ sel: { ...selRef.current, task: null }, dive: null }, () => { setSel((s) => ({ ...s, task: null })); setDive(null); }, answeredCore);
+      if (!next) { const to = restored(); guard({ sel: to, dive: null }, () => { before.current = null; setSel(to); setDive(null); }, answeredCore); }
     }, [refresh, openTask, snap, guard]);
 
     /* acting on the whole series: every missing image, every piece ready to compose. Inside a task (`core`), the next one opens; from a column, a line says it */
     const composeAll = useCallback(async (pid, snap, core) => {
       const r = await api.composeAll(pid);
-      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : " + dot(r.failed[0].error) : "") + ".";
+      const text = plural(r.composed.length, "pièce composée et vérifiée", "pièces composées et vérifiées") + (r.failed.length ? ". " + plural(r.failed.length, "n'a pas pu l'être", "n'ont pas pu l'être") + " : le journal dit pourquoi" : "") + "."; // what the machine said goes to the journal (rule 9)
       log(pid, "studio", "Pièces composées d'un coup : " + r.composed.length, r.failed.map((f) => f.piece + " : " + f.error).join(" ; "));
       if (core) await answered(pid, text, { before: snap }); else { await refresh(); setRev((x) => x + 1); setNotice(text); }
     }, [answered, refresh, log]);
@@ -2138,13 +2201,14 @@
       const t = setTimeout(() => setNotice(null), notice.action ? 20000 : 9000); // a line that offers a gesture stays a little longer
       return () => clearTimeout(t);
     }, [notice]);
+    const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
+    const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings, dirty, leave };
+      selectStudio, selectBrand, selectProject, selectStep, selectPieces, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings, dirty, leave,
+      jnames, brandName: (id) => brandName(id), projectName: (id) => projectInfo(id).name, judgementName: (id) => jnames.current[id] || "" };
 
-    const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
-    const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
 
     /* ----- the commands of the palette ----- */
     const cmds = [];
@@ -2246,7 +2310,7 @@
     /* what the studio says in passing (done, working) floats at the bottom: it never pushes the content, which does not jump when it comes or goes */
     const fresh = stale && h("p", { className: "notice", role: "status" }, "L'interface a changé depuis l'ouverture de cette page.", h("button", { type: "button", className: "linkbtn", onClick: () => window.location.reload() }, "Recharger"));
     const toasts = (note.text || slow || fresh) && h("div", { className: "toasts" }, fresh, slow, noticeEl);
-    const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
+    const err = error && h("div", { role: "alert", className: "err" }, h(Failure, { label: "Le studio refuse", error }, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer"))); // the server often answers in English: said in French, the rest folded (rule 9)
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
     const pal = ask ? h(Leave, { what: ask.what, onStay: () => setAsk(null), onGo: () => { const go = ask.go; setAsk(null); leave(go); } })
       : palette && h(Palette, { cmds, onClose: () => setPalette(false) });
@@ -2258,11 +2322,14 @@
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
+      : kind === "pieces" ? h(PiecesCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", judges: "Le juge", newJudge: "Juger une pièce", settings: "Réglages", judgement: "Le jugement", brand: brandName(sel.brand), identity: "Identité et assets", editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
-      step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
+    /* the name of each column, the one its head shows (rule 3): its strip and its section say the same */
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", judges: "Pièces jugées", newJudge: "Juger une pièce", settings: "Moteurs d'image et de texte", judgement: jnames.current[sel.judgement] || "Jugement",
+      brand: brandName(sel.brand), identity: "Identité et assets", editBrand: "Modifier " + brandName(sel.brand), newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+      step: sel.detail && sel.detail.kind === "step" ? (SEVEN.find((x) => x.key === sel.detail.key) || {}).label : "", pieces: "Ses pièces", journal: "Journal des décisions", editProject: "Modifier " + projectInfo(sel.project).name };
     /* an open column: `onFold` folds it into its strip (the deepest column has none, it never folds) */
-    const shell = (kind, i, last, onFold) => h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
+    const shell = (kind, i, last, onFold) => h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + " k-" + kind + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
       onFold && h("button", { type: "button", className: "plier", onClick: () => onFold(kind), "aria-label": "Replier la colonne : " + labels[kind], title: "Replier" }, h("span", { "aria-hidden": "true" }, "‹")),
       last && err, node(kind));
     /* a folded column: a strip that keeps its name; a click unfolds it, alone */
@@ -2273,15 +2340,15 @@
       const t = dive;
       const last = labels[cols[cols.length - 1]];
       const shut = foldPlan(cols, width - CORE_MIN, besideOf(cols, folds.beside), -1);
-      /* a column that does not fit beside the task even alone: the columns come back, at that level */
+      /* a column that does not fit beside the task even alone: the columns come back as they were left (rule 7), cut at that level */
       const beside = (kind) => { const i = cols.indexOf(kind), f = besideIn(folds, kind);
-        if (foldPlan(cols, width - CORE_MIN, besideOf(cols, f.beside), -1)[i]) guard({ dive: null, sel: popped(sel, i + 1) }, () => { setDive(null); setNotice(null); setSel((s) => popped(s, i + 1)); });
+        if (foldPlan(cols, width - CORE_MIN, besideOf(cols, f.beside), -1)[i]) { const to = popped(restored(), i + 1); guard({ dive: null, sel: to }, () => { before.current = null; setDive(null); setNotice(null); setSel(to); }); }
         else guard({ folds: f }, () => setFolds((x) => besideIn(x, kind))); };
       return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
         narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
           : cols.map((kind, i) => shut[i] ? strip(kind, i, beside, "Ouvrir à côté de la tâche : ") : shell(kind, i, false, shutBeside)),
         h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" },
-          h("div", { className: "ou" }, h("p", { className: "small muted" }, whereLine(t)), !narrow && h("button", { type: "button", className: "linkbtn small", onClick: back, "aria-label": "Fermer la tâche et revenir aux colonnes (Échap)" }, "Revenir aux colonnes")),
+          h("div", { className: "ou" }, h(Eyebrow, null, whereLine(t)), !narrow && h("button", { type: "button", className: "linkbtn small", onClick: back, "aria-label": "Fermer la tâche et revenir aux colonnes (Échap)" }, "Revenir aux colonnes")),
           err, h(Core, { ctx, t, key: t._k }))), toasts, pal);
     }
 

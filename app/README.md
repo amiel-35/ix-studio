@@ -5,8 +5,10 @@ logo, write its brief, confirm what the studio deduced), then, for each project 
 read and correct the instructions the agents will get, follow the divergence, pick a series, correct each image prompt,
 follow the image, compose, check, decide.
 
-The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere, the brands, the judge,
-the settings) / a brand (what waits, its identity, its projects) / its identity and assets, or a project (its seven steps, what waits, and once pieces exist the series as thumbnails, each with where it stands) / the detail of a step already done, or of steps 5 to 7 as soon as they have begun ("x sur y pièces"). What is
+The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere and what the machine
+lacks at the top, the brands and the judge in the middle, the settings at the bottom) / a brand (what waits, its identity, its projects) /
+its identity and assets, or a project (what waits, its seven steps, "Ses pièces") / the detail of a step already done, or of steps 5 to 7
+as soon as they have begun ("x sur y pièces"), or the page of what the project made: its series as thumbnails, its texts, its film. What is
 selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
 (a brand, a project, a piece to judge) and its "Modifier". One rule: a row opens a column on its right, nothing unfolds under it.
 Any column but the deepest folds into a thin strip that keeps its name, by hand (its "‹" in the top corner) or when the columns do
@@ -16,10 +18,29 @@ and in a task its brief, instructions, prompt, words or comment) is never lost b
 off the screen asks first ("Rester", the default, or "Quitter sans enregistrer"); what the gesture itself saved does not count, the
 forms' own "Annuler" do not ask, and closing or reloading the tab gets the browser's own question. Resizing the window is not a
 gesture: a column it folds loses what it held. A task is the core: the columns are strips beside it, a
-strip opens its column next to the task, and "Revenir aux colonnes", Escape or the left arrow bring them back. Keyboard: up and down
+strip opens its column next to the task, and "Revenir aux colonnes", Escape or the left arrow bring the columns back as they were left. Keyboard: up and down
 in a column, right to go deeper, left or Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. Under 760 px,
 one column at a time, with a way back. A page opened before the interface changed on disk says so and offers to reload (`build` in
 `/api/health`).
+
+The interface holds to ten rules, so that every screen reads the same way:
+1. a row opens a column on its right, nothing unfolds under it;
+2. a column is a list (rows that open what follows) or a page (forms, editors, images), never both: a project lists its steps and
+   opens "Ses pièces", as a brand opens its identity;
+3. one head everywhere: the sort of thing, its name, where it stands, "Modifier" in the same place; a strip bears that same name, and a
+   task's head is drawn the same way;
+4. the same order in every column: the head, what waits there, then the content; a "+" in the heading of the list it adds to;
+5. one shape per sort of thing: what waits is a box of task lines, never rows of a list, and the same gesture has the same button
+   everywhere (in a page's blocks: keep, write, propose, save are secondary, drop is quiet; "Télécharger", "Composer tout" and
+   "Relancer" are secondary wherever they stand, the size following the place, except the relaunch of a failed job, the one
+   gesture of its task; a link in a sentence stays a link only in the middle of the text);
+6. the studio's column keeps its places: what waits and what is missing at the top, the settings at the bottom, the middle alone scrolls;
+7. a task is the one time the screen changes shape, and leaving it gives back the columns as they were;
+8. one filled button per column, and one per task;
+9. no machine message: a failure says in French what happened and what to do, what the machine said (a known cause, or what reads
+   as a program's output: English, paths, traces) unfolds under "Le détail
+   technique"; no format key in a title ("post 4×5", not "post-4x5");
+10. the screen does not jump: a column shows its head at once, before its data, and a block keeps its place while it loads.
 
 The interface is built on the API only (`API.md`), so it does not know which backend answers. Two exist:
 
