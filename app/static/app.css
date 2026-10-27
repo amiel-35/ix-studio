@@ -2,7 +2,9 @@
    Lines, never shadows (the one floating surface, the palette, takes the system's own floating shadow). */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-:root { --page-x: clamp(var(--space-4), 8vw, var(--space-10)); }
+:root { --page-x: clamp(var(--space-4), 8vw, var(--space-10));
+  /* what is selected: a tint of the accent, readable on every column's ground, stronger in the deepest column (two tokens of the system, no colour of its own) */
+  --sel-soft: color-mix(in srgb, var(--blue-medium) 9%, var(--surface-page)); --sel-strong: color-mix(in srgb, var(--blue-medium) 16%, var(--surface-page)); }
 body { margin: 0; background: var(--surface-light); color: var(--text-body); font-family: var(--font-body); font-size: var(--fs-body); line-height: var(--lh-body); }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
@@ -40,7 +42,7 @@ img { display: block; max-width: 100%; }
 /* what waits at this level: a counter beside the name, a button that opens "Ce qui t'attend" on the right; selected while that column is open */
 .compteur { flex: none; min-width: 24px; height: 24px; padding: 0 var(--space-2); display: grid; place-items: center; background: var(--surface-page); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); cursor: pointer; font-size: var(--fs-small); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; line-height: 1; color: var(--text-strong); transition: background var(--transition-fast), color var(--transition-fast); }
 .compteur:hover { background: var(--neutral-200); color: var(--text-heading); }
-.compteur[aria-current="true"] { background: var(--action-subtle-bg); border-color: var(--blue-medium); color: var(--text-heading); }
+.compteur[aria-current="true"] { background: var(--sel-strong); border-color: var(--blue-medium); border-left-width: var(--border-width-accent); color: var(--text-heading); }
 .sub { font-size: var(--fs-small); color: var(--text-muted); margin: 0; }
 .modif { font-size: var(--fs-small); margin-top: var(--space-2); }
 .colhead .desc { padding: 0; margin-top: var(--space-2); }
@@ -63,7 +65,6 @@ img { display: block; max-width: 100%; }
 .reglages { display: flex; align-items: baseline; gap: var(--space-2); width: 100%; min-height: 44px; padding: var(--space-3) var(--space-5); background: none; border: 0; text-align: left; cursor: pointer; font-size: var(--fs-small); color: var(--text-body); transition: background var(--transition-fast); }
 .reglages .t { font-weight: var(--fw-semibold); color: var(--text-strong); }
 .reglages:hover { background: var(--neutral-200); }
-.reglages[aria-current="true"] { background: var(--action-subtle-bg); }
 .reglages[aria-current="true"] .t { color: var(--text-heading); }
 .reglages:focus-visible { outline-offset: -2px; }
 
@@ -77,7 +78,6 @@ img { display: block; max-width: 100%; }
 .tache .t { font-size: var(--fs-small); font-weight: var(--fw-semibold); color: var(--text-strong); line-height: 1.3; overflow-wrap: anywhere; }
 .tache .m { font-size: var(--fs-caption); color: var(--text-muted); line-height: 1.3; }
 .tache:hover { background: var(--neutral-100); }
-.tache[aria-current="true"] { background: var(--action-subtle-bg); }
 .tache[aria-current="true"] .t { color: var(--text-heading); }
 .tache:focus-visible { outline-offset: -2px; }
 .k-waiting .liste { padding: var(--space-2) 0 var(--space-4); }
@@ -90,8 +90,11 @@ img { display: block; max-width: 100%; }
 .row { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 48px; padding: var(--space-3) var(--space-5); background: none; border: 0; text-align: left; cursor: pointer; transition: background var(--transition-fast); }
 .c1 .row:hover, .c2 .row:hover { background: var(--neutral-200); }
 .row:hover { background: var(--neutral-100); }
-.row[data-sel="soft"] { background: var(--neutral-200); }
-.row[data-sel="strong"] { background: var(--action-subtle-bg); }
+/* a selected row, step, task line or the settings: a line of accent on the left edge (an inset with no blur: a line, not a shadow) and the tint;
+   soft, the row that opened the column on its right; strong, in the deepest column */
+.row[data-sel], button.etape[data-sel], .reglages[aria-current="true"], .tache[aria-current="true"] { box-shadow: inset var(--border-width-accent) 0 0 var(--blue-medium); }
+.row[data-sel="soft"], button.etape[data-sel="soft"] { background: var(--sel-soft); }
+.row[data-sel="strong"], button.etape[data-sel="strong"], .reglages[aria-current="true"], .tache[aria-current="true"] { background: var(--sel-strong); }
 .row:focus-visible, .etape:focus-visible { outline-offset: -2px; }
 .row .main { flex: 1; min-width: 0; display: grid; gap: 2px; justify-items: start; }
 .row .nom { font-weight: var(--fw-semibold); color: var(--text-strong); line-height: 1.25; overflow-wrap: anywhere; }
@@ -120,7 +123,7 @@ img { display: block; max-width: 100%; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 /* on a tinted ground (the studio column, a selected row or step) the muted grey falls under 4.5:1: the body ink there keeps WCAG AA */
-.col.c1 .row .meta, .row[data-sel] .meta, .row:hover .meta, button.etape[data-sel], button.etape[data-sel] .m, button.etape:hover, button.etape:hover .m { color: var(--text-body); }
+.col.c1 .row .meta, .row[data-sel] .meta, .row:hover .meta, button.etape[data-sel], button.etape[data-sel] .m, button.etape:hover, button.etape:hover .m, .reglages[aria-current="true"] .m, .tache[aria-current="true"] .m { color: var(--text-body); }
 
 /* the seven segments of a project */
 .seg { display: flex; gap: 2px; margin-top: var(--space-1); width: 150px; max-width: 100%; }
@@ -133,8 +136,6 @@ img { display: block; max-width: 100%; }
 .etape { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 34px; padding: 0 var(--space-5); background: none; border: 0; text-align: left; color: var(--text-muted); font-size: var(--fs-body); } /* a step to come is told by its grey dot, its text stays readable (AA) */
 button.etape { cursor: pointer; color: var(--text-muted); transition: background var(--transition-fast); }
 button.etape:hover { background: var(--neutral-100); }
-button.etape[data-sel="strong"] { background: var(--action-subtle-bg); }
-button.etape[data-sel="soft"] { background: var(--neutral-200); }
 .etape i { width: 10px; height: 10px; border-radius: 50%; background: var(--neutral-300); flex: none; }
 li[data-etat="done"] .etape i { background: var(--teal); }
 li[data-etat="waiting"] .etape i, li[data-etat="running"] .etape i { background: var(--neutral-300); }
@@ -185,16 +186,18 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .plier:hover { color: var(--text-link); background: var(--neutral-200); }
 .app.narrow .plier { display: none; }
 
-/* a task opened: the columns fold into strips that keep their names; the core is one thing and two gestures, unchanged */
+/* a folded column, in the columns or beside a task: a strip that keeps, at the top, its counter of what waits and its "+", then its name
+   (the button that unfolds it, the rest of the strip); the core of a task is one thing and two gestures, unchanged */
 .app.plonge { display: flex; }
-.bande { flex: none; width: 44px; height: 100%; display: flex; align-items: flex-start; justify-content: center; padding: var(--space-6) 0 0; background: none; border: 0; border-right: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-muted); transition: color var(--transition-fast), background var(--transition-fast); }
-.bande:hover { color: var(--text-link); background: var(--neutral-100); }
-.bande:focus-visible { outline-offset: -2px; }
-.bande span { writing-mode: vertical-rl; white-space: nowrap; font-size: var(--fs-small); font-weight: var(--fw-semibold); letter-spacing: .02em; max-height: 60vh; overflow: hidden; text-overflow: ellipsis; }
+.bande { flex: none; width: 44px; height: 100%; display: flex; flex-direction: column; align-items: center; gap: var(--space-1); padding: var(--space-3) 0 0; border-right: 1px solid var(--border-subtle); color: var(--text-muted); }
+.bande .add { margin: 0; }
+.bande-nom { flex: 1; width: 100%; min-height: 0; display: flex; align-items: flex-start; justify-content: center; padding: var(--space-2) 0 0; background: none; border: 0; cursor: pointer; color: inherit; transition: color var(--transition-fast), background var(--transition-fast); }
+.bande-nom:hover { color: var(--text-link); background: var(--neutral-100); }
+.bande-nom:focus-visible, .bande .compteur:focus-visible, .bande .add:focus-visible { outline-offset: -2px; }
+.bande-nom span { writing-mode: vertical-rl; white-space: nowrap; font-size: var(--fs-small); font-weight: var(--fw-semibold); letter-spacing: .02em; max-height: 60vh; overflow: hidden; text-overflow: ellipsis; }
 .bande.b1 { background: var(--surface-sunken); }
 .bande.b2 { background: var(--surface-light); }
 .bande.b3 { background: var(--surface-page); }
-.bande.b1:hover, .bande.b2:hover, .bande.b3:hover { background: var(--neutral-100); }
 .coeur { flex: 1; min-width: 0; height: 100%; overflow-y: auto; scrollbar-gutter: stable; display: flex; padding: var(--space-6) var(--page-x) var(--space-8); outline: none; background: var(--surface-page); }
 /* anchored at the top, never centred: opening an editor or a callout below does not move what is above it */
 .coeur-in { margin: 0 auto; width: 100%; max-width: 720px; }

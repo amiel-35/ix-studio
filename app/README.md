@@ -12,10 +12,11 @@ steps 5 to 7 as soon as they have begun ("x sur y pièces"), or one of the piece
 What waits at a level (the studio, a brand, a project) is a counter in the head of its column, beside the name: a button that opens the
 column "Ce qui t'attend" on the right, the tasks as lines (for the studio, all of them, under a small heading per brand or project);
 no counter when nothing waits, but it stays, at 0, while its column is open and nothing waits any more: it carries the selection. What is
-selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
+selected (a line of accent on its left edge, a tint) fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
 (a brand, a project, a piece to judge) and its "Modifier". One rule: a row opens a column on its right, nothing unfolds under it.
 Any column but the deepest folds into a thin strip that keeps its name, by hand (its "‹" in the top corner) or when the columns do
-not fit side by side; a click on a strip unfolds that column alone, and what was folded or unfolded by hand is kept in the browser.
+not fit side by side; the strip keeps, at the top, the counter of what waits at that level and the "+" of the column when it has one
+(the same gestures as in the column unfolded); a click on its name unfolds that column alone, and what was folded or unfolded by hand is kept in the browser.
 When room runs out, the columns nobody unfolded fold first, from the left. What is changed and not saved yet (names, personas, competitors, files, research, logos, texts, the film, a form, the settings,
 and in a task its brief, instructions, prompt, words or comment) is never lost by a gesture in silence: a gesture that would take it
 off the screen asks first ("Rester", the default, or "Quitter sans enregistrer"); what the gesture itself saved does not count, the
