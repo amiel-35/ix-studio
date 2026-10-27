@@ -3,9 +3,11 @@
 
    The idea: the levels of the studio are side by side, from the widest to the most precise, and the position is read by following what is
    selected from left to right. The studio (what waits everywhere, then the brands) / a brand (its brief, its assets, its projects) / a project
-   (its seven steps, what waits) / the detail of a step already done. A task opens on one thing and two gestures: diving into it folds the
-   columns into thin vertical strips that keep their names; a click on a strip, Escape or the left arrow brings them back. Every column has
-   its "+" to make what it holds (a brand, a project). The command palette (Cmd/Ctrl+K) reaches everything. The journal is kept on this side
+   (its seven steps, what waits) / the detail of a step already done. One rule everywhere: a row opens a column on its right, nothing unfolds
+   under it (a brand's identity, the judge and its pieces are columns like a project). Any column but the deepest folds into a thin vertical
+   strip that keeps its name, by hand or when the window is too narrow, and a click on the strip unfolds it alone. A task opens on one thing
+   and two gestures, the columns folded beside it; a strip opens its column next to the task, Escape or the left arrow brings the columns back.
+   Every column has its "+" to make what it holds (a brand, a project, a piece to judge). The command palette (Cmd/Ctrl+K) reaches everything. The journal is kept on this side
    (localStorage): the API has no journal route yet. */
 (function () {
   "use strict";
@@ -987,7 +989,7 @@
     const total = (b) => b.waiting + b.projects.reduce((n, p) => n + p.waiting, 0);
     return h(React.Fragment, null,
       h("div", { className: "colhead" }, h("h2", { className: "sr" }, "Le studio")),
-      h(Row, { col: 0, select: true, sel: !sel.brand && !sel.panel && !sel.judgement ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
+      h(Row, { col: 0, select: true, sel: !sel.brand && !sel.panel && !sel.judges ? level : null, onClick: ctx.selectStudio, label: "Tout le studio : " + plural(tasks.length, "chose t'attend", "choses t'attendent") },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Le studio")), h(Count, { n: tasks.length })),
       h(JobLine, { jobs }),
       ctx.machine.missing.length > 0 && h("div", { className: "machine", role: "status", "data-machine": "missing" },
@@ -1003,20 +1005,27 @@
       brands.map((b) => h(Row, { key: b.id, col: 0, select: true, sel: sel.brand === b.id ? level : null, onClick: () => ctx.selectBrand(b.id),
         label: b.name + ", " + (BRAND_STAGE[b.stage] || b.stage).toLowerCase() + (total(b) ? ", " + plural(total(b), "tâche", "tâches") : "") },
         h("span", { className: "main" }, h("span", { className: "nom" }, b.name), h("span", { className: "meta" }, BRAND_STAGE[b.stage] || b.stage)), h(Count, { n: total(b) }))),
-      h(Where, null, "Le paysage"),
-      h(Row, { col: 0, select: true, sel: sel.panel === "landscape" ? level : null, onClick: ctx.newLandscape, label: "Le paysage d'un marché : décrire un marché" },
-        h("span", { className: "main" }, h("span", { className: "nom" }, "Le paysage d'un marché"), h("span", { className: "meta" }, "Un marché, ses acteurs"))),
       h(Where, null, "Le juge"),
-      h(Row, { col: 0, select: true, sel: sel.panel === "newJudge" ? level : null, onClick: ctx.newJudge, label: "Juger une pièce : déposer une image et son brief" },
-        h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, "Une image, son brief, un verdict"))),
-      (judgements || []).map((j) => h(Row, { key: j.id, col: 0, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
-        label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))),
+      h(Row, { col: 0, select: true, sel: sel.judges ? level : null, onClick: ctx.selectJudges, label: "Le juge : " + (judgements && judgements.length ? plural(judgements.length, "pièce jugée", "pièces jugées") : "juger une pièce") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Juger une pièce"), h("span", { className: "meta" }, judgements && judgements.length ? plural(judgements.length, "pièce jugée", "pièces jugées") : "Une image, son brief, un verdict"))),
       h(Where, null, "Réglages"), // engines
       h(Row, { col: 0, select: true, sel: sel.panel === "settings" ? level : null, onClick: ctx.openSettings, label: "Réglages : choisir les moteurs d'image et de texte" },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Réglages"), h("span", { className: "meta" }, "Les moteurs d'image et de texte"))));
   }
   const JUDGEMENT_WORD = { running: "Le juge relit", done: "Jugée", failed: "Le juge a échoué" };
+
+  /* ---------- the judge: the pieces judged, and its "+" to judge one more ---------- */
+  function JudgesCol({ ctx }) {
+    const judgements = useLive(ctx, () => api.judgements(), "judgements");
+    const { sel } = ctx, level = ctx.level(1);
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Le juge"), h("h2", { className: "titre" }, "Juger une pièce"), h("p", { className: "sub" }, "Une image, son brief, un verdict")),
+      h("div", { className: "groupe split" }, h("span", null, "Pièces jugées"), h(Plus, { label: "Juger une pièce", onClick: ctx.newJudge })),
+      judgements && judgements.length === 0 && h("p", { className: "vide" }, "Aucune pièce jugée. Le « + » en dépose une."),
+      (judgements || []).map((j) => h(Row, { key: j.id, col: 1, select: true, sel: sel.judgement === j.id ? level : null, onClick: () => ctx.selectJudgement(j.id),
+        label: j.name + ", " + JUDGEMENT_WORD[j.status].toLowerCase() + (j.brand_name ? ", " + j.brand_name : "") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, j.name), h("span", { className: "meta" }, [JUDGEMENT_WORD[j.status], j.brand_name, day(j.at)].filter(Boolean).join(" · "))))));
+  }
   const day = (sec) => sec ? new Date(sec * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : "";
 
   /* ---------- 2. a brand: its brief, its assets, its projects ---------- */
@@ -1026,9 +1035,31 @@
     const b = useLive(ctx, () => api.getBrand(bid), bid);
     const jobs = ctx.data.jobs.filter((j) => j.brand === bid && !j.project);
     const level = ctx.level(1);
-    const [fold, setFold] = useState(null); // the identity and the assets, folded under a title; open of itself only while the brand has no project to show
     if (!b) return h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("p", { className: "vide" }, "Un instant."));
-    const shown = fold === null ? b.projects.length === 0 : fold;
+    const a = b.assets, known = BRIEF_BITS.filter(([k]) => b.identity[k].state !== "absent");
+    const what = [known.length ? "Brief : " + known.length + " sur " + BRIEF_BITS.length : "Pas de brief", a.logo ? "logo" : "sans logo", plural(a.colours.length, "couleur", "couleurs")].join(" · ");
+    return h(React.Fragment, null,
+      h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, b.name),
+        h("p", { className: "sub" }, (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site")),
+        h("button", { type: "button", className: "linkbtn modif", onClick: ctx.editBrand, "aria-label": "Modifier la marque " + b.name + " : nom, site, description" }, "Modifier")),
+      h(JobLine, { jobs }),
+      b.description && h("p", { className: "desc" }, b.description),
+      b.waiting.length > 0 && h(React.Fragment, null, h(Where, null, "Ce qui attend"), b.waiting.map((t) => h(TaskRow, { key: t.id, ctx, col: 1, t, place: false }))),
+      h(Where, null, "Son identité"),
+      h(Row, { col: 1, select: true, sel: ctx.sel.panel === "identity" ? level : null, onClick: ctx.selectIdentity, label: "Identité et assets de " + b.name + " : " + what },
+        h("span", { className: "main" }, h("span", { className: "nom" }, "Identité et assets"), h("span", { className: "meta" }, what))),
+      h("div", { className: "groupe split" }, h("span", null, "Projets"), h(Plus, { label: "Nouveau projet dans " + b.name, onClick: ctx.newProject })),
+      b.projects.length === 0 && h("p", { className: "vide" }, "Aucun projet. Le « + » en crée un."),
+      b.projects.map((p) => h(Row, { key: p.id, col: 1, select: true, sel: ctx.sel.project === p.id ? level : null, onClick: () => ctx.selectProject(p.id),
+        label: p.name + ", " + (p.done ? "terminé" : "étape " + p.rank + " sur 7, " + p.step_label.toLowerCase()) + (p.waiting ? ", " + plural(p.waiting, "tâche", "tâches") : "") },
+        h("span", { className: "main" }, h("span", { className: "nom" }, p.name), h("span", { className: "meta" }, p.done ? "Terminé" : "Étape " + p.rank + " sur 7 · " + p.step_label), h(Segments, { rank: p.rank, done: p.done })),
+        h(Count, { n: p.waiting }))));
+  }
+
+  /* ---------- 2b. the identity and the assets of a brand: its brief, its logo and colours, then what the studio proposes and the person decides ---------- */
+  function IdentityCol({ ctx, bid }) {
+    const b = useLive(ctx, () => api.getBrand(bid), bid);
+    if (!b) return h("div", { className: "colhead" }, h(Eyebrow, null, "Identité et assets"), h("p", { className: "vide" }, "Un instant."));
     const a = b.assets, id = b.identity;
     const known = BRIEF_BITS.filter(([k]) => id[k].state !== "absent");
     const logo = a.logo;
@@ -1038,20 +1069,8 @@
       : a.logos.length ? "Le logo reste à choisir parmi " + plural(a.logos.length, "candidat", "candidats") + "." : "Pas de logo : sans lui, la marque ne peut pas être prête.";
     const noColours = reading ? "Le studio les cherche sur le site." : unsorted ? "Elles se mesurent sur les visuels gardés, après le tri." : "Pas encore de couleur.";
     return h(React.Fragment, null,
-      h("div", { className: "colhead" }, h(Eyebrow, null, "Marque"), h("h2", { className: "titre" }, b.name),
-        h("p", { className: "sub" }, (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site")),
-        h("button", { type: "button", className: "linkbtn modif", onClick: ctx.editBrand, "aria-label": "Modifier la marque " + b.name + " : nom, site, description" }, "Modifier")),
-      h(JobLine, { jobs }),
-      b.description && h("p", { className: "desc" }, b.description),
-      b.waiting.length > 0 && h(React.Fragment, null, h(Where, null, "Ce qui attend"), b.waiting.map((t) => h(TaskRow, { key: t.id, ctx, col: 1, t, place: false }))),
-      h("div", { className: "groupe split" }, h("span", null, "Projets"), h(Plus, { label: "Nouveau projet dans " + b.name, onClick: ctx.newProject })),
-      b.projects.length === 0 && h("p", { className: "vide" }, "Aucun projet. Le « + » en crée un."),
-      b.projects.map((p) => h(Row, { key: p.id, col: 1, select: true, sel: ctx.sel.project === p.id ? level : null, onClick: () => ctx.selectProject(p.id),
-        label: p.name + ", " + (p.done ? "terminé" : "étape " + p.rank + " sur 7, " + p.step_label.toLowerCase()) + (p.waiting ? ", " + plural(p.waiting, "tâche", "tâches") : "") },
-        h("span", { className: "main" }, h("span", { className: "nom" }, p.name), h("span", { className: "meta" }, p.done ? "Terminé" : "Étape " + p.rank + " sur 7 · " + p.step_label), h(Segments, { rank: p.rank, done: p.done })),
-        h(Count, { n: p.waiting }))),
-      h("button", { type: "button", className: "groupe fold", "aria-expanded": shown, "aria-controls": "ident", onClick: () => setFold(!shown) }, h("span", null, "Identité et assets"), h("span", { className: "small" }, shown ? "Replier" : "Voir")),
-      h("div", { id: "ident", hidden: !shown }, /* hidden, never unmounted: what is being decided in it survives folding it */ h(Where, null, "Son brief"),
+      h("div", { className: "colhead" }, h(Eyebrow, null, b.name), h("h2", { className: "titre" }, "Identité et assets")),
+      h(Where, null, "Son brief"),
       known.length === 0 ? h("p", { className: "vide" }, reading ? "Le studio lit le site : le brief se pré-remplit avec ce qu'il y trouve." : "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
           h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : (BRAND_SHOW[k] || dot)(id[k].value),
@@ -1074,7 +1093,7 @@
       h(BrandFiles, { ctx, bid }),
       h(Research, { ctx, bid }),
       h(Logos, { ctx, bid }),
-      h(ExportBrand, { ctx, bid })));
+      h(ExportBrand, { ctx, bid }));
   }
 
   /* ---------- export: the brand folder, one zip ---------- */
@@ -1177,7 +1196,8 @@
   function Competitors({ ctx, bid }) {
     const data = useLive(ctx, () => api.competitors(bid), bid);
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
-    useEffect(() => setEd(null), [bid]);
+    const [market, setMarket] = useState(null); // the market described for a landscape; null: not asked
+    useEffect(() => { setEd(null); setMarket(null); }, [bid]);
     if (!data) return null;
     const list = ed || data.competitors.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
@@ -1185,6 +1205,12 @@
     const drop = (i) => setEd(list.filter((x, k) => k !== i));
     const dirty = ed !== null || data.proposed.length > 0;
     const propose = () => ctx.act(async () => { await api.proposeCompetitors(bid); ctx.log("@" + bid, "toi", "Concurrents demandés au studio", ""); await ctx.refresh(); ctx.touch(); });
+    /* the landscape of a market: its players, drawn at once and without the brief, come as proposals to keep or drop like the others */
+    const landscape = () => ctx.act(async () => {
+      const r = await api.landscape(market.trim());
+      setEd((e) => (e || list).concat(r.competitors.map((text) => ({ text, kept: false })))); setMarket(null);
+      ctx.log("@" + bid, "toi", "Paysage d'un marché demandé au studio", market.trim());
+    }, "Le studio dessine le paysage de ce marché.");
     const save = () => ctx.act(async () => {
       const texts = list.filter((x) => x.kept).map((x) => x.text.trim()).filter(Boolean);
       await api.saveCompetitors(bid, texts);
@@ -1203,9 +1229,17 @@
         h("div", { className: "actions" },
           !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: kept >= COMPETITORS_MAX || !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder la proposition " + (i + 1) }, "Garder"),
           h(Button, { variant: "ghost", size: "sm", disabled: !!data.job, onClick: () => drop(i), "aria-label": (x.kept ? "Écarter le concurrent " : "Écarter la proposition ") + (i + 1) }, "Écarter")))),
+      market !== null && h("div", { className: "editor" },
+        h("label", { htmlFor: "marche" }, "Le marché, en une ou deux phrases"),
+        h("textarea", { id: "marche", rows: 3, value: market, onChange: (e) => setMarket(e.target.value) }),
+        h("p", { className: "small muted" }, "Le studio en dessine les acteurs sans passer par le brief. Tu gardes ceux qui sont des concurrents de la marque."),
+        h("div", { className: "actions" },
+          h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || !market.trim(), onClick: landscape, "aria-label": "Demander au studio le paysage de ce marché" }, "Dessiner le paysage"),
+          h(Button, { variant: "ghost", size: "sm", onClick: () => setMarket(null), "aria-label": "Ne pas dessiner de paysage" }, "Annuler"))),
       h("div", { className: "gestures" },
         h(Button, { variant: "secondary", size: "sm", disabled: kept >= COMPETITORS_MAX || !!data.job, onClick: () => setEd(list.concat([{ text: "", kept: true }])), "aria-label": "Écrire un concurrent toi-même" }, "Écrire un concurrent"),
         data.can_propose && !data.job && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy || dirty, onClick: propose, "aria-label": "Demander au studio de proposer des concurrents" }, list.length ? "En proposer d'autres" : "Proposer des concurrents"),
+        !data.job && market === null && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => setMarket(""), "aria-label": "Partir du paysage d'un marché" }, "Partir d'un marché"),
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: save, "aria-label": "Enregistrer les concurrents gardés dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       kept >= COMPETITORS_MAX && h("p", { className: "small muted" }, "Six concurrents au plus."));
@@ -1270,44 +1304,6 @@
         dirty && h(Button, { variant: "primary", size: "sm", disabled: ctx.busy || undecided > 0, onClick: () => save(false), "aria-label": "Enregistrer les valeurs gardées dans la marque" }, "Enregistrer")),
       dirty && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque proposition avant d'enregistrer."),
       room <= 0 && h("p", { className: "small muted" }, "Vingt fichiers au plus."));
-  }
-
-  /* ---------- landscape: the competitors of a market, without a brand. The studio answers at once; the person corrects each, keeps or drops it,
-     and may attach the kept ones to a brand (they are added to the brand's competitors) ---------- */
-  function LandscapeForm({ ctx }) {
-    const [market, setMarket] = useState("");
-    const [list, setList] = useState(null); // [{text, kept}] once the studio answered
-    const [brand, setBrand] = useState("");
-    const change = (i, o) => setList(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
-    const kept = list ? list.filter((x) => x.kept && x.text.trim()) : [];
-    const undecided = list ? list.filter((x) => !x.kept).length : 0;
-    const draw = () => ctx.act(async () => {
-      const r = await api.landscape(market.trim());
-      setList(r.competitors.map((text) => ({ text, kept: false })));
-    }, "Le studio dessine le paysage de ce marché.");
-    const attach = () => ctx.act(async () => {
-      const have = (await api.competitors(brand)).competitors;
-      if (have.length + kept.length > COMPETITORS_MAX) throw new Error("Cette marque a déjà " + plural(have.length, "concurrent", "concurrents") + " , six au plus : écarte-en pour en rattacher.");
-      await api.saveCompetitors(brand, have.concat(kept.map((x) => x.text.trim())));
-      ctx.touch(); ctx.notify(plural(kept.length, "concurrent est rattaché", "concurrents sont rattachés") + " à la marque.");
-    });
-    return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Le paysage"), h("h2", { className: "titre" }, "Le paysage d'un marché")),
-      h("div", { className: "sec form" },
-        h("div", { className: "field" }, h("label", { htmlFor: "marche" }, "Le marché, en une ou deux phrases"),
-          h("textarea", { id: "marche", rows: 3, value: market, onChange: (e) => setMarket(e.target.value) })),
-        h("div", { className: "gestures" }, h(Button, { variant: list ? "secondary" : "primary", size: "md", disabled: ctx.busy || !market.trim(), onClick: draw, "aria-label": "Demander au studio le paysage de ce marché" }, list ? "Refaire le paysage" : "Dessiner le paysage"),
-          h(Button, { variant: "ghost", size: "md", onClick: () => ctx.close(), "aria-label": "Fermer le paysage" }, "Fermer")),
-        list && h("p", { className: "small muted" }, "Ce sont des hypothèses à vérifier : chaque fiche dit si elle vient de ta description ou si elle est supposée. Corrige, garde ou écarte chacune."),
-        list && list.map((x, i) => h("div", { key: i, className: "editor", "data-competitor": x.kept ? "kept" : "proposed" },
-          h("label", { htmlFor: "acteur-" + i, className: "small cap" }, (x.kept ? "Acteur gardé " : "Acteur proposé ") + (i + 1)),
-          h("textarea", { id: "acteur-" + i, rows: 4, value: x.text, onChange: (e) => change(i, { text: e.target.value }) }),
-          h("div", { className: "actions" },
-            !x.kept && h(Button, { variant: "secondary", size: "sm", disabled: !x.text.trim(), onClick: () => change(i, { kept: true }), "aria-label": "Garder l'acteur " + (i + 1) }, "Garder"),
-            h(Button, { variant: "ghost", size: "sm", onClick: () => setList(list.filter((y, k) => k !== i)), "aria-label": "Écarter l'acteur " + (i + 1) }, "Écarter")))),
-        list && undecided > 0 && h("p", { className: "small muted", role: "status" }, "Garde ou écarte chaque acteur avant de le rattacher."),
-        list && kept.length > 0 && undecided === 0 && h("div", { className: "field" }, h("label", { htmlFor: "rattacher" }, "Rattacher à une marque"),
-          h("select", { id: "rattacher", value: brand, onChange: (e) => setBrand(e.target.value) }, h("option", { value: "" }, "Pas de marque"), ctx.data.brands.map((b) => h("option", { key: b.id, value: b.id }, b.name))),
-          h(Button, { variant: "primary", size: "md", disabled: ctx.busy || !brand, onClick: attach, "aria-label": "Rattacher les acteurs gardés à la marque" }, "Rattacher"))));
   }
 
   /* ---------- research: the studio searches the web for what is said of the brand (ten results at most); the person keeps or drops each.
@@ -1858,16 +1854,15 @@
   /* ================= the application ================= */
   /* what each column is, from left to right, for a selection: the studio always, then a brand (or the form of a new one), a project (or the
      form that edits or creates), the detail of a step (or its form) */
-  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null, judgement: null };
+  const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null, judgement: null, judges: false };
   function columnsOf(sel) {
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
-    if (sel.panel === "newJudge") { c.push("newJudge"); return c; }
-    if (sel.panel === "landscape") { c.push("landscape"); return c; }
     if (sel.panel === "settings") { c.push("settings"); return c; } // engines
-    if (sel.judgement) { c.push("judgement"); return c; }
+    if (sel.judges) { c.push("judges"); if (sel.panel === "newJudge") c.push("newJudge"); else if (sel.judgement) c.push("judgement"); return c; }
     if (!sel.brand) return c;
     c.push("brand");
+    if (sel.panel === "identity") { c.push("identity"); return c; }
     if (sel.panel === "editBrand") { c.push("editBrand"); return c; }
     if (sel.panel === "newProject") { c.push("newProject"); return c; }
     if (!sel.project) return c;
@@ -1875,7 +1870,7 @@
     if (sel.detail) c.push(sel.detail.kind);
     return c;
   }
-  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
+  const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.judges ? { ...sel, judges: false } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
   /* the width of the window, to know how many columns fit side by side */
   function useWidth() {
@@ -1885,15 +1880,25 @@
   }
   /* the width of a column comes from what it shows, never from its place: opening a deeper column does not reflow those already open
      (the last one takes what is left, its content keeping that same width); a folded one costs a strip */
-  const KIND_W = { studio: 300, brand: 420 }, COL_W = 560, STRIP_W = 44;
+  const KIND_W = { studio: 300, brand: 420, judges: 420 }, COL_W = 560, STRIP_W = 44, CORE_MIN = 640;
   const colW = (kind) => KIND_W[kind] || COL_W;
-  /* how many of the columns on the left fold into strips so that the rest fits: the least that does it (the last column is never folded) */
-  function foldCount(widths, width) {
-    const need = (i) => STRIP_W * i + widths.slice(i).reduce((a, b) => a + b, 0);
-    let i = 0;
-    while (i < widths.length - 1 && need(i) > width) i++;
-    return i;
+  /* which columns are strips. `hand` says what the person did: `shut`, the kinds folded by hand; `open`, the kinds unfolded by hand, the
+     last one at the end. When what is open does not fit in `room`, more fold of themselves: first those nobody unfolded, from the left,
+     then those unfolded by hand, the oldest first. `keep` never folds (the deepest column; -1 beside a task, whose core is not a column) */
+  function foldPlan(kinds, room, hand, keep) {
+    const shut = kinds.map((k, i) => i !== keep && hand.shut.includes(k));
+    const need = () => kinds.reduce((n, k, i) => n + (shut[i] ? STRIP_W : colW(k)), 0);
+    const turn = kinds.map((k, i) => i).filter((i) => i !== keep && !shut[i]).sort((x, y) => hand.open.indexOf(kinds[x]) - hand.open.indexOf(kinds[y]) || x - y);
+    for (const i of turn) { if (need() <= room) break; shut[i] = true; }
+    return shut;
   }
+  /* what the person folded and unfolded is kept on this side, per browser: a convenience, the studio works the same without it */
+  const FOLDS = "studio-folds";
+  const loadFolds = () => {
+    const list = (v) => Array.isArray(v) ? v.filter((k) => typeof k === "string") : [];
+    try { const x = JSON.parse(localStorage.getItem(FOLDS) || "{}") || {}; return { shut: list(x.shut), open: list(x.open), beside: list(x.beside) }; } catch (e) { return { shut: [], open: [], beside: [] }; }
+  };
+  const saveFolds = (x) => { try { localStorage.setItem(FOLDS, JSON.stringify(x)); } catch (e) { /* private window: nothing kept */ } };
 
   function useNarrow() {
     const q = "(max-width: 760px)";
@@ -1911,9 +1916,16 @@
     const [busy, setBusy] = useState(false);
     const [wait, setWait] = useState(null); // the word said while a slow gesture runs
     const [palette, setPalette] = useState(false);
+    const [stale, setStale] = useState(false); // the interface changed on disk since this page was opened
     const [machine, setMachine] = useState({ ok: true, missing: [] }); // what the machine lacks (Chrome, Claude Code, an image engine); said in the studio's column
     const [rev, setRev] = useState(0);
     const [, setTick] = useState(0);
+    const [folds, setFolds] = useState(loadFolds); // { shut, open }: the columns folded and unfolded by hand; beside: those opened next to a task
+    useEffect(() => saveFolds(folds), [folds]);
+    const fold = useCallback((kind) => setFolds((x) => ({ ...x, shut: x.shut.filter((k) => k !== kind).concat(kind), open: x.open.filter((k) => k !== kind) })), []);
+    const unfold = useCallback((kind) => setFolds((x) => ({ ...x, shut: x.shut.filter((k) => k !== kind), open: x.open.filter((k) => k !== kind).concat(kind) })), []);
+    const openBeside = useCallback((kind) => setFolds((x) => ({ ...x, beside: x.beside.filter((k) => k !== kind).concat(kind) })), []);
+    const shutBeside = useCallback((kind) => setFolds((x) => ({ ...x, beside: x.beside.filter((k) => k !== kind) })), []);
     const narrow = useNarrow();
     const width = useWidth();
     const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), digest = useRef(""), cmdsRef = useRef([]), overlayRef = useRef(false), arrowsRef = useRef(false), backTo = useRef(null);
@@ -1953,6 +1965,13 @@
       const t = setInterval(look, 60000);
       return () => clearInterval(t);
     }, []);
+    useEffect(() => {
+      let first = null;
+      const look = () => api.health().then((r) => { if (!r.build) return; if (first === null) first = r.build; else if (r.build !== first) setStale(true); }).catch(() => { /* the studio is down: said elsewhere */ });
+      look();
+      const t = setInterval(look, 30000);
+      return () => clearInterval(t);
+    }, []);
     const running = data.jobs.length > 0;
     useEffect(() => { const t = setInterval(refresh, running ? 700 : 4000); return () => clearInterval(t); }, [refresh, running]);
     useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 20000); return () => clearInterval(t); }, []);
@@ -1964,10 +1983,11 @@
     const selectProject = useCallback((id, text, brand) => move((s) => ({ ...EMPTY, brand: brand || s.brand, project: id }), text), [move]);
     const selectStep = useCallback((key) => move((s) => ({ ...s, detail: { kind: "step", key }, panel: null, task: null })), [move]);
     const newBrand = useCallback(() => move(() => ({ ...EMPTY, panel: "newBrand" })), [move]);
-    const newJudge = useCallback(() => move(() => ({ ...EMPTY, panel: "newJudge" })), [move]);
-    const newLandscape = useCallback(() => move(() => ({ ...EMPTY, panel: "landscape" })), [move]);
+    const selectJudges = useCallback(() => move(() => ({ ...EMPTY, judges: true })), [move]);
+    const newJudge = useCallback(() => move(() => ({ ...EMPTY, judges: true, panel: "newJudge" })), [move]);
+    const selectIdentity = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "identity", task: null })), [move]);
     const openSettings = useCallback(() => move(() => ({ ...EMPTY, panel: "settings" })), [move]); // engines
-    const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judgement: id }), text), [move]);
+    const selectJudgement = useCallback((id, text) => move(() => ({ ...EMPTY, judges: true, judgement: id }), text), [move]);
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
     const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
@@ -2034,7 +2054,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, newJudge, newLandscape, selectJudgement, openSettings };
+      selectStudio, selectBrand, selectProject, selectStep, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings };
 
     const brandName = (id) => (data.brands.find((b) => b.id === id) || {}).name || "";
     const projectInfo = (id) => data.projects.find((p) => p.id === id) || { name: "" };
@@ -2049,8 +2069,8 @@
       data.brands.forEach((b) => cmds.push({ id: "brand:" + b.id, group: "Aller à une marque", label: b.name, run: () => selectBrand(b.id) }));
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
       cmds.push({ id: "new-brand", group: "Créer", label: "Nouvelle marque", run: newBrand });
+      cmds.push({ id: "judges", group: "Aller", label: "Le juge : les pièces jugées", run: selectJudges });
       cmds.push({ id: "new-judge", group: "Créer", label: "Juger une pièce", run: newJudge });
-      cmds.push({ id: "landscape", group: "Créer", label: "Le paysage d'un marché", run: newLandscape });
       cmds.push({ id: "settings", group: "Aller", label: "Réglages : les moteurs", run: openSettings }); // engines
       const here = sel.brand || (dive && dive.brand);
       data.brands.slice().sort((a, b) => (b.id === here) - (a.id === here)).forEach((b) => cmds.push({ id: "new-project:" + b.id, group: "Créer", label: "Nouveau projet dans " + b.name, run: () => move(() => ({ ...EMPTY, brand: b.id, panel: "newProject" })) }));
@@ -2061,6 +2081,7 @@
         cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: showJournal });
         cmds.push({ id: "edit-project", group: "Ce projet", label: "Modifier le projet", run: editProject });
       }
+      if (sel.brand) cmds.push({ id: "identity", group: "Cette marque", label: "Identité et assets", run: selectIdentity });
       if (sel.brand) cmds.push({ id: "edit-brand", group: "Cette marque", label: "Modifier la marque", run: editBrand });
     }
 
@@ -2135,46 +2156,59 @@
     const noticeEl = h(Notice, { text: note.text, action: note.action, busy });
     const slow = wait && h("p", { className: "working slow", role: "status" }, h("b", { "aria-hidden": "true" }), wait);
     /* what the studio says in passing (done, working) floats at the bottom: it never pushes the content, which does not jump when it comes or goes */
-    const toasts = (note.text || slow) && h("div", { className: "toasts" }, slow, noticeEl);
+    const fresh = stale && h("p", { className: "notice", role: "status" }, "L'interface a changé depuis l'ouverture de cette page.", h("button", { type: "button", className: "linkbtn", onClick: () => window.location.reload() }, "Recharger"));
+    const toasts = (note.text || slow || fresh) && h("div", { className: "toasts" }, fresh, slow, noticeEl);
     const err = error && h("div", { role: "alert", className: "err" }, h(Callout, { tone: "risk", label: "Le studio refuse" }, error, " ", h("button", { type: "button", className: "linkbtn", onClick: () => setError(null) }, "Fermer")));
     const skip = h("a", { href: "#main", className: "skip", onClick: (e) => { e.preventDefault(); const m = document.getElementById("main"); if (m) m.focus(); } }, "Aller au contenu");
     const pal = palette && h(Palette, { cmds, onClose: () => setPalette(false) });
 
-    /* ----- a task opened: the columns fold into strips that keep their names ----- */
-    if (dive) {
-      const t = dive;
-      const names = [["Le studio", "b1"], [t.brand_name || brandName(t.brand), "b2"], ...(t.scope === "project" ? [[t.project_name || projectInfo(t.project).name, "b3"]] : [])];
-      const last = names[names.length - 1][0];
-      return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
-        narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
-          : names.map(([name, cl]) => h("button", { key: cl, type: "button", className: "bande " + cl, onClick: back, "aria-label": "Revenir aux colonnes : " + name }, h("span", null, name))),
-        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" }, h("p", { className: "ou small muted" }, whereLine(t)), err, h(Core, { ctx, t, key: t._k }))), toasts, pal);
-    }
-
     /* ----- the columns ----- */
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
-      : kind === "settings" ? h(Settings, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "landscape" ? h(LandscapeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement }) : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand })
+      : kind === "settings" ? h(Settings, { ctx }) : kind === "judges" ? h(JudgesCol, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement })
+      : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand }) : kind === "identity" ? h(IdentityCol, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
-    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", newJudge: "Juger une pièce", settings: "Réglages", landscape: "Le paysage d'un marché", judgement: "Le jugement", brand: brandName(sel.brand), editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
+    const labels = { studio: "Le studio", newBrand: "Nouvelle marque", judges: "Le juge", newJudge: "Juger une pièce", settings: "Réglages", judgement: "Le jugement", brand: brandName(sel.brand), identity: "Identité et assets", editBrand: "Modifier la marque", newProject: "Nouveau projet", project: projectInfo(sel.project).name,
       step: "Ce qui a été décidé", journal: "Journal", editProject: "Modifier le projet" };
-    const shell = (kind, i) => {
-      const last = i === cols.length - 1;
-      return h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
-        last && err, node(kind));
-    };
+    /* an open column: `onFold` folds it into its strip (the deepest column has none, it never folds) */
+    const shell = (kind, i, last, onFold) => h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
+      onFold && h("button", { type: "button", className: "plier", onClick: () => onFold(kind), "aria-label": "Replier la colonne : " + labels[kind], title: "Replier" }, h("span", { "aria-hidden": "true" }, "‹")),
+      last && err, node(kind));
+    /* a folded column: a strip that keeps its name; a click unfolds it, alone */
+    const strip = (kind, i, onOpen, word) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => onOpen(kind), "aria-label": word + labels[kind], title: word + labels[kind] }, h("span", null, labels[kind]));
+
+    /* ----- a task opened: the columns are strips beside it; a strip opens its column next to the task ----- */
+    if (dive) {
+      const t = dive;
+      const last = labels[cols[cols.length - 1]];
+      const besideOf = (open) => ({ shut: cols.filter((k) => !open.includes(k)), open });
+      const shut = foldPlan(cols, width - CORE_MIN, besideOf(folds.beside), -1);
+      /* a column that does not fit beside the task even alone: the columns come back, at that level */
+      const beside = (kind) => { const i = cols.indexOf(kind), open = folds.beside.filter((k) => k !== kind).concat(kind);
+        if (foldPlan(cols, width - CORE_MIN, besideOf(open), -1)[i]) { back(); popTo(i + 1); } else openBeside(kind); };
+      return h("div", { className: "app plonge" + (narrow ? " narrow" : "") }, skip,
+        narrow ? h("button", { type: "button", className: "retour", onClick: back, "aria-label": "Revenir aux colonnes : " + last }, "‹ " + last)
+          : cols.map((kind, i) => shut[i] ? strip(kind, i, beside, "Ouvrir à côté de la tâche : ") : shell(kind, i, false, shutBeside)),
+        h("main", { id: "main", tabIndex: -1, className: "coeur" }, h("div", { className: "coeur-in" },
+          h("div", { className: "ou" }, h("p", { className: "small muted" }, whereLine(t)), !narrow && h("button", { type: "button", className: "linkbtn small", onClick: back, "aria-label": "Fermer la tâche et revenir aux colonnes (Échap)" }, "Revenir aux colonnes")),
+          err, h(Core, { ctx, t, key: t._k }))), toasts, pal);
+    }
+
     if (narrow) {
       const i = cols.length - 1;
       return h("div", { className: "app narrow" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
         i > 0 && h("button", { type: "button", className: "retour", onClick: () => popTo(i), "aria-label": "Retour : " + labels[cols[i - 1]] }, "‹ " + labels[cols[i - 1]]),
-        h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i)), toasts, pal);
+        h("main", { id: "main", tabIndex: -1, className: "cols" }, shell(cols[i], i, true)), toasts, pal);
     }
-    const fold = foldCount(cols.map(colW), width); // when the columns do not fit, those on the left fold into strips that keep their names, as they do in a task
-    const strip = (kind, i) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => popTo(i + 1), "aria-label": "Revenir à : " + labels[kind] }, h("span", null, labels[kind]));
+    const shut = foldPlan(cols, width, folds, cols.length - 1); // by hand, or when the columns do not fit: those on the left fold into strips that keep their names
+    /* a strip unfolds its column alone; when even then it does not fit, the columns on its right close, as a strip did before */
+    const open = (kind) => { const i = cols.indexOf(kind);
+      unfold(kind);
+      if (foldPlan(cols, width, { shut: folds.shut.filter((k) => k !== kind), open: folds.open.filter((k) => k !== kind).concat(kind) }, cols.length - 1)[i]) popTo(i + 1); };
     return h("div", { className: "app" }, skip, h("h1", { className: "sr" }, "Studio créatif"),
-      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => i < fold ? strip(kind, i) : shell(kind, i)),
+      h("main", { id: "main", tabIndex: -1, className: "cols" }, cols.map((kind, i) => shut[i] ? strip(kind, i, open, "Déplier la colonne : ") : shell(kind, i, i === cols.length - 1, i < cols.length - 1 && cols.length > 1 ? fold : null)),
         cols.length === 1 && h("div", { className: "rest" }, err, h("p", { className: "muted" }, "Choisis une marque, ou ouvre une tâche. " + MOD + " K pour tout trouver."))),
       toasts, pal);
   }

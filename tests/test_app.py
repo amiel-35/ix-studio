@@ -840,6 +840,8 @@ class Api(unittest.TestCase):
 
     def test_errors_and_health(self):
         self.assertTrue(self.call("GET", "/api/health")["ok"])
+        newest = max(int(f.stat().st_mtime) for f in (Path(__file__).resolve().parent.parent / "app" / "static").rglob("*") if f.is_file())
+        self.assertEqual(self.call("GET", "/api/health")["build"], newest)  # an open page compares it to say the interface changed
         self.call("GET", "/api/projects/nope", code=404)
         self.call("GET", "/api/nothing", code=404)
         self.call("POST", "/api/projects", {}, code=400)

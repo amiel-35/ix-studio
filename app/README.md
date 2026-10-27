@@ -5,12 +5,17 @@ logo, write its brief, confirm what the studio deduced), then, for each project 
 read and correct the instructions the agents will get, follow the divergence, pick a series, correct each image prompt,
 follow the image, compose, check, decide.
 
-The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere, then the brands) /
-a brand (its brief, its assets, its projects) / a project (its seven steps, what waits, and once pieces exist the series as thumbnails, each with where it stands) / the detail of a step already done, or of steps 5 to 7 as soon as they have begun ("x sur y pièces"). What is
+The levels are columns, side by side, from the widest to the most precise: the studio (what waits everywhere, the brands, the judge,
+the settings) / a brand (what waits, its identity, its projects) / its identity and assets, or a project (its seven steps, what waits, and once pieces exist the series as thumbnails, each with where it stands) / the detail of a step already done, or of steps 5 to 7 as soon as they have begun ("x sur y pièces"). What is
 selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
-(a brand, a project) and its "Modifier". A task is the core: opening it folds the columns into thin strips that keep their names;
-a click on a strip, Escape or the left arrow brings them back. Keyboard: up and down in a column, right to go deeper, left or
-Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. When the columns do not fit side by side (four levels on a 1 280 px screen), those on the left fold into strips that keep their names, as they do in a task, and a click on a strip goes back to that level. Under 760 px, one column at a time, with a way back.
+(a brand, a project, a piece to judge) and its "Modifier". One rule: a row opens a column on its right, nothing unfolds under it.
+Any column but the deepest folds into a thin strip that keeps its name, by hand (its "‹" in the top corner) or when the columns do
+not fit side by side; a click on a strip unfolds that column alone, and what was folded or unfolded by hand is kept in the browser.
+When room runs out, the columns nobody unfolded fold first, from the left. A task is the core: the columns are strips beside it, a
+strip opens its column next to the task, and "Revenir aux colonnes", Escape or the left arrow bring them back. Keyboard: up and down
+in a column, right to go deeper, left or Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. Under 760 px,
+one column at a time, with a way back. A page opened before the interface changed on disk says so and offers to reload (`build` in
+`/api/health`).
 
 The interface is built on the API only (`API.md`), so it does not know which backend answers. Two exist:
 
@@ -40,8 +45,8 @@ output of each job is in the `logs/` folder of its brand or project.
 **The judge.** Once a piece is composed and checked, a judge reads it (its image and its words, the brief, the brand's voice): five
 headings in words, never a score (the target, what works, what catches, what has no source, the brand), shown in the decision screen
 beside the mechanical checks. It blocks nothing: you keep or send back without waiting for it. "Juger une pièce", in the studio's
-column, judges a piece on its own: drop a png or jpg (10 MB at most), write the brief it answers, choose a brand if it has one; the
-verdict comes with a flat page to download, and the past judgements stay listed there (`STUDIO_HOME/jugements/`). The real judge
+column, opens the judge's column: the past judgements, and its "+" to judge a piece on its own: drop a png or jpg (10 MB at most), write the brief it answers, choose a brand if it has one; the
+verdict comes with a flat page to download, and the judgement stays listed in that column (`STUDIO_HOME/jugements/`). The real judge
 is `claude -p` reading the picture in a folder of its own; the simulated one gives a fixed verdict.
 
 ## What the real studio asks of the machine
