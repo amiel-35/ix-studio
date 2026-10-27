@@ -896,6 +896,23 @@ class Api(unittest.TestCase):
         given = set(re.findall(r"(--[a-z0-9-]+):", (static / "ds-public" / "tokens.css").read_text() + (static / "app.css").read_text()))
         self.assertEqual(used - given - {"--ratio", "--w"}, set())  # set by the interface itself, inline
 
+    def test_the_neutral_design_system_reads_at_wcag_aa(self):
+        """Every text colour of ds-public on every ground it is set on: 4.5:1 at least."""
+        tokens = dict(re.findall(r"(--[a-z0-9-]+): (#[0-9a-f]{6})", (server.STATIC / "ds-public" / "tokens.css").read_text()))
+
+        def lum(h):
+            f = lambda v: v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4  # noqa: E731
+            r, g, b = (int(h[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+        def ratio(a, b):
+            la, lb = lum(tokens[a]), lum(tokens[b])
+            return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+        for ink in ("--text-muted", "--text-body", "--text-strong", "--text-heading", "--text-link"):
+            for ground in ("--surface-page", "--surface-light", "--surface-sunken", "--neutral-200", "--action-subtle-bg"):
+                with self.subTest(ink=ink, ground=ground):
+                    self.assertGreaterEqual(ratio(ink, ground), 4.5)
+
 
 
 class StepOneRule(unittest.TestCase):
