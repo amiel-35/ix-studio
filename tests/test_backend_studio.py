@@ -300,6 +300,24 @@ class Fake:
 
 
 
+_config = {}
+
+
+def setUpModule():
+    """The engines are read from the person's own settings (~/.config/ix-studio): the tests read empty ones of their own."""
+    _config["before"] = os.environ.get("STUDIO_CONFIG_DIR")
+    _config["dir"] = tempfile.mkdtemp(prefix="ixs-config-")
+    os.environ["STUDIO_CONFIG_DIR"] = _config["dir"]
+
+
+def tearDownModule():
+    if _config["before"] is None:
+        os.environ.pop("STUDIO_CONFIG_DIR", None)
+    else:
+        os.environ["STUDIO_CONFIG_DIR"] = _config["before"]
+    shutil.rmtree(_config["dir"], ignore_errors=True)
+
+
 class Base(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
