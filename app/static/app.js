@@ -1049,7 +1049,7 @@
         h("span", { className: "main" }, h("span", { className: "nom" }, p.name), h("span", { className: "meta" }, p.done ? "Terminé" : "Étape " + p.rank + " sur 7 · " + p.step_label), h(Segments, { rank: p.rank, done: p.done })),
         h(Count, { n: p.waiting }))),
       h("button", { type: "button", className: "groupe fold", "aria-expanded": shown, "aria-controls": "ident", onClick: () => setFold(!shown) }, h("span", null, "Identité et assets"), h("span", { className: "small" }, shown ? "Replier" : "Voir")),
-      h("div", { id: "ident", hidden: !shown }, // hidden, never unmounted: what is being decided in it survives folding it h(Where, null, "Son brief"),
+      h("div", { id: "ident", hidden: !shown }, /* hidden, never unmounted: what is being decided in it survives folding it */ h(Where, null, "Son brief"),
       known.length === 0 ? h("p", { className: "vide" }, reading ? "Le studio lit le site : le brief se pré-remplit avec ce qu'il y trouve." : "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
           h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : (BRAND_SHOW[k] || dot)(id[k].value),
