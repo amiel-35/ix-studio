@@ -2,10 +2,11 @@
    It talks to the studio only through window.studioApi (api.js, see app/API.md): no simulated data lives here.
 
    The idea: the levels of the studio are side by side, from the widest to the most precise, and the position is read by following what is
-   selected from left to right. The studio (what waits everywhere, then the brands) / a brand (what waits, its identity, its projects) / a
-   project (what waits, its seven steps, what it made) / the detail of a step, or the page of its pieces. The ten rules of app/README.md hold
-   everywhere; the first: a row opens a column on its right, nothing unfolds under it (a brand's identity, a project's pieces, the judge
-   and its pieces are columns like a project). Any column but the deepest folds into a thin vertical
+   selected from left to right. The studio (the brands, the judge) / a brand (its identity, its projects) / a project (its seven steps, then
+   its series, its texts, its film, a column each) / the detail of a step. What waits at a level is a counter in the head of its column,
+   a button that opens the column "Ce qui t'attend" on its right. The ten rules of app/README.md hold everywhere; the first: a row opens a
+   column on its right, nothing unfolds under it (a brand's identity, what waits, the series, the texts, the film, the judge and its pieces
+   are columns like a project). Intertitles name their thing without a possessive ("Brief", "Étapes"). Any column but the deepest folds into a thin vertical
    strip that keeps its name, by hand or when the window is too narrow, and a click on the strip unfolds it alone. A task opens on one thing
    and two gestures, the columns folded beside it; a strip opens its column next to the task, Escape or the left arrow brings the columns back.
    Every column has its "+" to make what it holds (a brand, a project, a piece to judge). The command palette (Cmd/Ctrl+K) reaches everything. The journal is kept on this side
@@ -777,7 +778,7 @@
   const SERIES_WORD = { image: " avec leur image", piece: " composées", decide: " gardées" };
   const pieceSrc = (pc) => pc.composed || pc.image || null;
 
-  /* the series in a column: the pieces as thumbnails, each with where it stands; a click opens it */
+  /* the series: the pieces as thumbnails, each with where it stands; a click opens it. Under the head of its column, which names and counts it */
   function Series({ ctx, p, col }) {
     const jobs = p.jobs, n = seriesCount(p.pieces);
     const open = (pc) => ctx.openTask(synth(p, "piece-any", { piece: pc.id, title: pl(pc) }));
@@ -785,7 +786,6 @@
     const hasPrompt = ctx.data.tasks.some((t) => t.scope === "project" && t.project === p.id && t.kind === "prompt"); // an image that failed is a task of its own, not a prompt to read
     const takeKept = () => ctx.act(async () => { const f = await api.downloadKept(p.id); saveFile(f); ctx.notify(f.name + " est téléchargé : " + plural(n.decide, "pièce", "pièces") + "."); }, "Le studio prépare le zip.");
     return h(React.Fragment, null,
-      h(Where, null, "La série · " + plural(n.total, "pièce", "pièces")),
       (toDraw > 1 && hasPrompt || toCompose > 1 || n.decide > 0) && h("div", { className: "take" },
         toDraw > 1 && hasPrompt && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.drawAll(p.id), "Le studio lance toutes les images."), "aria-label": "Lancer les " + toDraw + " images qui manquent, sans relire les prompts" }, "Dessiner toutes les images"),
         toCompose > 1 && h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: () => ctx.act(() => ctx.composeAll(p.id), "Le studio compose les pièces, une par une."), "aria-label": "Composer et vérifier les " + toCompose + " pièces qui ont leur image" }, "Composer tout"),
@@ -1005,15 +1005,21 @@
   }
 
   /* the one head of a column (rule 3 of the grammar): the sort of thing, its name, where it stands, "Modifier" always in the same place.
-     The name is the one its row gives it and its strip keeps; it is there at once, before the column's data comes (rule 10) */
-  function ColHead({ sort, title, sub, desc, edit }) {
-    return h("div", { className: "colhead" }, h(Eyebrow, null, sort), h("h2", { className: "titre" }, title || "\u00a0"),
+     The name is the one its row gives it and its strip keeps; it is there at once, before the column's data comes (rule 10).
+     `count` ({n, col, on, open}) is what waits at this level: a small counter beside the name, a button that opens the column
+     "Ce qui t'attend" on the right (rule 1); nothing when nothing waits, but it stays, at zero, while its column is open */
+  function ColHead({ sort, title, sub, desc, edit, count }) {
+    const c = count && (count.n > 0 || count.on) ? count : null;
+    return h("div", { className: "colhead" }, h(Eyebrow, null, sort),
+      h("div", { className: "ligne" }, h("h2", { className: "titre" }, title || "\u00a0"),
+        c && h("button", { type: "button", className: "compteur", "data-col": c.col, "data-select": "1", "aria-current": c.on ? "true" : undefined, onClick: c.open,
+          "aria-label": "Ce qui t'attend : " + (c.n ? plural(c.n, "t\u00e2che", "t\u00e2ches") : "rien") }, c.n)),
       sub && h("p", { className: "sub" }, sub), desc && h("p", { className: "desc" }, desc),
       edit && h("button", { type: "button", className: "linkbtn modif", onClick: edit.run, "aria-label": edit.label }, "Modifier"));
   }
   const Loading = () => h("p", { className: "vide" }, "Un instant.");
 
-  /* a task, wherever it is said (rule 5): a line in the box of what waits, never a row of a list */
+  /* a task, wherever it is said (rule 5): a line in the column "Ce qui t'attend", never a row of a list */
   function TaskLine({ ctx, col, t, place }) {
     const r = t.scope === "project" ? rankOf(t.step) : null;
     const when = (r ? "Étape " + r + " sur 7" : "") + (r && t.since ? " · " : "") + (t.since ? ago(t.since, ctx.now()) : "");
@@ -1022,41 +1028,48 @@
       onClick: () => ctx.openTask(t, false, col), "aria-label": taskTitle(t) + (place ? ", " + taskPlace(t) : "") + (when ? ", " + when : "") },
       h("span", { className: "t" }, taskTitle(t)), meta && h("span", { className: "m" }, meta));
   }
-  /* what waits here: a box right under the head of the column (rule 4), the same everywhere; `children` say the tasks another way */
-  function Waiting({ ctx, col, tasks, children }) {
-    if (!tasks.length) return null;
-    return h("section", { className: "attend", "aria-label": "Ce qui t'attend" }, h("p", { className: "cap" }, "Ce qui t'attend · " + tasks.length),
-      h("div", { className: "liste" }, children || tasks.map((t) => h(TaskLine, { key: t.id, ctx, col, t, place: false }))));
-  }
-
-  /* what waits across the studio, without the wall: the next task of each project and of each brand (the oldest), the others behind "et n autres" */
-  function nextPerOwner(tasks) {
+  /* what waits across the studio, by owner: each brand and each project with all its tasks, the oldest first, in the order they first appear */
+  function byOwner(tasks) {
     const groups = [];
     tasks.forEach((t) => {
       const key = owner(t), g = groups.find((x) => x.key === key);
-      if (g) g.rest.push(t); else groups.push({ key, first: t, rest: [] });
+      if (g) g.tasks.push(t); else groups.push({ key, name: taskPlace(t), tasks: [t] });
     });
     return groups;
   }
+  /* the tasks that wait at a level: the whole studio, a brand (its own tasks, not its projects'), a project */
+  const waitingAt = (tasks, sel) => sel.project ? tasks.filter((t) => t.scope === "project" && t.project === sel.project)
+    : sel.brand ? tasks.filter((t) => t.scope === "brand" && t.brand === sel.brand) : tasks;
 
-  /* ---------- 1. the studio: what waits everywhere, then the brands ---------- */
+  /* ---------- what waits: the column the counter of a head opens (studio, brand or project), task lines, never rows of a list (rule 5).
+     For the studio, every task, under a small heading per brand or project ---------- */
+  function WaitingCol({ ctx, col }) {
+    const { sel } = ctx, tasks = waitingAt(ctx.data.tasks, sel);
+    const sort = sel.project ? "Projet" : sel.brand ? "Marque" : "Studio créatif";
+    const sub = sel.project ? ctx.projectName(sel.project) : sel.brand ? ctx.brandName(sel.brand) : !ctx.data.loaded ? "" : tasks.length ? plural(tasks.length, "chose t'attend", "choses t'attendent") : "Rien ne t'attend.";
+    return h(React.Fragment, null,
+      h(ColHead, { sort, title: "Ce qui t'attend", sub }),
+      tasks.length === 0 ? h("p", { className: "vide" }, "Rien ne t'attend ici pour l'instant.")
+        : h("div", { className: "liste", "aria-label": "Ce qui t'attend" }, sel.brand ? tasks.map((t) => h(TaskLine, { key: t.id, ctx, col, t, place: false }))
+          : byOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(Where, null, g.name), g.tasks.map((t) => h(TaskLine, { key: t.id, ctx, col, t, place: false }))))));
+  }
+
+  /* ---------- 1. the studio: its counter of what waits everywhere, the brands, the judge, the settings ---------- */
   function StudioCol({ ctx }) {
     const { tasks, brands, jobs, loaded } = ctx.data, { sel } = ctx;
     const judgements = useLive(ctx, () => api.judgements(), "judgements");
     const level = ctx.level(0);
     const total = (b) => b.waiting + b.projects.reduce((n, p) => n + p.waiting, 0);
     const jn = judgements ? judgements.length : 0;
-    /* rule 6: what waits and what the machine lacks stay at the top, the settings at the bottom; only the middle scrolls */
+    /* rule 6: the head (with its counter of what waits) and what the machine lacks stay at the top, the settings at the bottom; only the middle scrolls */
     return h(React.Fragment, null,
       h("div", { className: "haut" },
-        h(ColHead, { sort: "Studio créatif", title: "Le studio", sub: !loaded ? "" : tasks.length ? plural(tasks.length, "chose t'attend", "choses t'attendent") : jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend." }),
+        h(ColHead, { sort: "Studio créatif", title: "Le studio", sub: !loaded ? "" : tasks.length ? plural(tasks.length, "chose t'attend", "choses t'attendent") : jobs.length ? "Rien pour l'instant : le studio travaille." : "Rien ne t'attend.",
+          count: { n: tasks.length, col: 0, on: !sel.brand && sel.panel === "waiting", open: () => ctx.selectWaiting("studio") } }),
         h(JobLine, { jobs }),
         ctx.machine.missing.length > 0 && h("section", { className: "attend", "data-tone": "risk", role: "status", "data-machine": "missing", "aria-label": "Il manque à ce poste" },
           h("p", { className: "cap" }, "Il manque à ce poste"),
-          h("ul", null, ctx.machine.missing.map((m) => h("li", { key: m.key, className: "small" }, h("strong", null, m.label), " : ", m.say)))),
-        h(Waiting, { ctx, col: 0, tasks }, nextPerOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(TaskLine, { ctx, col: 0, t: g.first, place: true }),
-          g.rest.length > 0 && h("button", { type: "button", className: "linkbtn small autres", onClick: () => (g.first.scope === "brand" ? ctx.selectBrand(g.first.brand) : ctx.selectProject(g.first.project, null, g.first.brand)),
-            "aria-label": plural(g.rest.length, "autre tâche", "autres tâches") + " pour " + (g.first.scope === "brand" ? g.first.brand_name : g.first.project_name) + " : ouvrir" }, "et " + plural(g.rest.length, "autre", "autres")))))),
+          h("ul", null, ctx.machine.missing.map((m) => h("li", { key: m.key, className: "small" }, h("strong", null, m.label), " : ", m.say))))),
       h("div", { className: "milieu" },
         h("div", { className: "groupe split" }, h("span", null, "Marques"), h(Plus, { label: "Nouvelle marque", onClick: ctx.newBrand })),
         !loaded ? h(Loading) : brands.length === 0 && h("p", { className: "vide" }, "Aucune marque. Le « + » en crée une."),
@@ -1094,15 +1107,15 @@
     const b = useLive(ctx, () => api.getBrand(bid), bid);
     const jobs = ctx.data.jobs.filter((j) => j.brand === bid && !j.project);
     const level = ctx.level(1);
-    if (!b) return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: ctx.brandName(bid) }), h(Loading));
+    const count = { n: waitingAt(ctx.data.tasks, { brand: bid }).length, col: 1, on: !ctx.sel.project && ctx.sel.panel === "waiting", open: () => ctx.selectWaiting("brand") }; // the head's counter is there before the brand's data (rule 10)
+    if (!b) return h(React.Fragment, null, h(ColHead, { sort: "Marque", title: ctx.brandName(bid), count }), h(Loading));
     const a = b.assets, known = BRIEF_BITS.filter(([k]) => b.identity[k].state !== "absent");
     const what = [known.length ? "Brief : " + known.length + " sur " + BRIEF_BITS.length : "Pas de brief", a.logo ? "logo" : "sans logo", plural(a.colours.length, "couleur", "couleurs")].join(" · ");
     return h(React.Fragment, null,
       h(ColHead, { sort: "Marque", title: b.name, sub: (BRAND_STAGE[b.stage] || b.stage) + " · " + (b.site ? host(b.site) : "sans site"), desc: b.description,
-        edit: { run: ctx.editBrand, label: "Modifier la marque " + b.name + " : nom, site, description" } }),
+        edit: { run: ctx.editBrand, label: "Modifier la marque " + b.name + " : nom, site, description" }, count }),
       h(JobLine, { jobs }),
-      h(Waiting, { ctx, col: 1, tasks: b.waiting }),
-      h(Where, null, "Son identité"),
+      h(Where, null, "Identité"),
       h(Row, { col: 1, select: true, sel: ctx.sel.panel === "identity" ? level : null, onClick: ctx.selectIdentity, label: "Identité et assets de " + b.name + " : " + what },
         h("span", { className: "main" }, h("span", { className: "nom" }, "Identité et assets"), h("span", { className: "meta" }, what))),
       h("div", { className: "groupe split" }, h("span", null, "Projets"), h(Plus, { label: "Nouveau projet dans " + b.name, onClick: ctx.newProject })),
@@ -1127,12 +1140,12 @@
     const noColours = reading ? "Le studio les cherche sur le site." : unsorted ? "Elles se mesurent sur les visuels gardés, après le tri." : "Pas encore de couleur.";
     return h(React.Fragment, null,
       h(ColHead, { sort: "Marque", title: "Identité et assets", sub: b.name }),
-      h(Where, null, "Son brief"),
+      h(Where, null, "Brief"),
       known.length === 0 ? h("p", { className: "vide" }, reading ? "Le studio lit le site : le brief se pré-remplit avec ce qu'il y trouve." : "Pas encore de brief : il se fait en une phrase.")
         : h("p", { className: "bphrase" }, b.name, BRIEF_BITS.map(([k, before, after]) => id[k].state === "absent" ? null :
           h(React.Fragment, { key: k }, before, h("span", { className: "v", "data-state": id[k].state, title: id[k].state === "deduced" ? "Déduit par le studio, à confirmer" : undefined }, k === "colours" && /^[#0-9a-f,;\s]+$/i.test(id[k].value) ? h(Pastilles, { list: (id[k].value.match(/#[0-9a-f]{3,6}\b/gi) || []).map((x) => ({ hex: x })) }) : (BRAND_SHOW[k] || dot)(id[k].value),
             id[k].state === "deduced" && h("span", { className: "sr" }, " (à confirmer)")), after || "")), "."),
-      h(Where, null, "Ses assets"),
+      h(Where, null, "Assets"),
       h("div", { className: "assets" },
         h("div", { className: "asset" }, h("span", { className: "cap" }, "Logo"),
           logo ? h("div", { className: "logobox" }, h("img", { src: logo.preview, alt: "Logo " + deName(b.name) }), h("span", { className: "small muted" }, logo.state === "deduced" ? "à confirmer" : "confirmé"))
@@ -1170,7 +1183,7 @@
     const [ed, setEd] = useState(null); // the list being decided, [{name, why, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [bid]);
     useDirty(ctx, "identity", bid, "ses noms", ed !== null);
-    if (!data) return h("div", { id: "names", className: "bloc" }, h(Where, null, "Ses noms"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data) return h("div", { id: "names", className: "bloc" }, h(Where, null, "Noms"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.names.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1184,7 +1197,7 @@
       setEd(null); ctx.touch(); await ctx.refresh();
       ctx.notify(chosen ? "La marque s'appelle maintenant " + chosen + "." : plural(names.length, "nom est gardé", "noms sont gardés") + " dans la marque.");
     });
-    return h("div", { id: "names", className: "bloc" }, h(Where, null, "Ses noms"),
+    return h("div", { id: "names", className: "bloc" }, h(Where, null, "Noms"),
       h("p", { className: "small muted" }, "Son nom aujourd'hui : " + data.name),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche des noms à partir du brief de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun nom proposé. Le studio peut en proposer jusqu'à huit, ou tu en écris un toi-même."
@@ -1216,7 +1229,7 @@
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [bid]);
     useDirty(ctx, "identity", bid, "ses personas", ed !== null);
-    if (!data) return h("div", { id: "personas", className: "bloc" }, h(Where, null, "Ses personas"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data) return h("div", { id: "personas", className: "bloc" }, h(Where, null, "Personas"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.personas.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1229,7 +1242,7 @@
       ctx.log("@" + bid, "toi", "Personas enregistrés", plural(texts.length, "persona gardé", "personas gardés"));
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "persona est enregistré", "personas sont enregistrés") + " dans la marque." : "La marque n'a plus de persona.");
     });
-    return h("div", { id: "personas", className: "bloc" }, h(Where, null, "Ses personas"),
+    return h("div", { id: "personas", className: "bloc" }, h(Where, null, "Personas"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio imagine les personas à partir de ce qu'il sait de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun persona. Le studio peut en proposer jusqu'à quatre, ou tu les écris toi-même."
           : "Aucun persona. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
@@ -1258,7 +1271,7 @@
     const [market, setMarket] = useState(null); // the market described for a landscape; null: not asked
     useEffect(() => { setEd(null); setMarket(null); }, [bid]);
     useDirty(ctx, "identity", bid, "ses concurrents", ed !== null || !!(market && market.trim()));
-    if (!data) return h("div", { id: "concurrents", className: "bloc" }, h(Where, null, "Ses concurrents"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data) return h("div", { id: "concurrents", className: "bloc" }, h(Where, null, "Concurrents"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.competitors.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1277,7 +1290,7 @@
       ctx.log("@" + bid, "toi", "Concurrents enregistrés", plural(texts.length, "concurrent gardé", "concurrents gardés"));
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "concurrent est enregistré", "concurrents sont enregistrés") + " dans la marque." : "La marque n'a plus de concurrent.");
     });
-    return h("div", { id: "concurrents", className: "bloc" }, h(Where, null, "Ses concurrents"),
+    return h("div", { id: "concurrents", className: "bloc" }, h(Where, null, "Concurrents"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche les concurrents à partir de ce qu'il sait de la marque et du marché.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun concurrent. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
           : "Aucun concurrent. Le studio en propose une fois le brief de la marque validé ; tu peux aussi les écrire toi-même."),
@@ -1318,7 +1331,7 @@
     const [replace, setReplace] = useState(false); // the colours of the brand are confirmed: the person is asked before they are replaced
     useEffect(() => { setEd(null); setReplace(false); }, [bid]);
     useDirty(ctx, "identity", bid, "ses fichiers", ed !== null);
-    if (!data) return h("div", { id: "fichiers", className: "bloc" }, h(Where, null, "Ses fichiers"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data) return h("div", { id: "fichiers", className: "bloc" }, h(Where, null, "Fichiers"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.proposed.map((x) => ({ ...x, kept: false }));
     const undecided = list.filter((x) => !x.kept).length, kept = list.filter((x) => x.kept);
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1342,7 +1355,7 @@
       setEd(null); setReplace(false); ctx.touch(); ctx.notify(values.length ? plural(values.length, "valeur est enregistrée", "valeurs sont enregistrées") + " dans la marque." : "Rien n'est entré dans la marque.");
     });
     const dirty = ed !== null || data.proposed.length > 0;
-    return h("div", { id: "fichiers", className: "bloc" }, h(Where, null, "Ses fichiers"),
+    return h("div", { id: "fichiers", className: "bloc" }, h(Where, null, "Fichiers"),
       data.files.length === 0 && h("p", { className: "vide" }, "Aucun fichier. Dépose ta charte (pdf) et tes visuels (png, jpg, webp ou gif), vingt au plus : le studio les lit et te propose ce qu'il apprend de la marque."),
       data.files.length > 0 && h("ul", { className: "small", "aria-label": "Fichiers de la marque" }, data.files.map((f) => h("li", { key: f.name }, f.name, h("span", { className: "muted" }, " · " + Math.max(1, Math.round(f.size / 1024)) + " Ko")))),
       data.fonts.length > 0 && h("p", { className: "small" }, "Polices gardées : " + data.fonts.map((f) => f.family + " (" + FILE_ROLE[f.role] + ")").join(", ") + "."),
@@ -1375,7 +1388,7 @@
     const [ed, setEd] = useState(null); // the list being decided, [{url, brings, belonging, kept}]; null: nothing touched
     useEffect(() => setEd(null), [bid]);
     useDirty(ctx, "identity", bid, "sa recherche", ed !== null);
-    if (!data) return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Sur le web"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data) return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Recherche"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.research.map((x) => ({ ...x, kept: true })).concat(data.proposed.map((x) => ({ ...x, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const dirty = ed !== null || data.proposed.length > 0;
@@ -1386,7 +1399,7 @@
       ctx.log("@" + bid, "toi", "Résultats du web enregistrés", plural(found.length, "résultat gardé", "résultats gardés"));
       setEd(null); ctx.touch(); ctx.notify(found.length ? plural(found.length, "résultat est enregistré", "résultats sont enregistrés") + " dans la marque." : "La marque n'a plus de résultat du web.");
     });
-    return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Sur le web"),
+    return h("div", { id: "sur-le-web", className: "bloc" }, h(Where, null, "Recherche"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio cherche sur le web ce qui parle de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, "Rien pour l'instant. Le studio peut chercher sur le web le site de la marque, ses campagnes et ce que la presse en dit."),
       data.error && !data.job && h(Failure, { label: "La recherche n'a pas marché", error: data.error }),
@@ -1412,7 +1425,7 @@
     const [ed, setEd] = useState(null); // the tracks being decided, [{id, idea, svg, kept}]; null: nothing touched
     useDirty(ctx, "identity", bid, "ses logos", ed !== null);
     useEffect(() => setEd(null), [bid]);
-    if (!data) return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Ses logos"), h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data) return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Logos"), h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.tracks.map((t) => ({ ...t, kept: true })).concat(data.proposed.map((t) => ({ ...t, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (id, o) => setEd(list.map((x) => (x.id === id ? { ...x, ...o } : x)));
@@ -1428,7 +1441,7 @@
       ctx.log("@" + bid, "toi", "Logo choisi", x.idea);
       ctx.touch(); ctx.notify("Cette piste est le logo de la marque.");
     });
-    return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Ses logos"),
+    return h("div", { id: "logos", className: "bloc" }, h(Where, null, "Logos"),
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio dessine des pistes de logo avec le nom et les couleurs de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, "Aucune piste. Le studio peut en dessiner jusqu'à quatre."),
       data.error && !data.job && h(Failure, { label: "La proposition n'a pas marché", error: data.error }),
@@ -1448,15 +1461,15 @@
       kept >= LOGOS_MAX && h("p", { className: "small muted" }, "Quatre pistes au plus."));
   }
 
-  /* ---------- texts of a project: the studio proposes up to six hooks and posts, the person corrects each, keeps or drops it, or writes one by hand.
-     Only the kept ones are saved in the project, and copied in one gesture ---------- */
+  /* ---------- texts of a project, a column of its own: the studio proposes up to six hooks and posts, the person corrects each, keeps or drops it,
+     or writes one by hand. Only the kept ones are saved in the project, and copied in one gesture ---------- */
   const TEXTS_MAX = 6;
   function Texts({ ctx, pid }) {
     const data = useLive(ctx, () => api.texts(pid), pid);
     const [ed, setEd] = useState(null); // the list being corrected, [{text, kept}] (`kept` false: a proposal not decided yet); null: nothing touched
     useEffect(() => setEd(null), [pid]);
-    useDirty(ctx, "pieces", pid, "ses textes", ed !== null);
-    if (!data) return h("div", { id: "textes", className: "bloc" }, h(Where, null, "Ses textes"), h(Loading)); // its place is kept while it loads (rule 10)
+    useDirty(ctx, "texts", pid, "ses textes", ed !== null);
+    if (!data) return h("div", { id: "textes", className: "bloc" }, h(Loading)); // its place is kept while it loads (rule 10)
     const list = ed || data.texts.map((text) => ({ text, kept: true })).concat(data.proposed.map((text) => ({ text, kept: false })));
     const kept = list.filter((x) => x.kept).length, undecided = list.length - kept;
     const change = (i, o) => setEd(list.map((x, k) => (k === i ? { ...x, ...o } : x)));
@@ -1470,7 +1483,7 @@
       setEd(null); ctx.touch(); ctx.notify(texts.length ? plural(texts.length, "texte est enregistré", "textes sont enregistrés") + " dans le projet." : "Le projet n'a plus de texte.");
     });
     const copy = (text) => navigator.clipboard.writeText(text).then(() => ctx.notify("Texte copié."), () => ctx.fail(new Error("La copie n'a pas marché : sélectionne le texte et copie-le.")));
-    return h("div", { id: "textes", className: "bloc" }, h(Where, null, "Ses textes"),
+    return h("div", { id: "textes", className: "bloc" },
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit les textes à partir du brief et de la marque.")
         : list.length === 0 && h("p", { className: "vide" }, data.can_propose ? "Aucun texte. Le studio peut en proposer jusqu'à six, ou tu les écris toi-même."
           : "Aucun texte. Le studio en propose une fois le brief validé ; tu peux aussi les écrire toi-même."),
@@ -1491,15 +1504,15 @@
       kept >= TEXTS_MAX && h("p", { className: "small muted" }, "Six textes au plus."));
   }
 
-  /* ---------- storyboard: "Son film". The studio proposes the script and the shots (a job); the person reads them, corrects the seconds and the words,
-     saves, and only then renders the film (a job): motion made by code, an mp4 to watch and to download ---------- */
+  /* ---------- storyboard, the "Film" column of a project. The studio proposes the script and the shots (a job); the person reads them, corrects the
+     seconds and the words, saves, and only then renders the film (a job): motion made by code, an mp4 to watch and to download ---------- */
   function Storyboard({ ctx, pid }) {
     const data = useLive(ctx, () => api.storyboard(pid), pid + "|sb");
     const [ed, setEd] = useState(null); // the storyboard being corrected, { script, shots }; null: nothing touched
     useEffect(() => setEd(null), [pid]);
-    useDirty(ctx, "pieces", pid, "son film", ed !== null);
-    if (!data) return h("div", { id: "film", className: "bloc" }, h(Where, null, "Son film"), h(Loading)); // its place is kept while it loads (rule 10)
-    if (!data.can_propose) return null;
+    useDirty(ctx, "storyboard", pid, "son film", ed !== null);
+    if (!data) return h("div", { id: "film", className: "bloc" }, h(Loading)); // its place is kept while it loads (rule 10)
+    if (!data.can_propose) return h("p", { className: "vide" }, "Le film vient après le brief.");
     const shots = ed ? ed.shots : data.shots, script = ed ? ed.script : data.script;
     const total = shots.reduce((a, x) => a + (Number(x.seconds) || 0), 0);
     const colours = [...new Set(data.shots.map((x) => x.colour))];
@@ -1513,7 +1526,7 @@
     });
     const render = () => ctx.act(async () => { await api.renderFilm(pid); ctx.log(pid, "toi", "Rendu du film demandé", ""); await ctx.refresh(); ctx.touch(); });
     const download = () => ctx.act(async () => saveFile(await api.downloadFilm(pid)));
-    return h("div", { id: "film", className: "bloc" }, h(Where, null, "Son film"),
+    return h("div", { id: "film", className: "bloc" },
       data.job ? h("p", { className: "small muted", role: "status" }, "Le studio écrit le script et le découpage à partir du brief.")
         : shots.length === 0 && h("p", { className: "vide" }, "Pas encore de film. Le studio peut écrire un script et un découpage en plans, que tu corriges avant le rendu."),
       data.error && !data.job && h(Failure, { label: "Le découpage n'a pas marché", error: data.error }),
@@ -1546,29 +1559,33 @@
         h("div", { className: "gestures" }, h(Button, { variant: "secondary", size: "sm", disabled: ctx.busy, onClick: download, "aria-label": "Télécharger le film en mp4" }, "Télécharger le film"))));
   }
 
-  /* ---------- 3. a project: its seven steps, what waits ---------- */
+  /* ---------- 3. a project: what waits (a counter in its head), its seven steps, then its pieces, one column each ---------- */
+  const MADE = [["series", "Série"], ["texts", "Textes"], ["storyboard", "Film"]]; // what a project makes: the kind of each column and its name
   function ProjectCol({ ctx, pid }) {
     const p = useLive(ctx, () => api.project(pid), pid);
     const { sel } = ctx;
     const level = ctx.level(2);
-    if (!p) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: ctx.projectName(pid) }), h(Loading));
+    const tasks = waitingAt(ctx.data.tasks, { project: pid });
+    const count = { n: tasks.length, col: 2, on: !!sel.detail && sel.detail.kind === "waiting", open: () => ctx.selectWaiting("project") }; // there before the project's data (rule 10)
+    if (!p) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: ctx.projectName(pid), count }), h(Loading));
     const st = (k) => (p.steps.find((s) => s.key === k) || {}).status || "todo";
     const done = SEVEN.filter((s) => st(s.key) === "done").length;
     const nowIdx = SEVEN.findIndex((s) => st(s.key) !== "done");
-    const tasks = ctx.data.tasks.filter((t) => t.scope === "project" && t.project === pid);
     const brandTask = ctx.data.tasks.find((t) => t.scope === "brand" && t.brand === p.brand);
     const jobs = ctx.data.jobs.filter((j) => j.project === pid);
     const sc = seriesCount(p.pieces);
-    const made = p.pieces.length > 0 || st("brief") === "done"; // what the project has made: its series, its texts, its film
+    /* the pieces of the project, a row each, only when its content can exist: the series once there are pieces, the texts and the film once the brief is done */
+    const briefDone = st("brief") === "done";
+    const madeMeta = { series: plural(p.pieces.length, "pièce", "pièces"), texts: "Accroches et posts", storyboard: "Script, découpage, rendu" };
+    const made = MADE.filter(([k]) => (k === "series" ? p.pieces.length > 0 : briefDone));
     return h(React.Fragment, null,
       h(ColHead, { sort: "Projet", title: p.name, sub: done === 7 ? "Terminé" : "Étape " + (nowIdx + 1) + " sur 7 · " + SEVEN[nowIdx].label,
-        edit: { run: ctx.editProject, label: "Modifier le projet " + p.name + " : son nom" } }),
+        edit: { run: ctx.editProject, label: "Modifier le projet " + p.name + " : son nom" }, count }),
       h(JobLine, { jobs }),
-      h(Waiting, { ctx, col: 2, tasks }),
       !tasks.length && st("brand") !== "done" && h("p", { className: "vide", "data-waits": "brand" }, "Rien à faire sur le projet : il attend sa marque. ",
         brandTask ? h(React.Fragment, null, "Il lui faut : ", h("button", { type: "button", className: "linkbtn", onClick: () => ctx.openTask(brandTask), "aria-label": "Ouvrir la tâche de la marque : " + taskTitle(brandTask) }, lc1(taskTitle(brandTask))), ".")
           : p.brand_stage === "discovering" ? "Le studio lit le site de la marque." : ""),
-      h(Where, null, "Ses étapes"),
+      h(Where, null, "Étapes"),
       h("ol", { className: "etapes", "aria-label": "Les sept étapes" }, SEVEN.map((s, i) => {
         const status = st(s.key), cur = i === nowIdx;
         const word = STEP_WORD[status];
@@ -1584,24 +1601,21 @@
             onClick: open, "aria-label": (i + 1) + ". " + s.label + " : " + word + (count ? ", " + count : "") + (status === "done" ? ". Voir ce qui a été décidé" : serie ? ". Voir les pièces" : ". Ouvrir la tâche de la marque") }, inner)
             : h("div", { className: "etape" }, inner));
       })),
-      made && h(React.Fragment, null, h(Where, null, "Ce qu'il a fait"),
-        h(Row, { col: 2, select: true, sel: sel.detail && sel.detail.kind === "pieces" ? level : null, onClick: ctx.selectPieces,
-          label: "Ses pièces : " + (p.pieces.length ? plural(p.pieces.length, "pièce", "pièces") + ", " : "") + "ses textes, son film" },
-          h("span", { className: "main" }, h("span", { className: "nom" }, "Ses pièces"), h("span", { className: "meta" }, (p.pieces.length ? plural(p.pieces.length, "pièce", "pièces") + " · " : "") + "textes · film")))));
+      made.length > 0 && h(React.Fragment, null, h(Where, null, "Pièces"),
+        made.map(([k, name]) => h(Row, { key: k, col: 2, select: true, sel: sel.detail && sel.detail.kind === k ? level : null, onClick: () => ctx.selectMade(k), label: name + " : " + madeMeta[k].toLowerCase() },
+          h("span", { className: "main" }, h("span", { className: "nom" }, name), h("span", { className: "meta" }, madeMeta[k]))))));
   }
 
-  /* ---------- 3b. what a project has made: its series, its texts, its film. A page of its own, as a brand's identity (rules 1 and 2) ---------- */
-  function PiecesCol({ ctx, pid }) {
-    const p = useLive(ctx, () => api.project(pid), pid + "|pieces");
-    if (!p) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Ses pièces", sub: ctx.projectName(pid) }), h(Loading));
-    const briefDone = ((p.steps.find((s) => s.key === "brief") || {}).status || "todo") === "done";
+  /* ---------- 3b. what a project has made, a column each (rules 1 and 2): its series as thumbnails, its texts, its film ---------- */
+  function SeriesCol({ ctx, pid }) {
+    const p = useLive(ctx, () => api.project(pid), pid + "|series");
+    if (!p) return h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Série", sub: ctx.projectName(pid) }), h(Loading));
     return h(React.Fragment, null,
-      h(ColHead, { sort: "Projet", title: "Ses pièces", sub: p.name }),
-      p.pieces.length > 0 && h(Series, { ctx, p, col: 3 }),
-      briefDone && h(Texts, { ctx, pid }),
-      briefDone && h(Storyboard, { ctx, pid, key: pid + "|film" }),
-      !p.pieces.length && !briefDone && h("p", { className: "vide" }, "Rien pour l'instant : les pièces viennent après le brief."));
+      h(ColHead, { sort: "Projet", title: "Série", sub: p.name + " · " + plural(p.pieces.length, "pièce", "pièces") }),
+      p.pieces.length > 0 ? h(Series, { ctx, p, col: 3 }) : h("p", { className: "vide" }, "Pas encore de pièce : la série vient après la divergence."));
   }
+  const TextsCol = ({ ctx, pid }) => h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Textes", sub: ctx.projectName(pid) }), h(Texts, { ctx, pid }));
+  const StoryboardCol = ({ ctx, pid }) => h(React.Fragment, null, h(ColHead, { sort: "Projet", title: "Film", sub: ctx.projectName(pid) }), h(Storyboard, { ctx, pid, key: pid + "|film" }));
 
   /* ---------- 4. the detail of a step already done: what was decided, and a way to reopen it ---------- */
   const synth = (p, k, extra) => ({ id: p.id + ":reopen:" + k + ((extra && extra.piece) || ""), scope: "project", project: p.id, project_name: p.name, brand: p.brand, brand_name: p.brand_name, kind: k, step: null, piece: null, title: "", ...extra });
@@ -1962,15 +1976,17 @@
 
   /* ================= the application ================= */
   /* what each column is, from left to right, for a selection: the studio always, then a brand (or the form of a new one), a project (or the
-     form that edits or creates), the detail of a step (or its form) */
+     form that edits or creates), the detail of a step (or its form), or one of the project's pieces (series, texts, storyboard). "Ce qui t'attend"
+     is the `waiting` panel of the studio or of a brand, the `waiting` detail of a project */
   const EMPTY = { brand: null, project: null, detail: null, panel: null, task: null, judgement: null, judges: false };
   function columnsOf(sel) {
     const c = ["studio"];
     if (sel.panel === "newBrand") { c.push("newBrand"); return c; }
     if (sel.panel === "settings") { c.push("settings"); return c; } // engines
     if (sel.judges) { c.push("judges"); if (sel.panel === "newJudge") c.push("newJudge"); else if (sel.judgement) c.push("judgement"); return c; }
-    if (!sel.brand) return c;
+    if (!sel.brand) { if (sel.panel === "waiting") c.push("waiting"); return c; }
     c.push("brand");
+    if (sel.panel === "waiting") { c.push("waiting"); return c; }
     if (sel.panel === "identity") { c.push("identity"); return c; }
     if (sel.panel === "editBrand") { c.push("editBrand"); return c; }
     if (sel.panel === "newProject") { c.push("newProject"); return c; }
@@ -1979,7 +1995,7 @@
     if (sel.detail) c.push(sel.detail.kind);
     return c;
   }
-  const KEY_OF = { identity: "brand", editBrand: "brand", newProject: "brand", project: "project", editProject: "project", pieces: "project" }; // what a column shows the parts of
+  const KEY_OF = { identity: "brand", editBrand: "brand", newProject: "brand", project: "project", editProject: "project", series: "project", texts: "project", storyboard: "project" }; // what a column shows the parts of
   const popped = (s, n) => { let x = s; while (columnsOf(x).length > n) { const y = popOnce(x); if (y === x) break; x = y; } return x; };
   const popOnce = (sel) => sel.detail ? { ...sel, detail: null, task: null } : sel.panel ? { ...sel, panel: null } : sel.judgement ? { ...sel, judgement: null } : sel.judges ? { ...sel, judges: false } : sel.project ? { ...sel, project: null, task: null } : sel.brand ? { ...sel, brand: null, task: null } : sel;
 
@@ -2136,7 +2152,9 @@
     const editBrand = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "editBrand", task: null })), [move]);
     const newProject = useCallback(() => move((s) => ({ ...s, project: null, detail: null, panel: "newProject", task: null })), [move]);
     const editProject = useCallback(() => move((s) => ({ ...s, detail: { kind: "editProject" }, task: null })), [move]);
-    const selectPieces = useCallback(() => move((s) => ({ ...s, detail: { kind: "pieces" }, task: null })), [move]);
+    const selectMade = useCallback((kind) => move((s) => ({ ...s, detail: { kind }, task: null })), [move]); // series, texts or storyboard
+    /* "Ce qui t'attend" of a level: the project's detail, the brand's panel, or the studio's */
+    const selectWaiting = useCallback((level) => move((s) => level === "project" ? { ...s, detail: { kind: "waiting" }, task: null } : level === "brand" ? { ...EMPTY, brand: s.brand, panel: "waiting" } : { ...EMPTY, panel: "waiting" }), [move]);
     const showJournal = useCallback(() => move((s) => ({ ...s, detail: { kind: "journal" }, task: null })), [move]);
     const close = useCallback((text) => move((s) => ({ ...s, panel: null }), typeof text === "string" || (text && text.text) ? text : null), [move]);
     const closeDetail = useCallback((text) => move((s) => ({ ...s, detail: null }), typeof text === "string" ? text : null), [move]);
@@ -2206,7 +2224,7 @@
     const cols = columnsOf(sel);
     const level = (i) => (i === cols.length - 1 ? "strong" : "soft");
     const ctx = { data, machine, sel, busy, act, answered, snap, log, fail, openTask, now, cmdsRef, overlayRef, arrowsRef, rev, touch, notify, refresh, level, close, closeDetail, composeAll, drawAll,
-      selectStudio, selectBrand, selectProject, selectStep, selectPieces, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings, dirty, leave,
+      selectStudio, selectBrand, selectProject, selectStep, selectMade, selectWaiting, newBrand, editBrand, newProject, editProject, selectJudges, newJudge, selectJudgement, selectIdentity, openSettings, dirty, leave,
       jnames, brandName: (id) => brandName(id), projectName: (id) => projectInfo(id).name, judgementName: (id) => jnames.current[id] || "" };
 
 
@@ -2216,6 +2234,7 @@
       (cmdsRef.current || []).forEach((c) => cmds.push({ ...c, group: "Cette tâche" }));
       if (dive) cmds.push({ id: "cols", group: "Aller", label: "Revenir aux colonnes", hint: "Échap", run: back });
       cmds.push({ id: "studio", group: "Aller", label: "Le studio", run: selectStudio });
+      if (data.tasks.length) cmds.push({ id: "waiting", group: "Aller", label: "Ce qui t'attend", hint: plural(data.tasks.length, "tâche", "tâches"), run: () => selectWaiting("studio") });
       data.tasks.forEach((t) => cmds.push({ id: "task:" + t.id, group: "Ouvrir une tâche", label: taskTitle(t), hint: taskPlace(t), run: () => openTask(t) }));
       data.brands.forEach((b) => cmds.push({ id: "brand:" + b.id, group: "Aller à une marque", label: b.name, run: () => selectBrand(b.id) }));
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
@@ -2229,9 +2248,16 @@
         const mine = data.tasks.filter((t) => t.scope === "project" && t.project === sel.project);
         if (mine.some((t) => t.kind === "prompt")) cmds.push({ id: "draw-all", group: "Ce projet", label: "Dessiner toutes les images", run: () => act(() => drawAll(sel.project), "Le studio lance toutes les images.") });
         if (mine.filter((t) => t.kind === "compose").length > 1) cmds.push({ id: "compose-all", group: "Ce projet", label: "Composer tout", run: () => act(() => composeAll(sel.project), "Le studio compose les pièces, une par une.") });
+        if (mine.length) cmds.push({ id: "waiting-project", group: "Ce projet", label: "Ce qui t'attend", hint: plural(mine.length, "tâche", "tâches"), run: () => selectWaiting("project") });
+        /* its pieces, when their row exists: the series once there are pieces, the texts and the film once the brief is done (rank past step 2) */
+        const line = ((data.brands.find((b) => b.id === sel.brand) || {}).projects || []).find((p) => p.id === sel.project) || {};
+        const briefDone = line.done || line.rank > 2;
+        MADE.filter(([k]) => (k === "series" ? projectInfo(sel.project).pieces > 0 : briefDone)).forEach(([k, name]) => cmds.push({ id: "made:" + k, group: "Ce projet", label: name, run: () => selectMade(k) }));
         cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: showJournal });
         cmds.push({ id: "edit-project", group: "Ce projet", label: "Modifier le projet", run: editProject });
       }
+      const bt = sel.brand ? waitingAt(data.tasks, { brand: sel.brand }).length : 0;
+      if (bt) cmds.push({ id: "waiting-brand", group: "Cette marque", label: "Ce qui t'attend", hint: plural(bt, "tâche", "tâches"), run: () => selectWaiting("brand") });
       if (sel.brand) cmds.push({ id: "identity", group: "Cette marque", label: "Identité et assets", run: selectIdentity });
       if (sel.brand) cmds.push({ id: "edit-brand", group: "Cette marque", label: "Modifier la marque", run: editBrand });
     }
@@ -2322,12 +2348,15 @@
       : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
-      : kind === "pieces" ? h(PiecesCol, { ctx, pid: sel.project, key: sel.project })
+      : kind === "series" ? h(SeriesCol, { ctx, pid: sel.project, key: sel.project }) : kind === "texts" ? h(TextsCol, { ctx, pid: sel.project, key: sel.project })
+      : kind === "storyboard" ? h(StoryboardCol, { ctx, pid: sel.project, key: sel.project })
+      : kind === "waiting" ? h(WaitingCol, { ctx, col: cols.length - 1, key: "waiting:" + (sel.project || sel.brand || "studio") })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
     /* the name of each column, the one its head shows (rule 3): its strip and its section say the same */
     const labels = { studio: "Le studio", newBrand: "Nouvelle marque", judges: "Pièces jugées", newJudge: "Juger une pièce", settings: "Moteurs d'image et de texte", judgement: jnames.current[sel.judgement] || "Jugement",
       brand: brandName(sel.brand), identity: "Identité et assets", editBrand: "Modifier " + brandName(sel.brand), newProject: "Nouveau projet", project: projectInfo(sel.project).name,
-      step: sel.detail && sel.detail.kind === "step" ? (SEVEN.find((x) => x.key === sel.detail.key) || {}).label : "", pieces: "Ses pièces", journal: "Journal des décisions", editProject: "Modifier " + projectInfo(sel.project).name };
+      step: sel.detail && sel.detail.kind === "step" ? (SEVEN.find((x) => x.key === sel.detail.key) || {}).label : "", series: "Série", texts: "Textes", storyboard: "Film",
+      waiting: "Ce qui t'attend", journal: "Journal des décisions", editProject: "Modifier " + projectInfo(sel.project).name };
     /* an open column: `onFold` folds it into its strip (the deepest column has none, it never folds) */
     const shell = (kind, i, last, onFold) => h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + " k-" + kind + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
       onFold && h("button", { type: "button", className: "plier", onClick: () => onFold(kind), "aria-label": "Replier la colonne : " + labels[kind], title: "Replier" }, h("span", { "aria-hidden": "true" }, "‹")),
