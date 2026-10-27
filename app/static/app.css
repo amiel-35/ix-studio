@@ -16,7 +16,7 @@ img { display: block; max-width: 100%; }
 .muted { color: var(--text-muted); }
 .small { font-size: var(--fs-small); line-height: 1.4; }
 .cap { font-size: var(--fs-caption); font-weight: var(--fw-semibold); letter-spacing: var(--ls-label); text-transform: uppercase; color: var(--text-muted); }
-.linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-link); font-weight: var(--fw-semibold); text-decoration: underline; text-underline-offset: 3px; transition: color var(--transition-fast); }
+.linkbtn { min-height: 24px; background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-link); font-weight: var(--fw-semibold); text-decoration: underline; text-underline-offset: 3px; transition: color var(--transition-fast); }
 .linkbtn:hover { color: var(--action-hover); }
 .linkbtn:disabled { opacity: .45; cursor: not-allowed; }
 
@@ -82,6 +82,9 @@ img { display: block; max-width: 100%; }
 /* a group of buttons: never a row of a list (no hover of its own, no height of a row) */
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
+/* on a tinted ground (the studio column, a selected row or step) the muted grey falls under 4.5:1: the body ink there keeps WCAG AA */
+.col.c1 .row .meta, .row[data-sel] .meta, button.etape[data-sel], button.etape[data-sel] .m { color: var(--text-body); }
+
 /* the seven segments of a project */
 .seg { display: flex; gap: 2px; margin-top: var(--space-1); width: 150px; max-width: 100%; }
 .seg i { flex: 1; height: 3px; background: var(--neutral-300); }
@@ -90,7 +93,7 @@ img { display: block; max-width: 100%; }
 
 /* the seven steps of the open project */
 .etapes { list-style: none; padding: var(--space-1) 0 var(--space-3); }
-.etape { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 34px; padding: 0 var(--space-5); background: none; border: 0; text-align: left; color: var(--text-faint); font-size: var(--fs-body); }
+.etape { display: flex; align-items: center; gap: var(--space-3); width: 100%; min-height: 34px; padding: 0 var(--space-5); background: none; border: 0; text-align: left; color: var(--text-muted); font-size: var(--fs-body); } /* a step to come is told by its grey dot, its text stays readable (AA) */
 button.etape { cursor: pointer; color: var(--text-muted); transition: background var(--transition-fast); }
 button.etape:hover { background: var(--neutral-100); }
 button.etape[data-sel="strong"] { background: var(--action-subtle-bg); }
@@ -289,3 +292,8 @@ input.pal-input:focus-visible { outline-offset: -2px; }
 #film input[type="number"] { width: 5rem; background: var(--surface-card); border: 1px solid var(--border-strong); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
 #film select { width: auto; }
 #film video { display: block; max-width: 100%; border-radius: var(--radius-md); background: var(--surface-card); }
+
+/* who asked the system for less motion gets none: no transition, no animation */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
