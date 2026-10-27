@@ -915,6 +915,50 @@ class Api(unittest.TestCase):
                 with self.subTest(ink=ink, ground=ground):
                     self.assertGreaterEqual(ratio(ink, ground), 4.5)
 
+    def test_the_selection_tints_stand_out_and_read_at_wcag_aa(self):
+        """The selected rows take `--sel-soft` and `--sel-strong`, two color-mix of the accent on the page (app.css); here the mixes are computed
+        as the browser does (sRGB, channel by channel), for the neutral tokens and, where it is installed, for the brand's. Each tint stands
+        out of every column ground it sits on (1.15:1 at least, the sunken one included: the row that opened a column must be seen) and
+        carries the body, strong and heading inks at 4.5:1. The link ink is held at 3:1: no link sits on a selected row (the muted ink is
+        turned into the body ink there, app.css), and with the neutral blue a tint that both reads a link at 4.5:1 and stands out of the
+        sunken ground does not exist (it would need a luminance above 0.775 and below 0.771)."""
+        css = (server.STATIC / "app.css").read_text()
+        mixes = re.findall(r"(--sel-[a-z]+): color-mix\(in srgb, var\((--[a-z0-9-]+)\) (\d+)%, var\((--[a-z0-9-]+)\)\)", css)
+        self.assertEqual(sorted(m[0] for m in mixes), ["--sel-soft", "--sel-strong"])
+
+        def lum(rgb):
+            f = lambda v: v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4  # noqa: E731
+            r, g, b = (v / 255 for v in rgb)
+            return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+        def contrast(a, b):
+            la, lb = lum(a), lum(b)
+            return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+        sets = [("ds-public", server.STATIC / "ds-public" / "tokens.css")]
+        if (server.STATIC / "ds" / "tokens.css").is_file():
+            sets.append(("ds", server.STATIC / "ds" / "tokens.css"))
+        for name, path in sets:
+            raw = dict(re.findall(r"(--[a-z0-9-]+):\s*([^;]+);", re.sub(r"/\*.*?\*/", "", path.read_text(), flags=re.S)))
+
+            def rgb(token, raw=raw):
+                v = raw[token].strip()
+                while v.startswith("var("):
+                    v = raw[v[4:-1].strip()].strip()
+                self.assertRegex(v, r"^#[0-9a-f]{6}$", token)
+                return tuple(int(v[i:i + 2], 16) for i in (1, 3, 5))
+            tints = {}
+            for tint, a, pct, b in mixes:
+                p, ca, cb = int(pct) / 100, rgb(a), rgb(b)
+                tints[tint] = tuple(round(p * x + (1 - p) * y) for x, y in zip(ca, cb))
+            self.assertLess(lum(tints["--sel-strong"]), lum(tints["--sel-soft"]), name)  # the deepest column is a little more marked
+            for tint, c in tints.items():
+                for ground in ("--surface-sunken", "--surface-light", "--surface-page"):
+                    with self.subTest(set=name, tint=tint, ground=ground):
+                        self.assertGreaterEqual(contrast(c, rgb(ground)), 1.15)
+                for ink, least in (("--text-body", 4.5), ("--text-strong", 4.5), ("--text-heading", 4.5), ("--text-link", 3)):
+                    with self.subTest(set=name, tint=tint, ink=ink):
+                        self.assertGreaterEqual(contrast(rgb(ink), c), least)
+
 
 
 class StepOneRule(unittest.TestCase):

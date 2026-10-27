@@ -2361,8 +2361,20 @@
     const shell = (kind, i, last, onFold) => h("section", { key: kind + i, className: "col c" + Math.min(i + 1, 4) + " k-" + kind + (last && i > 0 ? " last" : ""), style: { "--w": colW(kind) + "px" }, "data-col": i, "aria-label": labels[kind] },
       onFold && h("button", { type: "button", className: "plier", onClick: () => onFold(kind), "aria-label": "Replier la colonne : " + labels[kind], title: "Replier" }, h("span", { "aria-hidden": "true" }, "‹")),
       last && err, node(kind));
-    /* a folded column: a strip that keeps its name; a click unfolds it, alone */
-    const strip = (kind, i, onOpen, word) => h("button", { key: "strip" + i, type: "button", className: "bande b" + Math.min(i + 1, 3), "data-strip": i, onClick: () => onOpen(kind), "aria-label": word + labels[kind], title: word + labels[kind] }, h("span", null, labels[kind]));
+    /* what a strip keeps of its column, the least one can do there: its counter of what waits (the one of its head) and its "+"; the same
+       gestures as in the column unfolded, through the same functions (the guard of what is not saved holds) */
+    const countOf = (kind) => kind === "studio" ? { n: data.tasks.length, on: !sel.brand && sel.panel === "waiting", open: () => selectWaiting("studio") }
+      : kind === "brand" ? { n: waitingAt(data.tasks, { brand: sel.brand }).length, on: !sel.project && sel.panel === "waiting", open: () => selectWaiting("brand") }
+      : kind === "project" ? { n: waitingAt(data.tasks, { project: sel.project }).length, on: !!sel.detail && sel.detail.kind === "waiting", open: () => selectWaiting("project") } : null;
+    const plusOf = (kind) => kind === "studio" ? { label: "Nouvelle marque", run: newBrand } : kind === "brand" ? { label: "Nouveau projet dans " + brandName(sel.brand), run: newProject }
+      : kind === "judges" ? { label: "Juger une pièce", run: newJudge } : null;
+    /* a folded column: a strip that keeps its name, its counter and its "+" at the top; a click on the name unfolds it, alone. Three buttons side
+       by side, never one inside another */
+    const strip = (kind, i, onOpen, word) => { const c = countOf(kind), p = plusOf(kind), n = c && (c.n > 0 || c.on) ? c : null;
+      return h("div", { key: "strip" + i, className: "bande b" + Math.min(i + 1, 3), "data-strip": i },
+        n && h("button", { type: "button", className: "compteur", "aria-current": n.on ? "true" : undefined, onClick: n.open, "aria-label": labels[kind] + ", ce qui t'attend : " + (n.n ? plural(n.n, "tâche", "tâches") : "rien") }, n.n),
+        p && h(Plus, { label: p.label, onClick: p.run }),
+        h("button", { type: "button", className: "bande-nom", onClick: () => onOpen(kind), "aria-label": word + labels[kind], title: word + labels[kind] }, h("span", null, labels[kind]))); };
 
     /* ----- a task opened: the columns are strips beside it; a strip opens its column next to the task ----- */
     if (dive) {
