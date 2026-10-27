@@ -24,13 +24,13 @@ img { display: block; max-width: 100%; }
    the right: the deepest column is where you are. Lines, never shadows (the palette is the one floating surface). */
 .app { height: 100vh; height: 100dvh; overflow: hidden; }
 .cols { display: flex; height: 100%; outline: none; background: var(--surface-page); }
-.col { flex: none; height: 100%; overflow-y: auto; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; min-width: 0; }
-.col.c1 { width: 300px; background: var(--surface-sunken); }
-.col.c2 { width: 360px; background: var(--surface-light); }
-.col.c3 { width: 360px; background: var(--surface-page); }
-.col.c4 { width: 420px; background: var(--surface-page); }
-.col.last { flex: 1 1 0; width: auto; min-width: 360px; border-right: 0; background: var(--surface-page); }
-.col.last > * { max-width: 600px; }
+.col { flex: none; width: var(--w, 360px); height: 100%; overflow-y: auto; scrollbar-gutter: stable; border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; min-width: 0; }
+.col.c1 { background: var(--surface-sunken); }
+.col.c2 { background: var(--surface-light); }
+.col.c3, .col.c4 { background: var(--surface-page); }
+/* the last column takes what is left, but its content keeps the width it has when it is not the last: nothing reflows when you go deeper */
+.col.last { flex: 1 1 0; min-width: var(--w, 360px); border-right: 0; background: var(--surface-page); }
+.col.last > * { max-width: var(--w, 560px); }
 .rest { flex: 1; padding: var(--space-8) var(--space-7); background: var(--surface-page); }
 .rest > * { max-width: 520px; }
 .col > * { flex: none; }
@@ -55,9 +55,7 @@ img { display: block; max-width: 100%; }
 .machine { margin: var(--space-3) var(--space-5) var(--space-2); padding: var(--space-3) 0 var(--space-3) var(--space-3); border-left: var(--border-width-accent) solid var(--status-danger); display: grid; gap: var(--space-2); }
 .machine li { color: var(--text-body); line-height: 1.4; }
 .machine li + li { margin-top: var(--space-2); }
-.col .notice { margin: var(--space-4) var(--space-5) 0; padding-bottom: var(--space-3); }
 .col .err, .rest .err { margin: var(--space-4) var(--space-5) 0; }
-.rest .notice { margin: 0 0 var(--space-4); }
 .rest .err { margin: 0 0 var(--space-4); }
 
 /* a row of a list: the one shape of the columns */
@@ -73,6 +71,16 @@ img { display: block; max-width: 100%; }
 .row .meta { font-size: var(--fs-small); color: var(--text-muted); line-height: 1.3; }
 .row .n { font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); font-size: var(--fs-small); color: var(--text-strong); }
 .row .chev { width: 10px; flex: none; color: var(--blue-medium); font-size: 18px; line-height: 1; }
+
+/* a section of a column (names, personas, files, logos, texts, film...): its heading and its content on the one margin of the columns */
+.bloc { display: grid; gap: var(--space-3); padding: 0 var(--space-5) var(--space-4); min-width: 0; }
+.bloc > .groupe, .app.narrow .bloc > .groupe { padding-left: 0; padding-right: 0; }
+.bloc > .vide, .app.narrow .bloc > .vide { padding: 0; }
+.bloc > .groupe { padding-bottom: 0; }
+.bloc > button { justify-self: start; }
+.bloc .editor { padding-bottom: var(--space-1); }
+/* a group of buttons: never a row of a list (no hover of its own, no height of a row) */
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 /* the seven segments of a project */
 .seg { display: flex; gap: 2px; margin-top: var(--space-1); width: 150px; max-width: 100%; }
@@ -117,7 +125,7 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .pieces .row { padding-left: var(--space-5); }
 .journal { padding: 0 var(--space-5); }
 /* the series: the pieces as thumbnails, each at the ratio it will have */
-.serie { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4) var(--space-3); padding: var(--space-3) var(--space-5) var(--space-2); }
+.serie { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: var(--space-4) var(--space-3); padding: var(--space-3) var(--space-5) var(--space-2); }
 .vign { display: grid; align-content: start; gap: var(--space-1); width: 100%; background: none; border: 0; padding: var(--space-1); margin: calc(-1 * var(--space-1)); text-align: left; cursor: pointer; border-radius: var(--radius-md); transition: background var(--transition-fast); }
 .vign:hover { background: var(--neutral-100); }
 .vign .nom { font-weight: var(--fw-semibold); color: var(--text-strong); line-height: 1.25; overflow-wrap: anywhere; }
@@ -142,10 +150,10 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .bande.b2 { background: var(--surface-light); }
 .bande.b3 { background: var(--surface-page); }
 .bande.b1:hover, .bande.b2:hover, .bande.b3:hover { background: var(--neutral-100); }
-.coeur { flex: 1; min-width: 0; height: 100%; overflow-y: auto; display: flex; padding: var(--space-8) var(--page-x); outline: none; background: var(--surface-page); }
-.coeur-in { margin: auto; width: 100%; max-width: 720px; }
+.coeur { flex: 1; min-width: 0; height: 100%; overflow-y: auto; scrollbar-gutter: stable; display: flex; padding: var(--space-8) var(--page-x); outline: none; background: var(--surface-page); }
+/* anchored at the top, never centred: opening an editor or a callout below does not move what is above it */
+.coeur-in { margin: 0 auto; padding-top: clamp(0px, 8vh, var(--space-10)); width: 100%; max-width: 720px; }
 .ou { margin-bottom: var(--space-3); }
-.coeur-in > .notice { margin-bottom: var(--space-6); }
 .task > * + * { margin-top: var(--space-5); }
 .head { font-family: var(--font-display); font-size: var(--fs-h2); line-height: var(--lh-heading); letter-spacing: var(--ls-heading); font-weight: var(--fw-semibold); color: var(--text-heading); outline: none; }
 .lead { font-size: var(--fs-body-lg); max-width: 60ch; }
@@ -156,6 +164,12 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .notice { display: flex; gap: var(--space-3); align-items: baseline; margin-bottom: var(--space-5); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
 .err { margin-bottom: var(--space-5); }
 
+/* what the studio says in passing (done, working): at the bottom, over the content, never in its flow; a line, never a shadow */
+.toasts { position: fixed; right: var(--space-5); bottom: var(--space-5); z-index: 25; /* under the zoom (30) and the palette (40) */ display: grid; gap: var(--space-2); width: min(480px, calc(100vw - 2 * var(--space-5))); pointer-events: none; }
+.toasts > * { pointer-events: auto; margin: 0; padding: var(--space-3) var(--space-4); background: var(--surface-page); border: 1px solid var(--border-strong); border-radius: var(--radius-md); }
+.toasts .notice { border-bottom: 1px solid var(--border-strong); }
+.toasts .working { padding-left: var(--space-4); padding-right: var(--space-4); }
+
 /* narrow screens: one column at a time, with a way back to the one on its left */
 .app.narrow { display: flex; flex-direction: column; }
 .retour { flex: none; text-align: left; background: var(--surface-sunken); border: 0; border-bottom: 1px solid var(--border-subtle); padding: var(--space-3) var(--space-4); min-height: 44px; cursor: pointer; font-weight: var(--fw-semibold); color: var(--text-link); }
@@ -164,9 +178,10 @@ li[data-cur="1"] .etape i { background: var(--gold); }
 .app.narrow .col > * { max-width: none; }
 .app.narrow .coeur { padding: var(--space-6) var(--space-4); }
 .app.narrow .colhead { padding-left: var(--space-4); padding-right: var(--space-4); }
-.app.narrow .row, .app.narrow .etape, .app.narrow .groupe, .app.narrow .groupe.fold, .app.narrow .vide, .app.narrow .bphrase, .app.narrow .assets, .app.narrow .working, .app.narrow .form, .app.narrow .bodyc, .app.narrow .journal, .app.narrow .take, .app.narrow .serie, .app.narrow .machine { padding-left: var(--space-4); padding-right: var(--space-4); }
+.app.narrow .row, .app.narrow .etape, .app.narrow .groupe, .app.narrow .groupe.fold, .app.narrow .vide, .app.narrow .bphrase, .app.narrow .assets, .app.narrow .working, .app.narrow .form, .app.narrow .bodyc, .app.narrow .journal, .app.narrow .take, .app.narrow .serie, .app.narrow .machine, .app.narrow .bloc { padding-left: var(--space-4); padding-right: var(--space-4); }
 .app.narrow .pieces { margin: 0; width: 100%; }
 .app.narrow .coeur-in .working { padding-left: 0; padding-right: 0; }
+.app.narrow .toasts { right: var(--space-4); bottom: var(--space-4); width: calc(100vw - 2 * var(--space-4)); }
 .app.narrow .autres { margin-left: var(--space-4); margin-right: var(--space-4); }
 
 /* the brief: one sentence, the pieces are corrected */
