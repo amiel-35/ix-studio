@@ -1028,12 +1028,12 @@
       onClick: () => ctx.openTask(t, false, col), "aria-label": taskTitle(t) + (place ? ", " + taskPlace(t) : "") + (when ? ", " + when : "") },
       h("span", { className: "t" }, taskTitle(t)), meta && h("span", { className: "m" }, meta));
   }
-  /* what waits across the studio, without the wall: the next task of each project and of each brand (the oldest), the others behind "et n autres" */
-  function nextPerOwner(tasks) {
+  /* what waits across the studio, by owner: each brand and each project with all its tasks, the oldest first, in the order they first appear */
+  function byOwner(tasks) {
     const groups = [];
     tasks.forEach((t) => {
       const key = owner(t), g = groups.find((x) => x.key === key);
-      if (g) g.rest.push(t); else groups.push({ key, first: t, rest: [] });
+      if (g) g.tasks.push(t); else groups.push({ key, name: taskPlace(t), tasks: [t] });
     });
     return groups;
   }
@@ -1042,7 +1042,7 @@
     : sel.brand ? tasks.filter((t) => t.scope === "brand" && t.brand === sel.brand) : tasks;
 
   /* ---------- what waits: the column the counter of a head opens (studio, brand or project), task lines, never rows of a list (rule 5).
-     For the studio, the next task of each brand and project, the others behind "et n autres" ---------- */
+     For the studio, every task, under a small heading per brand or project ---------- */
   function WaitingCol({ ctx, col }) {
     const { sel } = ctx, tasks = waitingAt(ctx.data.tasks, sel);
     const sort = sel.project ? "Projet" : sel.brand ? "Marque" : "Studio créatif";
@@ -1051,9 +1051,7 @@
       h(ColHead, { sort, title: "Ce qui t'attend", sub }),
       tasks.length === 0 ? h("p", { className: "vide" }, "Rien ne t'attend ici pour l'instant.")
         : h("div", { className: "liste", "aria-label": "Ce qui t'attend" }, sel.brand ? tasks.map((t) => h(TaskLine, { key: t.id, ctx, col, t, place: false }))
-          : nextPerOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(TaskLine, { ctx, col, t: g.first, place: true }),
-            g.rest.length > 0 && h("button", { type: "button", className: "linkbtn small autres", onClick: () => (g.first.scope === "brand" ? ctx.selectBrand(g.first.brand) : ctx.selectProject(g.first.project, null, g.first.brand)),
-              "aria-label": plural(g.rest.length, "autre tâche", "autres tâches") + " pour " + (g.first.scope === "brand" ? g.first.brand_name : g.first.project_name) + " : ouvrir" }, "et " + plural(g.rest.length, "autre", "autres"))))));
+          : byOwner(tasks).map((g) => h("div", { key: g.key, className: "owner" }, h(Where, null, g.name), g.tasks.map((t) => h(TaskLine, { key: t.id, ctx, col, t, place: false }))))));
   }
 
   /* ---------- 1. the studio: its counter of what waits everywhere, the brands, the judge, the settings ---------- */
@@ -2236,6 +2234,7 @@
       (cmdsRef.current || []).forEach((c) => cmds.push({ ...c, group: "Cette tâche" }));
       if (dive) cmds.push({ id: "cols", group: "Aller", label: "Revenir aux colonnes", hint: "Échap", run: back });
       cmds.push({ id: "studio", group: "Aller", label: "Le studio", run: selectStudio });
+      if (data.tasks.length) cmds.push({ id: "waiting", group: "Aller", label: "Ce qui t'attend", hint: plural(data.tasks.length, "tâche", "tâches"), run: () => selectWaiting("studio") });
       data.tasks.forEach((t) => cmds.push({ id: "task:" + t.id, group: "Ouvrir une tâche", label: taskTitle(t), hint: taskPlace(t), run: () => openTask(t) }));
       data.brands.forEach((b) => cmds.push({ id: "brand:" + b.id, group: "Aller à une marque", label: b.name, run: () => selectBrand(b.id) }));
       data.brands.forEach((b) => b.projects.forEach((p) => cmds.push({ id: "project:" + p.id, group: "Aller à un projet", label: p.name, hint: b.name, run: () => selectProject(p.id, null, b.id) })));
@@ -2249,9 +2248,16 @@
         const mine = data.tasks.filter((t) => t.scope === "project" && t.project === sel.project);
         if (mine.some((t) => t.kind === "prompt")) cmds.push({ id: "draw-all", group: "Ce projet", label: "Dessiner toutes les images", run: () => act(() => drawAll(sel.project), "Le studio lance toutes les images.") });
         if (mine.filter((t) => t.kind === "compose").length > 1) cmds.push({ id: "compose-all", group: "Ce projet", label: "Composer tout", run: () => act(() => composeAll(sel.project), "Le studio compose les pièces, une par une.") });
+        if (mine.length) cmds.push({ id: "waiting-project", group: "Ce projet", label: "Ce qui t'attend", hint: plural(mine.length, "tâche", "tâches"), run: () => selectWaiting("project") });
+        /* its pieces, when their row exists: the series once there are pieces, the texts and the film once the brief is done (rank past step 2) */
+        const line = ((data.brands.find((b) => b.id === sel.brand) || {}).projects || []).find((p) => p.id === sel.project) || {};
+        const briefDone = line.done || line.rank > 2;
+        MADE.filter(([k]) => (k === "series" ? projectInfo(sel.project).pieces > 0 : briefDone)).forEach(([k, name]) => cmds.push({ id: "made:" + k, group: "Ce projet", label: name, run: () => selectMade(k) }));
         cmds.push({ id: "journal", group: "Ce projet", label: "Voir le journal des décisions", run: showJournal });
         cmds.push({ id: "edit-project", group: "Ce projet", label: "Modifier le projet", run: editProject });
       }
+      const bt = sel.brand ? waitingAt(data.tasks, { brand: sel.brand }).length : 0;
+      if (bt) cmds.push({ id: "waiting-brand", group: "Cette marque", label: "Ce qui t'attend", hint: plural(bt, "tâche", "tâches"), run: () => selectWaiting("brand") });
       if (sel.brand) cmds.push({ id: "identity", group: "Cette marque", label: "Identité et assets", run: selectIdentity });
       if (sel.brand) cmds.push({ id: "edit-brand", group: "Cette marque", label: "Modifier la marque", run: editBrand });
     }

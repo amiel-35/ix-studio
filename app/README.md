@@ -10,8 +10,8 @@ lacks at the top, the brands and the judge in the middle, the settings at the bo
 its identity and assets, or a project (its seven steps, then its pieces: "Série", "Textes", "Film") / the detail of a step already done, or of
 steps 5 to 7 as soon as they have begun ("x sur y pièces"), or one of the pieces: the series as thumbnails, the texts, the film, a column each.
 What waits at a level (the studio, a brand, a project) is a counter in the head of its column, beside the name: a button that opens the
-column "Ce qui t'attend" on the right, the tasks as lines (for the studio, the next one of each brand and project, "et n autres" behind);
-no counter when nothing waits. What is
+column "Ce qui t'attend" on the right, the tasks as lines (for the studio, all of them, under a small heading per brand or project);
+no counter when nothing waits, but it stays, at 0, while its column is open and nothing waits any more: it carries the selection. What is
 selected fades towards the left and grows stronger towards the right: the deepest column is where you are. Every column has its "+"
 (a brand, a project, a piece to judge) and its "Modifier". One rule: a row opens a column on its right, nothing unfolds under it.
 Any column but the deepest folds into a thin strip that keeps its name, by hand (its "‹" in the top corner) or when the columns do
