@@ -11,9 +11,11 @@ selected fades towards the left and grows stronger towards the right: the deepes
 (a brand, a project, a piece to judge) and its "Modifier". One rule: a row opens a column on its right, nothing unfolds under it.
 Any column but the deepest folds into a thin strip that keeps its name, by hand (its "‹" in the top corner) or when the columns do
 not fit side by side; a click on a strip unfolds that column alone, and what was folded or unfolded by hand is kept in the browser.
-When room runs out, the columns nobody unfolded fold first, from the left. What is changed and not saved yet (names, personas, competitors, files, research, logos, texts, the film, a form) is never lost
-in silence: a gesture that would take it off the screen asks first ("Rester", the default, or "Quitter sans enregistrer"), the
-forms' own "Annuler" do not ask, and closing or reloading the tab gets the browser's own question. A task is the core: the columns are strips beside it, a
+When room runs out, the columns nobody unfolded fold first, from the left. What is changed and not saved yet (names, personas, competitors, files, research, logos, texts, the film, a form, the settings,
+and in a task its brief, instructions, prompt, words or comment) is never lost by a gesture in silence: a gesture that would take it
+off the screen asks first ("Rester", the default, or "Quitter sans enregistrer"); what the gesture itself saved does not count, the
+forms' own "Annuler" do not ask, and closing or reloading the tab gets the browser's own question. Resizing the window is not a
+gesture: a column it folds loses what it held. A task is the core: the columns are strips beside it, a
 strip opens its column next to the task, and "Revenir aux colonnes", Escape or the left arrow bring them back. Keyboard: up and down
 in a column, right to go deeper, left or Escape to come back, Cmd/Ctrl+K for the palette, which reaches everything. Under 760 px,
 one column at a time, with a way back. A page opened before the interface changed on disk says so and offers to reload (`build` in

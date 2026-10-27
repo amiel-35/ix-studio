@@ -19,12 +19,14 @@
   const Callout = (props) => h("div", { className: "alerte" }, h(DS.Callout, props));
   const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
-  /* what a part of a column holds and has not saved yet: it says so at each render, under the column it lives in (`kind`) and the
-     brand or project of that column (`id`); the studio asks before a gesture that would take it off the screen */
+  /* what a part holds and has not saved yet: it says so at each render, under the column it lives in (`kind`, or "core" for the task
+     opened) and the brand or project of that column (`id`); the studio asks before a gesture that would take it off the screen. The
+     answer, `clean`, is for a part that saved and moves on in the same gesture: it is clean before its next render says so */
   function useDirty(ctx, kind, id, label, on) {
     const key = useRef({}).current;
     ctx.dirty.current.set(key, { kind, id: id || null, label, on: !!on });
     useEffect(() => () => { ctx.dirty.current.delete(key); }, []);
+    return () => { const e = ctx.dirty.current.get(key); if (e) e.on = false; };
   }
 
   /* ---------- small helpers ---------- */
@@ -394,6 +396,7 @@
         if (b.done && b.needs.includes("colours") && !b.needs.includes("logo")) setOpen("colours"); // the one thing missing: the pickers are open
       }).catch(ctx.fail);
     }, [bid]);
+    useDirty(ctx, "core", null, "le brief de la marque", data && fields && (palette !== null || Object.keys(fields).some((k) => fields[k] !== (data.fields[k].value || ""))));
     useEscapeClose(ctx, open, setOpen);
     useCmds(ctx, []);
     if (!fields) return h("div", { className: "task" }, h(Wait, { text: "Chargement du brief de la marque." }));
@@ -450,6 +453,7 @@
   function NeedLogo({ ctx, bid, name }) {
     const [site, setSite] = useState("");
     useCmds(ctx, []);
+    useDirty(ctx, "core", null, "le site", site.trim());
     const read = () => ctx.act(async (snap) => {
       await api.updateBrand(bid, { site: site.trim() });
       await api.discover(bid);
@@ -515,6 +519,7 @@
   function Interview({ ctx, pid, iv, onAsked }) {
     const [open, setOpen] = useState(false);
     const [answers, setAnswers] = useState([]);
+    useDirty(ctx, "core", null, "tes réponses", answers.some((a) => (a || "").trim()));
     if (!iv) return null;
     const said = answers.some((a) => (a || "").trim());
     const send = () => ctx.act(async () => {
@@ -542,6 +547,7 @@
     const [open, setOpen] = useState(null);
     const [extra, setExtra] = useState(false);
     useEffect(() => { api.brief(pid).then((b) => { setData(b); setFields(b.fields); }).catch(ctx.fail); }, [pid]);
+    useDirty(ctx, "core", null, "le brief", data && fields && fields !== data.fields);
     const iv = useLive(ctx, () => api.interview(pid), pid);
     const [asked, setAsked] = useState(0); // the person just answered the questions (1); the studio is writing (2); when it is done, its brief opens in this form
     const [filled, setFilled] = useState(null); // what the interview left empty, to say it
@@ -620,9 +626,10 @@
 
   /* ================= 4. the instructions to the agents ================= */
   function Mandates({ ctx, pid }) {
-    const [m, setM] = useState(null);
+    const [m, setM] = useState(null), [base, setBase] = useState(null); // `base`: the instructions as they came, to know they were changed
     const [edit, setEdit] = useState(false);
-    useEffect(() => { api.mandates(pid).then(setM).catch(ctx.fail); }, [pid]);
+    useEffect(() => { api.mandates(pid).then((x) => { setM(x); setBase(x); }).catch(ctx.fail); }, [pid]);
+    useDirty(ctx, "core", null, "les consignes", m !== base);
     useCmds(ctx, m ? [{ id: "edit", label: edit ? "Arrêter de corriger les consignes" : "Corriger les consignes", run: () => setEdit(!edit) }] : []);
     if (!m) return h("div", { className: "task" }, h(Wait, null));
     const setItem = (id, v) => setM({ ...m, items: m.items.map((x) => (x.id === id ? { ...x, mandate: v } : x)) });
@@ -786,6 +793,7 @@
     const [edit, setEdit] = useState(false);
     useEffect(() => { Promise.all([api.piece(pid, id), api.project(pid)]).then(([pc, p]) => { setSt({ pc, p }); setPrompt(pc.prompt); setWords({ headline: pc.headline, subline: pc.subline || "" }); }).catch(ctx.fail); }, [pid, id]);
     useCmds(ctx, st ? [{ id: "words", label: edit ? "Fermer la correction du titre" : "Corriger le titre et la sous-ligne", run: () => setEdit(!edit) }] : []);
+    useDirty(ctx, "core", null, "le prompt et le titre", st && prompt !== null && words && (prompt !== st.pc.prompt || words.headline.trim() !== st.pc.headline || words.subline.trim() !== (st.pc.subline || "")));
     if (!st || prompt === null || !words) return h("div", { className: "task" }, h(Wait, null));
     const { pc, p } = st;
     const wordsChanged = words.headline.trim() !== pc.headline || words.subline.trim() !== (pc.subline || "");
@@ -822,6 +830,7 @@
     const [redo, setRedo] = useState(false);
     const [prompt, setPrompt] = useState("");
     useEffect(() => { if (pc) setPrompt(pc.prompt); }, [pc && pc.id]);
+    useDirty(ctx, "core", null, "le nouveau prompt", redo && pc && prompt !== pc.prompt);
     useCmds(ctx, pc ? [{ id: "redo", label: "Refaire l'image de " + pc.label, run: () => setRedo(true) }] : []);
     if (!pc) return h("div", { className: "task" }, h(Wait, null));
     const compose = () => ctx.act(async (snap) => {
@@ -857,6 +866,7 @@
     const [notes, setNotes] = useState(false);
     const [back, setBack] = useState(false);
     const [words, setWords] = useState("");
+    useDirty(ctx, "core", null, "ton commentaire", words.trim());
     const send = (verdict) => ctx.act(async (snap) => {
       await api.decide(pid, id, verdict, words);
       ctx.log(pid, "toi", (verdict === "keep" ? "Gardée : " : "Renvoyée : ") + pc.label, words.trim() || "Sans commentaire");
@@ -1603,13 +1613,13 @@
   /* ---------- the "+" and "Modifier" forms, in the column to the right of the one that holds them ---------- */
   function NewBrandForm({ ctx }) {
     const [name, setName] = useState(""), [site, setSite] = useState("");
-    useDirty(ctx, "newBrand", null, "la nouvelle marque", name.trim() || site.trim());
+    const clean = useDirty(ctx, "newBrand", null, "la nouvelle marque", name.trim() || site.trim());
     const create = (e) => {
       e.preventDefault();
       ctx.act(async () => {
         const b = await api.createBrand(name.trim(), site.trim() || undefined);
         ctx.log("@" + b.id, "toi", "Marque créée : " + b.name, b.site ? "Le studio lit " + host(b.site) : "Sans site");
-        await ctx.refresh(); ctx.touch();
+        await ctx.refresh(); ctx.touch(); clean();
         ctx.selectBrand(b.id, b.site ? b.name + " est créée : le studio lit son site." : b.name + " est créée. Son brief l'attend.");
       });
     };
@@ -1626,7 +1636,7 @@
     const b = useLive(ctx, () => api.getBrand(bid), "edit|" + bid);
     const [f, setF] = useState(null);
     useEffect(() => { if (b && !f) setF({ name: b.name, site: b.site ? host(b.site) : "", description: b.description || "" }); }, [b]);
-    useDirty(ctx, "editBrand", bid, "la marque modifiée", b && f && (f.name !== b.name || f.site !== (b.site ? host(b.site) : "") || f.description !== (b.description || "")));
+    const clean = useDirty(ctx, "editBrand", bid, "la marque modifiée", b && f && (f.name !== b.name || f.site !== (b.site ? host(b.site) : "") || f.description !== (b.description || "")));
     if (!b || !f) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
     const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
     const save = (e) => {
@@ -1635,7 +1645,7 @@
         const siteChanged = (f.site.trim() ? host(f.site.trim()) : "") !== (b.site ? host(b.site) : "");
         await api.updateBrand(bid, { name: f.name.trim(), site: f.site.trim(), description: f.description });
         ctx.log("@" + bid, "toi", "Marque modifiée : " + f.name.trim(), "");
-        await ctx.refresh(); ctx.touch();
+        await ctx.refresh(); ctx.touch(); clean();
         // a new site is not read by itself: the notice offers it, so that nobody has to remember to come back to this form
         ctx.close(siteChanged && f.site.trim() ? { text: f.name.trim() + " est enregistrée. Son nouveau site n'est pas encore lu.", action: { label: "Relire le site", run: () => rereadSite(f.name.trim()) } } : f.name.trim() + " est enregistrée.");
       });
@@ -1658,14 +1668,14 @@
   function NewProjectForm({ ctx, bid }) {
     const b = useLive(ctx, () => api.getBrand(bid), "np|" + bid);
     const [name, setName] = useState(""), [from, setFrom] = useState("");
-    useDirty(ctx, "newProject", bid, "le nouveau projet", name.trim());
+    const clean = useDirty(ctx, "newProject", bid, "le nouveau projet", name.trim());
     if (!b) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
     const create = (e) => {
       e.preventDefault();
       ctx.act(async () => {
         const p = await api.createProjectIn(bid, name.trim(), from || undefined);
         ctx.log(p.id, "toi", from ? "Déclinaison créée : " + p.name : "Projet créé : " + p.name, from ? "Reprend le brief de l'original" : "");
-        await ctx.refresh(); ctx.touch();
+        await ctx.refresh(); ctx.touch(); clean();
         ctx.selectProject(p.id, "Projet créé : " + p.name + (p.brand_stage !== "ready" ? ". Il attend sa marque." : "."), bid);
       });
     };
@@ -1683,11 +1693,11 @@
     const p = useLive(ctx, () => api.project(pid), "ep|" + pid);
     const [name, setName] = useState(null);
     useEffect(() => { if (p && name === null) setName(p.name); }, [p]);
-    useDirty(ctx, "editProject", pid, "le projet renommé", p && name !== null && name !== p.name);
+    const clean = useDirty(ctx, "editProject", pid, "le projet renommé", p && name !== null && name !== p.name);
     if (!p || name === null) return h("div", { className: "colhead" }, h("p", { className: "vide" }, "Un instant."));
     const save = (e) => {
       e.preventDefault();
-      ctx.act(async () => { await api.updateProject(pid, { name: name.trim() }); ctx.log(pid, "toi", "Projet renommé : " + name.trim(), ""); await ctx.refresh(); ctx.touch(); ctx.closeDetail(name.trim() + " est enregistré."); });
+      ctx.act(async () => { await api.updateProject(pid, { name: name.trim() }); ctx.log(pid, "toi", "Projet renommé : " + name.trim(), ""); await ctx.refresh(); ctx.touch(); clean(); ctx.closeDetail(name.trim() + " est enregistré."); });
     };
     return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Projet"), h("h2", { className: "titre" }, "Modifier " + p.name)),
       h("form", { className: "sec form", onSubmit: save },
@@ -1709,6 +1719,7 @@
   function Settings({ ctx }) {
     const [cfg, setCfg] = useState(null), [image, setImage] = useState(""), [text, setText] = useState(""), [model, setModel] = useState(""), [key, setKey] = useState("");
     const show = (c) => { setCfg(c); setImage(c.image_engine); setText(c.text_engine); setModel(c.openrouter_model); setKey(""); };
+    useDirty(ctx, "settings", null, "les réglages", cfg && (image !== cfg.image_engine || text !== cfg.text_engine || model !== (cfg.openrouter_model || "") || key.trim()));
     useEffect(() => { api.engines().then(show).catch(ctx.fail); }, []);
     const saveImage = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveEngine(image)); ctx.notify("Le moteur d'image est enregistré."); }); };
     const saveText = (e) => { e.preventDefault(); ctx.act(async () => { show(await api.saveTextEngine(text, key.trim() || undefined, model.trim() || undefined)); ctx.notify("Le moteur de texte est enregistré."); }); };
@@ -1740,7 +1751,7 @@
     const [brand, setBrand] = useState("");
     const input = useRef(null);
     useEscapeClose(ctx, open, setOpen);
-    useDirty(ctx, "newJudge", null, "la pièce à juger", file || Object.values(fields).some((v) => (Array.isArray(v) ? v.length : String(v).trim())));
+    const clean = useDirty(ctx, "newJudge", null, "la pièce à juger", file || Object.values(fields).some((v) => (Array.isArray(v) ? v.length : String(v).trim())));
     useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
     const pick = (ev) => {
       const f = ev.target.files && ev.target.files[0];
@@ -1760,7 +1771,7 @@
     const cur = JPARTS.find((p) => p.k === open);
     const launch = () => ctx.act(async () => {
       const jg = await api.judge(file, { brand: brand || null, brief: fields });
-      ctx.touch(); await ctx.refresh();
+      ctx.touch(); await ctx.refresh(); clean();
       ctx.selectJudgement(jg.id, "Le juge relit " + jg.name + ".");
     }, "Le studio envoie la pièce au juge.");
     return h(React.Fragment, null, h("div", { className: "colhead" }, h(Eyebrow, null, "Le juge"), h("h2", { className: "titre" }, "Juger une pièce")),
@@ -1875,7 +1886,7 @@
   /* before a gesture takes off the screen what is not saved: stay (the default, Escape) or leave without saving */
   function Leave({ what, onStay, onGo }) {
     const box = useRef(null), prev = useRef(document.activeElement);
-    useEffect(() => { box.current.querySelector("button").focus(); return () => { const p = prev.current; if (p && p.isConnected && p.focus) p.focus(); }; }, []);
+    useEffect(() => { box.current.querySelector("button").focus(); return () => { const p = prev.current; if (p && p.isConnected && p.focus) p.focus(); else { const m = document.getElementById("main"); if (m) m.focus(); } }; }, []);
     const key = (ev) => {
       if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); onStay(); }
       else if (ev.key === "Tab") { const b = [...ev.currentTarget.querySelectorAll("button")]; const i = b.indexOf(document.activeElement); ev.preventDefault(); b[(i + (ev.shiftKey ? -1 : 1) + b.length) % b.length].focus(); }
@@ -1971,7 +1982,7 @@
     const [ask, setAsk] = useState(null); // { what, go }: a gesture waits for the person to leave what is not saved
     const narrow = useNarrow();
     const width = useWidth();
-    const dirty = useRef(new Map()), acting = useRef(0), leaving = useRef(false), foldsRef = useRef(folds), widthRef = useRef(width), narrowRef = useRef(narrow);
+    const dirty = useRef(new Map()), leaving = useRef(false), foldsRef = useRef(folds), widthRef = useRef(width), narrowRef = useRef(narrow);
     foldsRef.current = folds; widthRef.current = width; narrowRef.current = narrow;
     const tasksRef = useRef([]), skew = useRef(0), prevJobs = useRef([]), digest = useRef(""), cmdsRef = useRef([]), overlayRef = useRef(false), arrowsRef = useRef(false), backTo = useRef(null);
     const selRef = useRef(sel), diveRef = useRef(dive), opened = useRef(0);
@@ -1985,19 +1996,22 @@
     const fail = useCallback((e) => setError(e && e.message ? e.message : String(e)), []);
 
     /* ----- what is not saved: a gesture that would take it off the screen asks first. The columns on the screen after a change are
-       computed as the layout does; going from the columns to a task or back mounts everything anew. Not asked: a gesture made inside
-       an action (it saved, then moves on), and an explicit abandon (`leave`, the forms' own "Annuler") ----- */
+       computed as the layout does; going from the columns to a task or back mounts everything anew, and the core of a task lives as long
+       as that task. Not asked: what the gesture itself saved (a form `clean`s itself, an answer spares the core it answered), and an
+       explicit abandon (`leave`, the forms' own "Annuler") ----- */
     const shownOf = (st) => {
       const cols = columnsOf(st.sel);
       if (narrowRef.current) return st.dive ? [] : [cols[cols.length - 1]];
       const plan = st.dive ? foldPlan(cols, widthRef.current - CORE_MIN, besideOf(cols, st.folds.beside), -1) : foldPlan(cols, widthRef.current, st.folds, cols.length - 1);
       return cols.filter((k, i) => !plan[i]);
     };
-    const guard = useCallback((change, go) => {
-      if (acting.current || leaving.current) return go();
+    const guard = useCallback((change, go, spare) => {
+      if (leaving.current) return go();
       const cur = { sel: selRef.current, dive: diveRef.current, folds: foldsRef.current }, next = { ...cur, ...change };
       const shown = shownOf(next);
-      const lost = [...dirty.current.values()].filter((d) => d.on && !(!cur.dive === !next.dive && shown.includes(d.kind) && (!KEY_OF[d.kind] || next.sel[KEY_OF[d.kind]] === d.id)));
+      const stays = (d) => d.kind === "core" ? !!next.dive && next.dive === cur.dive
+        : !cur.dive === !next.dive && shown.includes(d.kind) && (!KEY_OF[d.kind] || next.sel[KEY_OF[d.kind]] === d.id);
+      const lost = [...dirty.current.values()].filter((d) => d.on && !(spare && spare(d)) && !stays(d));
       if (!lost.length) return go();
       setAsk({ what: [...new Set(lost.map((d) => d.label))], go });
     }, []);
@@ -2068,14 +2082,14 @@
     const popTo = useCallback((n) => guard({ sel: popped(selRef.current, n) }, () => { setNotice(null); setSel((s) => popped(s, n)); }), [guard]);
 
     /* ----- diving into a task, and coming back ----- */
-    const openTask = useCallback((t, keepNotice, col) => guard({ sel: { ...EMPTY, brand: t.brand || selRef.current.brand, project: t.project || null, task: t.id }, dive: t }, () => {
+    const openTask = useCallback((t, keepNotice, col, spare) => guard({ sel: { ...EMPTY, brand: t.brand || selRef.current.brand, project: t.project || null, task: t.id }, dive: t }, () => {
       if (!keepNotice) setNotice(null);
       setError(null);
       backTo.current = { id: t.id, col };
       setSel((s) => ({ ...EMPTY, brand: t.brand || s.brand, project: t.project || null, task: t.id }));
       setDive({ ...t, _k: ++opened.current }); // a new key each time: the same task opened again (a sibling that keeps its id) starts afresh
       window.scrollTo(0, 0);
-    }), [guard]);
+    }, spare), [guard]);
     const back = useCallback(() => guard({ dive: null }, () => setDive(null)), [guard]);
 
     /* an action runs under `busy`; `snap` is the set of tasks before it, to know which ones are new afterwards */
@@ -2084,8 +2098,7 @@
       setBusy(true); setError(null);
       const s = snap();
       const timer = setTimeout(() => setWait(word || "Un instant."), 1000); // a gesture that takes more than a second says so
-      acting.current += 1;
-      try { return await fn(s); } catch (e) { fail(e); } finally { acting.current -= 1; clearTimeout(timer); setWait(null); setBusy(false); }
+      try { return await fn(s); } catch (e) { fail(e); } finally { clearTimeout(timer); setWait(null); setBusy(false); }
     }, [fail, snap]);
 
     /* an answer settles a task: on to the next one of the same owner if it follows, else back to the columns, with one line that says what was done.
@@ -2097,9 +2110,11 @@
       const mine = r ? r.tasks.filter((t) => (isBrand ? t.scope === "brand" && t.brand === key : t.scope === "project" && t.project === key)) : [];
       const isNew = (t) => !before.has(t.id);
       const next = (o.prefer && mine.find((t) => isNew(t) && o.prefer(t))) || (o.any !== false && mine.find(isNew)) || (o.sibling && mine.find(o.sibling)) || null;
-      setNotice(text);
-      if (next) openTask(next, true); else { setSel((s) => ({ ...s, task: null })); setDive(null); }
-    }, [refresh, openTask, snap]);
+      const answeredCore = (d) => d.kind === "core"; // what the task held is what was just answered
+      if (next) openTask(next, true, undefined, answeredCore);
+      else guard({ sel: { ...selRef.current, task: null }, dive: null }, () => { setNotice(text); setSel((s) => ({ ...s, task: null })); setDive(null); }, answeredCore);
+      if (next) setNotice(text);
+    }, [refresh, openTask, snap, guard]);
 
     /* acting on the whole series: every missing image, every piece ready to compose. Inside a task (`core`), the next one opens; from a column, a line says it */
     const composeAll = useCallback(async (pid, snap, core) => {
@@ -2167,6 +2182,7 @@
     /* ----- the keyboard: up and down in a column, right to go deeper, left or Escape to come back ----- */
     const focusIn = useCallback((col, last, label) => {
       const go = (n) => {
+        if (overlayRef.current) return; // a question is asked (leave without saving?): the focus stays on it
         const c = document.querySelector('.col[data-col="' + col + '"]');
         const rows = c ? [...c.querySelectorAll("button[data-col]")] : [];
         const el = last ? rows.find((r) => label ? r.getAttribute("aria-label") === label : r.getAttribute("aria-current") === "true") || rows.find((r) => r.getAttribute("aria-current") === "true") || rows[0] : rows[0];
@@ -2239,7 +2255,7 @@
     const node = (kind) => kind === "studio" ? h(StudioCol, { ctx }) : kind === "newBrand" ? h(NewBrandForm, { ctx })
       : kind === "settings" ? h(Settings, { ctx }) : kind === "judges" ? h(JudgesCol, { ctx }) : kind === "newJudge" ? h(JudgeForm, { ctx }) : kind === "judgement" ? h(JudgementCol, { ctx, jid: sel.judgement, key: sel.judgement })
       : kind === "brand" ? h(BrandCol, { ctx, bid: sel.brand, key: sel.brand }) : kind === "identity" ? h(IdentityCol, { ctx, bid: sel.brand, key: sel.brand })
-      : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand })
+      : kind === "editBrand" ? h(EditBrandForm, { ctx, bid: sel.brand, key: sel.brand }) : kind === "newProject" ? h(NewProjectForm, { ctx, bid: sel.brand, key: sel.brand })
       : kind === "project" ? h(ProjectCol, { ctx, pid: sel.project, key: sel.project })
       : kind === "step" ? h(StepDetail, { ctx, pid: sel.project, step: sel.detail.key, key: sel.project + sel.detail.key })
       : kind === "journal" ? h(JournalCol, { ctx, pid: sel.project }) : h(EditProjectForm, { ctx, pid: sel.project, key: sel.project });
