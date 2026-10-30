@@ -40,6 +40,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Fonts
+
+**Fraunces**, SIL Open Font License 1.1, Copyright 2020 The Fraunces Project Authors, https://github.com/undercasetype/Fraunces
+
+- `examples/marrowbay/brand/assets/marrowbay-wordmark.svg` and `marrowbay-wordmark-reversed.svg` embed the Latin 600
+  subset of Fraunces (a WOFF2 inside the SVG) to set the name of the fictional brand. The licence is at
+  https://openfontlicense.org.
+
 ## Formats and ideas
 
 **brand-intake**, from motion-graphics-skills by Charlie, MIT License,
